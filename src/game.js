@@ -89,7 +89,7 @@ export class Game {
       if (this.state === 'menu' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(F\d+|Tab|Escape|Shift.*|Control.*|Alt.*|Meta.*|CapsLock)$/.test(e.code)) this.begin();
       if (e.code === 'KeyR' && this.state !== 'playing' && this.state !== 'menu') this.restart();
     };
-    this.hud.el.play.addEventListener('click', (e) => { this.begin(); if (e.shiftKey && !this.daily) { this.daily = true; this.saveSettings(); this.restart(dailySeed()); } });
+    this.hud.el.play.addEventListener('click', (e) => { this.begin(); if (e.shiftKey && !this.daily) { this.daily = true; this.saveSettings(); this.restart(); } });
     this.hud.el.opts.addEventListener('click', (e) => {
       e.stopPropagation();                                    // chips must not count as "click to resume"
       const b = e.target.closest('button'); if (!b) return;
@@ -462,7 +462,8 @@ void main(){
     if (o.shake > 0.01) { const sk = o.shake * o.shake * 0.5 * k; this.camera.position.x += (Math.random() - 0.5) * sk; this.camera.position.y += (Math.random() - 0.5) * sk; this.camera.position.z += (Math.random() - 0.5) * sk; }
     setFade(this.camera.position, _fadeT.set(tx, ty, tz), k);
     if (o.thump > 0.01) this.camera.position.y -= o.thump * 0.35 * k * (Math.sin(performance.now() * 0.06) > 0 ? 1 : 0.4);   // footsteps of something big nearby jolt the view
-    this.camera.lookAt(tx, ty + 0.2 * k, tz);
+    if (this.debugCam) { const d = this.debugCam; this.camera.position.set(d.x, d.y, d.z); this.camera.lookAt(d.lx, d.ly, d.lz); }       // dev screenshots only (G.setDebugCam)
+    else this.camera.lookAt(tx, ty + 0.2 * k, tz);
     this.sky.position.copy(this.camera.position);
     // sun & shadow follow the octopus
     const L = this.atmo.lightDir; this.sun.position.set(tx + L.x * 120, ty + L.y * 120, tz + L.z * 120);

@@ -4,8 +4,10 @@
 //  Layout idea (inland -> coast, along the secret sea direction `dir`):
 //     suburb / town  ->  farm  ->  bushland (eucalypt)  ->  coast
 //  with a creek (riverbank) winding through to the estuary, and the coast itself changing
-//  along the shoreline in randomly ordered stretches:
-//     beach (with dunes behind)  |  mangrove wetland  |  rocky headland  |  estuary (river mouth + jetty)
+//  along the shoreline in a fixed, natural order (headland > beach > estuary > mangroves, repeating):
+//     rocky headland  |  beach (with dunes behind)  |  estuary (river mouth + jetty)  |  mangrove wetland
+//  The same fixed world for everyone (CONFIG.worldSeed): inland the regions are a warped patchwork
+//  (hamlets in the farmland, farm clearings in the bush, ...) so one place hands over to the next.
 //  Everything is a smooth blend of weights, so borders are soft (and never a hard seam).
 // =====================================================================
 import { smoothstep as ss, clamp } from '../util/rng.js';

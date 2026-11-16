@@ -1,7 +1,7 @@
 # Status
 
 ## Done
-* Core: random sea direction, drying, camouflage, minimal UI, mouse-look, Play-only start screen.
+* Core: (originally a random world per game; see t239u) sea direction, drying, camouflage, minimal UI, mouse-look, Play-only start screen.
 * t222u enhancements: day/night, weather, tides, sea hints, abilities (squeeze, hide, ink, venom, climb), predator personalities (gull calls, dog scent tracking, cat stalk, magpie/kookaburra swoops, cars, bucket people, search of last-known spot), hidden shell toughening, baby rescues, sea not ending the game, spatial audio, droplets, footprints, camera shake, gamepad, daily seed + difficulty (pause menu).
 * t224u: 1600 m world (4x area), 11 biomes, chunked renderer.
 * t225u: real-scale perspective (octopus 0.42, low camera, big predators/props, occluder fade, ground thumps, bird shadows).
@@ -9,6 +9,7 @@
 * t227u: no markers above animals; body language only.
 * t230u-t234u: trees connected + puddles in real dips (audited), tentacle-with-suckers wet trail, no cicadas, quieter occasional squelch, pause-screen controls list, interactive flowers, real shell models, discoverable baby octopuses, endless procedural land with no map edge (see DESIGN.md).
 * t236u-t238u: Tab satchel (gather 14 small things by touch, craft 8 items, octopus-flavoured effects, paused panel in pictograms only), gatherable placement audited with everything else, autosave to localStorage with a versioned/validated schema, transfer codes (Copy / Paste on the pause menu).
+* t239u: ONE fixed world (`CONFIG.worldSeed`) with all 11 biomes laid out as a warped region map and natural neighbours, ecotone blends (ground, grass, trees, rocks, props), a random START POINT per new game (`?daily` = daily start; `?seed=` debug only), 19 gatherable kinds distributed per biome (`HABITAT` in `world/gather.js`), 14 recipes mixing biomes, save schema v2 with v1 migration. Tools: `scripts/biomemap.mjs` (top-down biome map), `G.findEcotone` / `G.overviewEcotone` debug camera.
 
 ## Pending / ideas
 * Playtesting on real hardware (feel, balance, fps on laptops/phones).

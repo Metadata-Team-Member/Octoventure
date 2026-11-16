@@ -1,5 +1,6 @@
 import { SPECIES } from './entities/predators.js';
 import { dailySeed } from './util/daily.js';
+import { BIOMES } from './world/biomes.js';
 // window.__game: handy hooks for tests and for tinkering from the browser console.
 import { TERRAIN, CONFIG } from './config.js';
 
@@ -63,6 +64,40 @@ export function installDebugHooks(game) {
     begin() { game.begin(); },
     restart() { game.restart(); },
     teleport(x, z) { const o = game.octopus; o.x = x; o.z = z; o.y = game.world.heightAt(x, z); game.camInit = false; game.view.flushAround(x, z, 170); },
+    /** a spot inside the blend between two biomes (both weights near 0.5). Returns {x, z, dx, dz} (dx,dz: unit vector pointing from a-land to b-land) or null. */
+    findEcotone(a, b, nth = 0) {
+      const w = game.world, ia = BIOMES.indexOf(a), ib = BIOMES.indexOf(b), hits = [];
+      for (let x = -760; x <= 760; x += 12) for (let z = -760; z <= 760; z += 12) {
+        const q = w.biomes.weights(x, z);
+        if (q[ia] < 0.33 || q[ib] < 0.33 || Math.abs(q[ia] - q[ib]) > 0.12) continue;
+        if (b !== 'sea' && a !== 'sea' && (w.heightAt(x, z) < 0.3 || w._blocked(x, z, 2.5) || w.waterAt(x, z))) continue;
+        hits.push([x, z]);
+      }
+      if (!hits.length) return null;
+      const [x, z] = hits[Math.min(hits.length - 1, Math.floor(hits.length * (0.25 + 0.5 * ((nth * 0.37) % 1))))];
+      const f = (X, Z) => { const q = w.biomes.weights(X, Z); return q[ib] - q[ia]; };
+      let dx = f(x + 15, z) - f(x - 15, z), dz = f(x, z + 15) - f(x, z - 15); const n = Math.hypot(dx, dz) || 1; dx /= n; dz /= n;
+      return { x, z, dx, dz, count: hits.length };
+    },
+    /** stand on the a-side of a blend, looking across it towards the b-side (screenshots of one biome ending and the next starting) */
+    teleportToEcotone(a, b, back = 22, nth = 0) {
+      const e = this.findEcotone(a, b, nth); if (!e) return null;
+      this.teleport(e.x - e.dx * back, e.z - e.dz * back);
+      game.input.yaw = Math.atan2(-e.dx, -e.dz); game.octopus.heading = game.input.yaw + Math.PI; game.camInit = false;
+      return e;
+    },
+    setDebugCam(x, y, z, lx, ly, lz) { game.debugCam = { x, y, z, lx, ly, lz }; },
+    clearDebugCam() { game.debugCam = null; },
+    /** an elevated look across the blend between biome a and b (for screenshots): the octopus waits at the middle of it */
+    overviewEcotone(a, b, h = 38, back = 70, nth = 0) {
+      const e = this.findEcotone(a, b, nth); if (!e) return null;
+      this.teleport(e.x, e.z);
+      const w = game.world, gy = (x, z) => w.heightAt(x, z);
+      const cx = e.x - e.dx * back, cz = e.z - e.dz * back, ground = Math.max(gy(cx, cz), gy(e.x, e.z), 0.5);
+      game.camera.far = 900; game.camera.updateProjectionMatrix();
+      this.setDebugCam(cx, ground + h, cz, e.x + e.dx * 55, ground - 1, e.z + e.dz * 55);
+      return e;
+    },
     teleportToBiome(name) { const s = game.world.findBiomeSpot(name); if (!s) return false; this.teleport(s.x, s.z); return true; },
     get biome() { const o = game.octopus; return game.world.biomeAt(o.x, o.z); },
     biomeAt(x, z) { return game.world.biomeAt(x, z); },

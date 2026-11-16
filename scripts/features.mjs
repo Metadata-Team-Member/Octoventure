@@ -214,7 +214,9 @@ const uiBefore = await E(() => document.body.innerText.trim());
   // ...but cars can't be fooled
   const r = await E(() => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
-    G.teleportToRoad(); g.advance(0.2); o.armor = 0; o.health = 100; o.lastDamage = null;
+    // a stretch of east-west street that runs a good way either side (hamlets have short ones)
+    for (let i = 0; i < 6000; i++) { const sp = w.findBiomeSpot('town', 60, 1); if (!sp) continue; const l = g.cars.snapToRoad(sp.x, sp.z, true); if ([-14, -6, 0, 9, 14].every((d) => w.isRoad(sp.x + d, l.z))) { G.teleport(sp.x, l.z); break; } }
+    g.advance(0.2); o.armor = 0; o.health = 100; o.lastDamage = null;
     const car = G.cars[0]; let camo = false;
     for (let attempt = 0; attempt < 4 && o.lastDamage !== 'car'; attempt++) {
       const ln = g.cars.snapToRoad(o.x, o.z, true);              // the road's centre line, then the car's lane on it
@@ -371,11 +373,10 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(resumed === true, 'paused state holds until Start is pressed again');
 }
 
-// ================================================================ pause-menu chips: difficulty, daily seed, new world
+// ================================================================ pause-menu chips: difficulty, daily start, new start
 {
   // like pressing Esc: release the pointer lock (a locked pointer can't click) and show the pause overlay
   const pauseMenu = async () => { await E(() => { const G = window.__game; document.exitPointerLock?.(); G.game.setPaused(true); }); await new Promise((r) => setTimeout(r, 400)); await E(() => { if (!window.__game.paused) window.__game.game.setPaused(true); }); };
-  const waitWorld = (prev) => page.waitForFunction((p) => window.__game.game.world.seed !== p || false, { timeout: 60000 }, prev);
   await pauseMenu();
   const vis = await E(() => [...document.querySelectorAll('#opts button')].map((b) => b.innerText.trim()).join('|'));
   ok(vis === 'Gentle|Normal|Harsh|Daily|New start|Copy code|Paste code', `pause menu: Resume plus tiny chips (${vis})`);
@@ -384,19 +385,22 @@ const uiBefore = await E(() => document.body.innerText.trim());
   const dmg = await E(() => { const G = window.__game; return { d: G.game.hud && G.difficulty, cfg: G.difficultyName }; });
   ok(dmg.cfg === 'harsh', `difficulty applied live (${dmg.cfg})`);
   await page.click('[data-diff="normal"]');
-  const s0 = await E(() => window.__game.game.world.seed);
-  await page.click('#chip-daily'); await waitWorld(s0);
-  const s1 = await E(() => window.__game.game.world.seed);
-  const daily = await E(() => window.__game.dailySeed);
-  ok(s1 === daily, `Daily chip loads today's Perth seed (${s1})`);
-  ok(await E(() => !window.__game.paused && window.__game.game.state === 'playing'), 'new world leaves the pause menu');
+  const WORLD = await E(() => window.__game.game.world.seed);
+  const pos = () => E(() => { const o = window.__game.game.octopus; return [Math.round(o.x), Math.round(o.z)].join(','); });
+  const waitNew = (prev) => page.waitForFunction((p) => { const g = window.__game.game, o = g.octopus; return g.state === 'playing' && !window.__game.paused && [Math.round(o.x), Math.round(o.z)].join(',') !== p; }, { timeout: 60000 }, prev);
+  const p0 = await pos();
+  await page.click('#chip-daily'); await waitNew(p0);
+  const p1 = await pos();
+  ok(await E(() => window.__game.game.world.seed) === WORLD, `Daily keeps the one world (${WORLD})`);
+  ok(p1 !== p0, `Daily moves the start (${p0} -> ${p1})`);
+  ok(await E(() => !window.__game.paused && window.__game.game.state === 'playing'), 'new start leaves the pause menu');
   await pauseMenu();
-  await page.click('#chip-new'); await page.waitForFunction(() => !window.__game.game.hud.el.loading.hidden === false && window.__game.game.state === 'playing', { timeout: 60000 });
-  await new Promise((r) => setTimeout(r, 400));
-  ok(await E(() => window.__game.game.world.seed) === s1, 'New world with Daily on gives the same daily world');
+  await page.click('#chip-new'); await new Promise((r) => setTimeout(r, 1500));
+  await page.waitForFunction(() => window.__game.game.state === 'playing' && !window.__game.paused, { timeout: 60000 });
+  ok(await pos() === p1, 'New start with Daily on gives the same daily start');
   await pauseMenu();
-  await page.click('#chip-daily'); await waitWorld(s1);
-  ok(await E(() => window.__game.game.world.seed) !== s1, 'turning Daily off gives a random world again');
+  await page.click('#chip-daily'); await waitNew(p1);
+  ok(await E(() => window.__game.game.world.seed) === WORLD && await pos() !== p1, 'turning Daily off gives a random start in the same world');
   ok(await E(() => JSON.parse(localStorage.getItem('octo.settings')).difficulty) === 'normal', 'settings persist');
   await E(() => { const G = window.__game; G.clearPredators(); G.freezeTime(true); G.setTime(0.45); G.setWeather('clear'); });
 }
@@ -575,7 +579,9 @@ const uiBefore = await E(() => document.body.innerText.trim());
   const r = await E(async () => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world, out = {};
     const settle = (n) => { for (let i = 0; i < n; i++) G.advance(0.05); };
-    const loss = () => { G.teleport(o.x, o.z); o.health = 100; o.wetness = 0; const h0 = o.health; settle(60); return h0 - o.health; };
+    const loss1 = () => { G.teleport(o.x, o.z); o.health = 100; o.wetness = 0; const h0 = o.health; settle(60); return h0 - o.health; };
+    // average over a few spots round about (shade, a tree or a puddle nearby changes any single reading)
+    const loss = () => { const x0 = o.x, z0 = o.z; let t = 0; for (const [dx, dz] of [[0, 0], [25, 0], [-25, 0], [0, 25], [0, -25]]) { G.teleport(x0 + dx, z0 + dz); settle(2); t += loss1(); } G.teleport(x0, z0); return t / 5; };
     G.teleport(w.start.x, w.start.z); settle(10); out.lossStart = loss();
     // 3 km inland (away from the sea), and then keep walking: the old map ended at 800 u
     const ix = -w.dir.x, iz = -w.dir.z;
@@ -611,7 +617,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     G.teleport(sh.x, sh.z); settle(4); out.farShellGot = sh.got;
     return out;
   });
-  ok(r.lossFar > r.lossStart * 1.3, `far inland dries the octopus faster (${r.lossStart.toFixed(2)} -> ${r.lossFar.toFixed(2)} per 3 s)`);
+  ok(r.lossFar > r.lossStart * 1.3, `far inland dries the octopus faster (${r.lossStart.toFixed(2)} -> ${r.lossFar.toFixed(2)} per 3 s; harsh ${r.harsh})`);
   ok(r.harsh > 0.95 && r.regions1 > 3 && r.chunks1 > 10, `3 km inland the land exists and is harsh (harshness ${r.harsh.toFixed(2)}, ${r.regions1} regions generated, ${r.chunks1} chunks)`);
   ok(r.moved > 20 && r.alive && r.finite, `walking on beyond 3 km: moved ${r.moved.toFixed(0)} u, alive, finite coordinates`);
   ok(r.chunks3 < 90 && r.freed > 50 && r.geos < 250, `memory stays flat over a 6 km trek (${r.chunks3} chunks resident, ${r.freed} freed, ${r.geos} extra geometries)`);

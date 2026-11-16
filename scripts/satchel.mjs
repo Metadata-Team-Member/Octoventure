@@ -74,7 +74,7 @@ await sleep(500);
     out.slotsAfter = G.inv.slots().map((s) => s.id).join();
     return out;
   });
-  ok(r.kinds === 14, `all 14 gatherable kinds exist in the world (${r.kinds})`);
+  ok(r.kinds === 19, `all 19 gatherable kinds exist in the world (${r.kinds})`);
   ok(r.slot >= 0 && r.got && r.count === 1, 'walking over a kelp frond picks it up (it is shown first, then taken)');
   ok(r.anims >= 1 && r.animsAfter === 0, 'a small pick-up animation plays and then ends');
   ok(r.text, 'picking something up shows no text and no pop-up');
@@ -271,10 +271,10 @@ const fresh = () => E(() => { const G = window.__game, g = G.game, o = g.octopus
   await E(() => { const G = window.__game; G.game.setPaused(false); });
   for (const [w, h] of [[1440, 900], [1280, 800]]) {
     await page.setViewport({ width: w, height: h });
-    await E(() => { const G = window.__game; G.game.inv.reset(); for (const k of ['crab', 'shrimp', 'snail', 'mussel', 'kelp', 'lettuce', 'sponge', 'coral', 'shellhalf', 'pebble', 'moss', 'coconut', 'cap', 'jar']) G.give(k, 12); for (const k of ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic']) G.give(k, 2); G.game.octopus.buff.shield = 20; G.game.octopus.buff.kelp = 50; G.game.octopus.inkCharges = 2; G.game.openSatchel(); });
+    await E(() => { const G = window.__game; G.game.inv.reset(); for (const k of ['crab', 'shrimp', 'snail', 'mussel', 'kelp', 'lettuce', 'sponge', 'coral', 'shellhalf', 'pebble', 'moss', 'coconut', 'cap', 'jar', 'urchin', 'worm', 'beetle', 'spawn', 'propagule']) G.give(k, 12); for (const k of ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'tonic', 'meal']) G.give(k, 2); G.game.octopus.buff.shield = 20; G.game.octopus.buff.kelp = 50; G.game.octopus.inkCharges = 2; G.game.openSatchel(); });
     await sleep(200);
     const L = await E(() => { const p = document.querySelector('.sat-panel').getBoundingClientRect(), r = document.querySelector('.sat-recipes'); return { top: p.top, bottom: p.bottom, left: p.left, right: p.right, vw: innerWidth, vh: innerHeight, scroll: r.scrollHeight - r.clientHeight, slots: document.querySelectorAll('.sat-bag .slot:not(.empty)').length, recs: document.querySelectorAll('.sat-recipes .rec').length }; });
-    ok(L.top >= 0 && L.bottom <= L.vh && L.left >= 0 && L.right <= L.vw && L.scroll <= 1 && L.slots === 22 && L.recs === 9, `layout ${w}x${h}: panel fits the screen (${Math.round(L.bottom - L.top)}px tall), ${L.slots} items, ${L.recs} recipes, no scrolling`);
+    ok(L.top >= 0 && L.bottom <= L.vh && L.left >= 0 && L.right <= L.vw && L.scroll <= 1 && L.slots === 29 && L.recs >= 11, `layout ${w}x${h}: panel fits the screen (${Math.round(L.bottom - L.top)}px tall), ${L.slots} items, ${L.recs} recipes, no scrolling`);
     if (w === 1440) await page.screenshot({ path: '/workspace/octo-v4-craft.png' });
     await E(() => { const G = window.__game; G.game.closeSatchel(); G.game.setPaused(false); });
   }

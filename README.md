@@ -2,7 +2,7 @@
 
 **Play now: https://metadata-team-member.github.io/Octoventure/**  (desktop browser, mouse + keyboard or a gamepad; click Play)
 
-You are a tiny **Australian blue-ringed octopus** (*Hapalochlaena*), 20 cm long, stranded far inland and slowly drying out. The ocean is somewhere out there - **in a random direction every game, with no compass** - and you have to find your way back across gardens, streets, farms, bush, creeks, wetlands, dunes and beaches, a world that towers over you. There is no HUD, no timer and no tutorial: work it out as you play. Predators will notice you (your blue rings flash), and your defence is camouflage. Water is life. Everything else is for you to discover.
+You are a tiny **Australian blue-ringed octopus** (*Hapalochlaena*), 20 cm long, stranded far inland and slowly drying out. The ocean is somewhere out there - **you are never told which way, and there is no compass** - and you have to find your way back across gardens, streets, farms, bush, creeks, wetlands, dunes and beaches, a world that towers over you. It is **one single world** for everybody, with every kind of country running into the next; each game simply begins somewhere else in it. There is no HUD, no timer and no tutorial: work it out as you play. Predators will notice you (your blue rings flash), and your defence is camouflage. Water is life. Everything else is for you to discover.
 
 **Quick controls:** WASD move - mouse look - Shift sprint - Space camouflage (hold) - F ink (in water) - B / right-click venom - R climb - Esc pause. Full list below.
 
@@ -49,17 +49,17 @@ npm run build:dist   # normal multi-file build into dist/ (for hosting on any st
 | Satchel (pauses the game) | **Tab** (**Esc** or **Tab** again to close) | View / Back |
 | Quick keys for what you carry (listed on the pause screen) | **G**, **H**, **V** | LB, RB |
 | Zoom | mouse wheel | |
-| Pause / release the mouse | **Esc** (pause menu: Resume, difficulty, Daily, New world, and a quiet list of these controls) | Start |
+| Pause / release the mouse | **Esc** (pause menu: Resume, difficulty, Daily, New start, and a quiet list of these controls) | Start |
 | Mute | **M** | |
 | Restart after dying | button, or **R** | |
 
 **Tab** opens your satchel: what you have gathered on the left, what you can make on the right, all in pictures. The game is fully paused while it is open. Gather small things by touching them as you go; work out what they are good for.
 
-Your progress is saved automatically in this browser (no account): press **Play** and you carry on where you were. The pause menu has tiny **New world**, **Copy code** and **Paste code** chips; a code moves your game to another browser.
+Your progress is saved automatically in this browser (no account): press **Play** and you carry on where you were. The pause menu has tiny **New start**, **Copy code** and **Paste code** chips; a code moves your game to another browser.
 
 Mouse-look uses Pointer Lock; Esc releases it and pauses (nothing dries or moves). If the browser refuses the lock it falls back to click-and-drag. Touch screens get an on-screen joystick, RUN and CAMO buttons (shown only once you touch the screen).
 
-**URL options:** `?seed=1234` fixed world - `?daily=1` today's world (Perth date; same for everyone) - `?difficulty=gentle|normal|harsh` - `?size=2400` world width/depth in metres (default 1600, i.e. 4x the area of the first prototype; counts scale with the area) - `?shadows=0` faster on weak GPUs - `?autostart=1` skip the title - `?debug=1` fps / position overlay. Shift-click **Play** starts the daily world.
+**URL options:** `?seed=1234` a different, debug-only world (the real game is always the one world) - `?daily=1` today's start point (Perth date; the same for everyone) - `?difficulty=gentle|normal|harsh` - `?size=2400` world width/depth in metres (default 1600, i.e. 4x the area of the first prototype; counts scale with the area) - `?shadows=0` faster on weak GPUs - `?autostart=1` skip the title - `?debug=1` fps / position overlay. Shift-click **Play** starts from today's daily start.
 
 ## How to play (a self-discovery game)
 There is **no HUD, timer, tutorial, markers or hint text**. Everything is read from the world and the octopus itself.
@@ -69,14 +69,14 @@ There is **no HUD, timer, tutorial, markers or hint text**. Everything is read f
 * **Camouflage:** your body takes the ground colour and the rings fade; while camouflaged predators cannot hurt you and wander off. It costs energy (rings go paler as it runs out) and freezes you. **Cars ignore camouflage** - they are not looking - so listen: engine noise swells as one approaches and it will honk if it is bearing down on you.
 * **Abilities found by playing:** squeeze through drains, pipes, culverts and fence holes (walk into the mouth); hide in tins, shells, logs and under slabs; ink cloud in water blinds attackers; venom bite scares one off; climb fences and walls.
 * **Little octopuses** are hiding around the world; finding one plays a small scene. Nothing is counted on screen.
-* **The sea** is in a random direction, no compass or map; clues: sand and dunes, gulls and surf, pale haze, a sea breeze, streams drifting to the coast, Norfolk pines, a lighthouse. **Reaching it does not end the game**: you can swim, dive (look down), explore the reef and rock pools and walk back inland. Dying (0 health) stops the octopus and offers **Restart game**.
+* **The sea** is somewhere in the one world, no compass or map (you start at a different place each game, so its direction is never a given); clues: sand and dunes, gulls and surf, pale haze, a sea breeze, streams drifting to the coast, Norfolk pines, a lighthouse. **Reaching it does not end the game**: you can swim, dive (look down), explore the reef and rock pools and walk back inland. Dying (0 health) stops the octopus and offers **Restart game**.
 * The world has 11 biomes: suburb, town, farm, bush, riverbank, wetland, dunes, beach, headland, estuary and the sea.
 
 ## Features
-* Seeded open world that starts inside a 1600 x 1600 m map with 11 biomes and simply never ends: beyond it the land (and the coast) keep going, generated on demand and streamed in 100 m chunks of instanced geometry; mesh-exact ground heights, everything seated on the terrain (an automated audit checks every object over 5 worlds).
+* One fixed world: a 1600 x 1600 m map with 11 biomes that blend into each other over tens of metres (the ground, trees, rocks and props of both mix and thin out) and simply never ends: beyond it the land (and the coast) keep going, generated on demand and streamed in 100 m chunks of instanced geometry; mesh-exact ground heights, everything seated on the terrain (an automated audit checks every object over the one world, its far tiles and a few debug worlds).
 * Day/night cycle, weather (clear, heatwave, rain, storm), tides, wind and dew; per-biome lighting.
 * Spatial WebAudio (surf, wind, gulls, magpies, kookaburras, engines, horns, ground thumps, squelching footsteps, heartbeat when nearly dry), droplets, wet tentacle trails with sucker dots, camera shake on lunges and heavy footsteps.
-* Difficulty (gentle / normal / harsh) and the daily world are chosen from the pause menu only.
+* Difficulty (gentle / normal / harsh) and the daily start are chosen from the pause menu only.
 * Gamepad support (standard mapping).
 
 ## Performance notes
@@ -103,12 +103,12 @@ play/index.html       built single-file game      vite.config.js      build (sin
 npm run unit     # world generator: sea always reachable, water variety, slow drying, shallows, determinism … (no browser)
 npm run smoke    # headless Chrome/Edge: loads play/index.html over file://, no console errors, render loop,
                  # no HUD elements, slow drying, colour → grey, faster in water, rings flash, rings pale as camo runs out,
-                 # camouflage = no damage (incl. mid-attack & eagle dives), lose/restart, win, new sea direction
-npm run placement  # every object over 5 seeds sits on the ground (no hovering, no burying), 1 cm tolerance at octopus scale
+                 # camouflage = no damage (incl. mid-attack & eagle dives), lose/restart, win, a new start in the one world
+npm run placement  # every object in the one world (plus its ring of far tiles) and 6 debug worlds sits on the ground (no hovering, no burying), 1 cm tolerance at octopus scale
 npm run features   # headless browser: abilities, predators, scale, thumps, bird shadows, gamepad, pause menu ...
 npm run satchel    # Tab pauses everything, gathering by touch, recipes, every crafted effect, panel layout at 1440 and 1280x800
-npm run saves      # autosave, reload continues, damaged / future saves, transfer codes, New world, death
-npm run biomes     # visits all 11 biomes, draw-call budget, screenshots
+npm run saves      # autosave, reload continues, damaged / future saves, transfer codes, old-save migration, New start, death
+npm run biomes     # visits all 11 biomes and ten biome-to-biome blends, draw-call budget, screenshots (node scripts/biomemap.mjs out.png: top-down biome map)
 npm test         # unit + placement + build + smoke + features + satchel + saves   (set CHROME_PATH if Chrome/Edge isn't auto-detected)
 ```
 The page exposes `window.__game` (`setHealth`, `teleportToOcean`, `spawnPredator`, `advance`, …) for tests and console tinkering.

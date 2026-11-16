@@ -17,7 +17,7 @@ const URL = pathToFileURL(resolve('play/index.html')).href;
 const E = (f, ...a) => page.evaluate(f, ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const load = async (q = '') => { await page.goto(URL + q, { waitUntil: 'load' }); await page.waitForFunction(() => window.__game && window.__game.frame > 3, { timeout: 240000 }); };
-const KEY = 'octo.save.v1';
+const KEY = 'octo.save.v2';
 const noAutosave = () => E(() => { window.__game.game.saveEnabled = false; });      // (leaving the page saves it: switch that off when a test tampers with storage)
 const pauseMenu = async () => { await E(() => { document.exitPointerLock?.(); window.__game.game.setPaused(true); }); await sleep(400); await E(() => { if (!window.__game.paused) window.__game.game.setPaused(true); }); };
 const saved = () => E((k) => { const t = localStorage.getItem(k); return t ? JSON.parse(t) : null; }, KEY);
@@ -59,7 +59,7 @@ let before;
   });
   await page.keyboard.press('Tab'); await sleep(300);
   const s = await saved();
-  ok(!!s && s.v === 1 && s.seed === seed1, 'opening the satchel saves the game (versioned)');
+  ok(!!s && s.v === 2 && s.seed === seed1, 'opening the satchel saves the game (versioned)');
   ok(s && Math.abs(s.octo.x - before.pos.x) < 0.1 && Math.abs(s.octo.z - before.pos.z) < 0.1 && Math.abs(s.octo.health - before.health) < 0.3, 'the save holds position and health');
   ok(s && s.got.includes(before.id) && s.shells.o.length === 1 && s.babies.length === 1 && s.dens.length === 1 && s.fx.ink === 3 && s.inv.counts.crab === 2, `it holds ${s && JSON.stringify({ got: s.got.includes(before.id), so: s.shells.o.length, b: s.babies.length, d: s.dens.length, ink: s.fx.ink, crab: s.inv.counts.crab })} what was taken, the shell, the baby, the den, the ink and the satchel`);// what was taken, the shell, the baby, the den, the ink and the satchel');
   ok(s && s.explored.length > 0 && s.env.kind === 'rain' && Math.abs(s.env.t - before.t) < 0.01, 'and explored cells, time of day and weather');
@@ -107,7 +107,7 @@ let before;
   await noAutosave(); await E((k) => localStorage.removeItem(k), KEY);
   await load();
   const other = await E(() => window.__game.seed);
-  ok(other !== keep.seed, 'a fresh browser starts a different world');
+  ok(other === keep.seed && other === 45, 'a fresh browser gets the same ONE world (seed 45): the world is not per-player');
   await page.click('#play'); await sleep(200);
   await pauseMenu();
   await page.click('#chip-paste'); await sleep(100);
@@ -123,7 +123,28 @@ let before;
   ok(p.seed === keep.seed && Math.abs(p.x - keep.x) < 0.5 && p.crab === keep.crab && p.state === 'playing' && !p.loading, 'a pasted code rebuilds that world and carries on');
 }
 
-// ================================================================ damaged / future saves, new world, death
+// ================================================================ a save from the previous (per-seed world) game is carried into the one world
+{
+  await noAutosave();
+  await E(() => localStorage.clear());
+  await E(() => localStorage.setItem('octo.save.v1', JSON.stringify({
+    v: 1, seed: 2026, saved: 1700000000000, octo: { x: 120.5, z: -33.25, heading: 1.2, health: 61.5, energy: 40 }, run: 812.4, sea: true,
+    shells: { n: 3, o: [4], r: [] }, babies: ['0', '1'], inv: { counts: { crab: 2, kelp: 3, shield: 1 }, seen: ['crab', 'kelp', 'shield'], made: ['shield'] },
+    fx: { buff: { shield: 0, jar: 0, kelp: 40, mimic: 0, feast: 0 }, ink: 2, venom: true }, dens: [{ x: 10, z: 20 }], got: ['o12'], explored: [50005000],
+    env: { t: 0.5, abs: 900, kind: 'clear', target: 'clear', timer: 55, heat: 0, rain: 0, dark: 0 },
+  })));
+  await load();
+  const r = await E((k) => ({ seed: window.__game.seed, state: window.__game.state, legacy: localStorage.getItem('octo.save.v1'), cur: localStorage.getItem(k) !== null }), KEY);
+  ok(r.seed === 45 && r.state === 'menu' && r.legacy === null && r.cur, 'an old v1 save loads into the one world, is re-saved as v2 and the old key is removed');
+  await page.click('#play'); await sleep(400);
+  const p = await E(() => { const g = window.__game.game, o = g.octopus, w = g.world; return { x: o.x, z: o.z, sx: w.start.x, sz: w.start.z, crab: g.inv.count('crab'), kelp: g.inv.count('kelp'), shield: g.inv.count('shield'), babies: g.progress.rescued.size, shells: g.progress.shells, ink: o.inkCharges, venom: o.venomReady, kelpBuff: o.buff.kelp, state: g.state, dens: g.abilities.dens.length, run: g.runTime }; });
+  ok(p.state === 'playing' && Math.hypot(p.x - p.sx, p.z - p.sz) < 1 && Math.hypot(p.x - 120.5, p.z + 33.25) > 5, 'the old position is gone: the octopus begins at a start point of the one world');
+  ok(p.crab === 2 && p.kelp === 3 && p.shield === 1 && p.ink === 2 && p.venom === true && p.kelpBuff > 30 && p.babies === 2 && p.shells === 3 && p.dens === 0 && p.run > 800, 'but the satchel, effects, babies, shells and clock were kept');
+  await E(() => { const g = window.__game.game; g.setPaused(true); });
+  const v2 = await saved(); ok(v2 && v2.v === 2 && v2.fresh !== true && Number.isFinite(v2.octo.x), 'the next autosave is a normal v2 save with a position');
+}
+
+// ================================================================ damaged / future saves, new start, death
 {
   await noAutosave(); await E((k) => localStorage.setItem(k, '{"v":1,"seed":"oops'), KEY);
   await load();
@@ -134,7 +155,7 @@ let before;
   const f = await E((k) => ({ seed: window.__game.seed, key: localStorage.getItem(k) !== null }), KEY);
   ok(f.seed !== 5 && f.key, 'a save from a newer game is not used and not deleted');
   // ?seed= never touches the saved game
-  await noAutosave(); await E((k) => localStorage.setItem(k, JSON.stringify({ v: 1, seed: 4242, octo: { x: 0, z: 0 } })), KEY);
+  await noAutosave(); await E((k) => localStorage.setItem(k, JSON.stringify({ v: 2, seed: 4242, octo: { x: 0, z: 0 } })), KEY);
   await load('?seed=2026');
   await page.click('#play'); await sleep(200);
   await E(() => window.__game.game.setPaused(true));
@@ -150,7 +171,7 @@ let before;
   await page.waitForFunction((s) => window.__game.seed !== s && window.__game.state === 'playing', { timeout: 60000 }, cur);
   await sleep(300);
   const nw = await E((k) => ({ key: localStorage.getItem(k), seed: window.__game.seed }), KEY);
-  ok(nw.key === null || JSON.parse(nw.key).seed !== cur, 'New world replaces the old save');
+  ok(nw.key === null || JSON.parse(nw.key).seed !== cur, 'New start replaces the old save');
   // death clears it
   await page.waitForFunction(() => document.getElementById('loading').hidden && window.__game.state === 'playing');
   await E(() => { const g = window.__game.game; g.setPaused(false); g.saveNow('t'); });
