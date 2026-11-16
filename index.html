@@ -31,6 +31,8 @@
       <button class="chip" data-diff="gentle">Gentle</button><button class="chip" data-diff="normal">Normal</button><button class="chip" data-diff="harsh">Harsh</button>
       <span class="sep"></span>
       <button class="chip" id="chip-daily">Daily</button><button class="chip" id="chip-new">New world</button>
+      <span class="sep"></span>
+      <button class="chip" id="chip-copy">Copy code</button><button class="chip" id="chip-paste">Paste code</button><input id="code-in" type="text" spellcheck="false" autocomplete="off" maxlength="9000" hidden />
     </div>
     <div id="keys" aria-label="Controls">
       <dl>
@@ -41,13 +43,19 @@
         <dt><kbd>F</kbd></dt><dd>Ink (in water)</dd>
         <dt><kbd>B</kbd><kbd>Right-click</kbd></dt><dd>Venom bite</dd>
         <dt><kbd>R</kbd></dt><dd>Climb</dd>
+        <dt><kbd>Tab</kbd></dt><dd>Satchel</dd>
+        <dt><kbd>G</kbd></dt><dd>Shelter</dd>
+        <dt><kbd>H</kbd></dt><dd>Quick use</dd>
+        <dt><kbd>V</kbd></dt><dd>Den</dd>
         <dt><kbd>Wheel</kbd></dt><dd>Zoom</dd>
         <dt><kbd>M</kbd></dt><dd>Mute</dd>
         <dt><kbd>Esc</kbd></dt><dd>Pause</dd>
       </dl>
-      <p>Gamepad &nbsp;L stick move &middot; R stick look &middot; triggers sprint &middot; A camo &middot; B ink &middot; X bite &middot; Y climb &middot; Start pause</p>
+      <p>Gamepad &nbsp;L stick move &middot; R stick look &middot; triggers sprint &middot; A camo &middot; B ink &middot; X bite &middot; Y climb &middot; View satchel &middot; LB shelter &middot; RB quick use &middot; Start pause</p>
     </div>
   </div>
+
+  <div id="satchel" class="overlay" hidden></div>
 
   <div id="end" class="overlay" hidden>
     <div class="card">

@@ -19,6 +19,10 @@ import { CarManager } from './entities/cars.js';
 import { Collectibles } from './systems/collect.js';
 import { Flowers } from './systems/flowers.js';
 import { Effects } from './systems/effects.js';
+import { Gatherer } from './systems/gather.js';
+import { Abilities } from './systems/abilities.js';
+import { Inventory, FX } from './systems/items.js';
+import { Satchel } from './ui/satchel.js';
 import { clamp, damp, lerp } from './util/rng.js';
 const _fadeT = new THREE.Vector3();
 
@@ -63,6 +67,9 @@ export class Game {
     this.clock = new THREE.Clock();
     this.deadShown = false;
     this.progress = new Progress();
+    this.inv = new Inventory();
+    this.satchelOpen = false;
+    this.satchel = new Satchel(this.hud.el.satchel, this);
     this.seaMoment = null;
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -72,6 +79,8 @@ export class Game {
     this.hud.el.pause.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#keys')) return; this.input.requestLock(); });   // the controls list is for reading, not clicking
     this.input.onKey = (e) => {
       if (e.code === 'KeyM') this.audio.toggleMute();
+      if (this.satchelOpen) { this.satchelKey(e); return; }
+      if (e.code === 'Tab' && !e.repeat && this.state === 'playing') { this.openSatchel(); return; }
       // press any (real) key to start
       if (this.state === 'menu' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(F\d+|Tab|Escape|Shift.*|Control.*|Alt.*|Meta.*|CapsLock)$/.test(e.code)) this.begin();
       if (e.code === 'KeyR' && this.state !== 'playing' && this.state !== 'menu') this.restart();
@@ -134,7 +143,7 @@ void main(){
 
   // ------------------------------------------------------------------ worlds
   newWorld(seed) {
-    if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); }
+    if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); }
     // ?seed= / CONFIG.seed only fix the FIRST world; every restart rolls a new world (and a new sea direction)
     const fixed = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
     const s = seed ?? (!this.hadWorld && fixed != null ? fixed : this.daily ? dailySeed() : Math.floor(Math.random() * 1e9));
@@ -152,6 +161,10 @@ void main(){
     this.progress.reset();
     this.collect = new Collectibles(this.world, this.scene, this.progress, this.audio);
     this.flowers = new Flowers(this.world, this.scene, this.audio);
+    this.inv.reset();
+    this.gather = new Gatherer(this.world, this.scene, this.audio);
+    this.gather.onPick = (g) => { this.inv.add(g.kind); this.audio.gather(g.x, g.y, g.z); };
+    this.abilities = new Abilities(this, this.gather);
     this.world.scent = []; this.lastScent = null;
     this.runTime = 0; this.deadShown = false; this.threat = 0;
     this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
@@ -163,14 +176,48 @@ void main(){
   /** pointer lock gained / lost: losing it mid-game pauses; regaining it resumes */
   onLockChange(locked) {
     this.canvas.classList.toggle('locked', locked);
-    if (locked) { this.setPaused(false); return; }
+    if (locked) { if (this._reLock) { clearTimeout(this._reLock); this._reLock = null; } if (this.satchelOpen) this.closeSatchel(); this.setPaused(false); return; }
     if (this.state === 'playing' && this.input.everLocked) this.setPaused(true);
   }
   setPaused(on) {
     if (this.paused === on) return;
     this.paused = on;
-    this.hud.setPauseVisible(on);
+    this.hud.setPauseVisible(on && !this.satchelOpen);
+    this.input.pressed.clear();
     if (on) { this.input.keys.clear(); this.audio.ctx?.suspend?.(); } else { this.audio.resume(); this.clock.getDelta(); }
+  }
+
+  // ------------------------------------------------------------------ the satchel (Tab)
+  /** Tab: the game stops completely (nothing dries, nothing moves) while the satchel is open */
+  openSatchel() {
+    if (this.state !== 'playing' || this.satchelOpen) return false;
+    this.satchelOpen = true; this._reLock = null;
+    this.hud.setPauseVisible(false);
+    this.satchel.open(); this.hud.setSatchelVisible(true);
+    this.setPaused(true);
+    this.input.releaseLock();
+    this.saveSoon?.('satchel');
+    return true;
+  }
+  closeSatchel() {
+    if (!this.satchelOpen) return false;
+    this.satchelOpen = false; this.satchel.close(); this.hud.setSatchelVisible(false);
+    const i = this.input;
+    const needLock = i.lockSupported && i.everLocked && i._mock == null && !i.lockFailed;
+    if (needLock) {
+      // get the pointer back (this key press is the user gesture); if the browser says no, fall back to the pause screen
+      i.requestLock();
+      this._reLock = setTimeout(() => { this._reLock = null; if (this.paused && !this.satchelOpen) this.hud.setPauseVisible(true); }, 450);
+    } else this.setPaused(false);
+    return true;
+  }
+  toggleSatchel() { return this.satchelOpen ? this.closeSatchel() : this.openSatchel(); }
+  satchelKey(e) {
+    const c = e.code;
+    if (c === 'Tab' || c === 'Escape') { if (!e.repeat) this.closeSatchel(); return; }
+    const dir = { ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0] }[c];
+    if (dir) { e.preventDefault(); this.satchel.nav(dir[0], dir[1]); }
+    else if (c === 'Enter' || c === 'Space' || c === 'NumpadEnter') { e.preventDefault(); if (!e.repeat) this.satchel.activate(); }
   }
 
   begin() {
@@ -198,6 +245,7 @@ void main(){
   update(dt) {
     const inp = this.input.read(dt);
     if (inp.pause && this.state === 'playing') { this.setPaused(true); return; }
+    if (inp.satchel && this.state === 'playing') { this.openSatchel(); return; }
     const o = this.octopus, world = this.world;
     const playing = this.state === 'playing';
 
@@ -216,7 +264,10 @@ void main(){
       this.env.update(dt);
       this.env.updatePuddles(dt, o);
       // abilities: ink (water only) and the venom bite (last resort)
-      if (o.alive) { if (inp.ink) this.tryInk(); if (inp.bite) this.tryBite(); }
+      if (o.alive) {
+        if (inp.ink) this.tryInk(); if (inp.bite) this.tryBite();
+        if (inp.shelter) this.abilities.quickShelter(); if (inp.boost) this.abilities.quickBoost(); if (inp.den) this.abilities.use('den');
+      }
       this.leaveScent(o);
       const ev = this.predators.update(dt, o);
       const carInfo = this.cars.update(dt, o);
@@ -225,6 +276,9 @@ void main(){
       this.fx.update(dt, o, { step: (wet, spd) => this.audio.step(wet, spd) });
       this.collect.update(dt, o, this.runTime);
       this.flowers.update(dt, o, this.runTime);
+      this.gather.update(dt, o);
+      this.abilities.update(dt);
+      if (o.restEvent) { o.restEvent = false; this.saveSoon?.('den'); }
       if (o.tunnelEvent) { o.tunnelEvent = null; this.audio.squeeze(); }
       if (o.climbEvent) { o.climbEvent = null; this.audio.climb(); }
       if (o.hideEvent) o.hideEvent = null;
@@ -272,8 +326,10 @@ void main(){
   /** ink cloud: only works in water. Blinds anything that walks into it. */
   tryInk() {
     const o = this.octopus, w = this.world, A = CONFIG.abilities;
-    if (o.inkCool > 0 || o.tunnel || o.carried || !(o.waterKind || w.isShallow(o.x, o.z))) return false;
-    o.inkCool = A.inkCooldown;
+    if (o.tunnel || o.carried) return false;
+    const charge = o.inkCharges > 0;                                   // a full ink sac: squirt anywhere, as often as it holds
+    if (!charge && (o.inkCool > 0 || !(o.waterKind || w.isShallow(o.x, o.z)))) return false;
+    if (charge) o.inkCharges--; else o.inkCool = A.inkCooldown;
     this.fx.ink(o.x, o.y + 0.3, o.z);
     this.audio.ink();
     return true;
@@ -282,8 +338,10 @@ void main(){
   tryBite() {
     const o = this.octopus, A = CONFIG.abilities;
     if (o.biteCool > 0 || o.tunnel || o.carried) return false;
-    const p = this.predators.bite(o, A.biteRange, A.biteScare);
+    const V = o.venomReady;                                            // venom gland: the next bite reaches further and scares for longer
+    const p = this.predators.bite(o, A.biteRange * (V ? FX.venomRange : 1), A.biteScare * (V ? FX.venomScare : 1));
     if (!p) return false;
+    o.venomReady = false;
     o.biteCool = A.biteCooldown; o.biteFlash = 1; o.shake = Math.max(o.shake, 0.55);
     this.fx.venom(o.x, o.y, o.z, p.x - o.x, p.z - o.z);
     this.audio.bite();
@@ -370,7 +428,16 @@ void main(){
     const dt = Math.min(0.05, this.clock.getDelta());
     this.fps = lerp(this.fps, 1 / Math.max(dt, 1e-4), 0.05);
     if (!this.paused) this.update(dt);
-    else { const gp = this.input.pad.poll(dt); if (gp?.pause && this.state === 'playing') this.setPaused(false); }
+    else {
+      const gp = this.input.pad.poll(dt);
+      if (gp && this.state === 'playing') {
+        if (this.satchelOpen) {
+          if (gp.back || gp.ink || gp.pause) this.closeSatchel();
+          else { if (gp.navX || gp.navY) this.satchel.nav(gp.navX, gp.navY); if (gp.a) this.satchel.activate(); }
+        } else if (gp.back) this.openSatchel();
+        else if (gp.pause) this.setPaused(false);
+      }
+    }
     this.render();
     this.frame++;
     this.raf = requestAnimationFrame(this.tick);

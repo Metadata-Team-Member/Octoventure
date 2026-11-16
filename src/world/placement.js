@@ -12,6 +12,7 @@
 //   * flat decals (water, dew) sit at the lowest point of their rim so no edge floats
 // =====================================================================
 import * as THREE from 'three';
+import { GATHER_TILT } from './gatherModels.js';
 
 /** 1 cm at octopus scale (octopus ~1.5 u ~ 20 cm): the largest gap allowed under any object */
 export const TOL = 0.0315;     // 1 cm at octopus scale: the octopus is ~20 cm = 0.63 u (CONFIG.octopus.size * 1.5 u model)
@@ -72,6 +73,7 @@ export function instanceSpec(cat, sub, o, geoH = 1) {
       if (sub === 'coral') return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: 0, bury: 0.03 };
       return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s * 0.7, sz: o.s, tilt: 0.8, bury: 0.2 * geoH * o.s * 0.7 };
     case 'shell': return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: 1, bury: 0.01 };
+    case 'gather': return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: GATHER_TILT[sub] ?? 0.5, bury: sub === 'kelp' || sub === 'sponge' || sub === 'coral' ? 0.02 : 0.005 };
     case 'prop': {
       const s = o.s;
       const sp = { x: o.x, z: o.z, rot: o.rot, sx: s, sy: s, sz: s, tilt: sub === 'drain' ? 1 : TILT_PROPS.has(sub) ? 0.8 : 0, bury: TILT_PROPS.has(sub) && !THIN.has(sub) ? 0.03 : 0 };
@@ -130,6 +132,7 @@ export function geoFor(lib, cat, sub) {
     case 'reef': return sub === 'coral' ? lib.coral : lib.rock;
     case 'shell': return sub === 't' ? lib.shellt : sub === 'k' ? lib.shellk : lib.shellc;
     case 'prop': return lib.propGeo(sub);
+    case 'gather': return lib.gather[sub];
     default: throw new Error('unknown placement category ' + cat);
   }
 }
@@ -195,8 +198,9 @@ export function placedItems(world, lib, opts = {}) {
   for (const b of d.beach) add('beach', b.kind, b);
   for (const s of d.seagrass) add('seagrass', 's', s);
   for (const r of d.reef) add('reef', r.kind, r);
-  const farP = new Set(), farS = new Set();
-  for (const r of world.regions.list) { for (const p of r.props) farP.add(p); for (const sh of r.shells) farS.add(sh); }
+  const farP = new Set(), farS = new Set(), farG = new Set();
+  for (const r of world.regions.list) { for (const p of r.props) farP.add(p); for (const sh of r.shells) farS.add(sh); for (const g of r.gather) farG.add(g); }
+  for (const g of reg ? reg.gather : world.gather) if (reg || !farG.has(g)) add('gather', g.kind, g);
   for (const p of reg ? reg.props : world.props) if (reg || !farP.has(p)) add('prop', p.kind, p);
   if (reg) for (const sh of reg.shells) add('shell', sh.k, { x: sh.x, z: sh.z, rot: sh.rot, s: sh.s });
   else world.shells.forEach((sh, i) => { if (!farS.has(sh)) add('shell', shellKind(i), { x: sh.x, z: sh.z, rot: sh.rot, s: shellScale(i) }); });

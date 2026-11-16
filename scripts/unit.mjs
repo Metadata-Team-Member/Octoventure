@@ -11,6 +11,9 @@ import { PARTS, treeGeometries } from '../src/world/models.js';
 import { treeConnectivity } from '../src/world/treeCheck.js';
 import { waterDisc } from '../src/world/placement.js';
 import { readFileSync } from 'node:fs';
+import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE } from '../src/systems/items.js';
+import { GATHER_COUNT, GATHER_KINDS } from '../src/world/gather.js';
+import { ICON_IDS } from '../src/ui/icons.js';
 
 let checks = 0;
 const ok = (c, m) => { assert.ok(c, m); checks++; };
@@ -273,5 +276,50 @@ for (const seed of [1, 42, 2026]) {
   let nb = 0; const ids = new Set(); for (const b of C.babies) { ids.add(b.id); } nb = C.babies.filter((b) => typeof b.id === 'string').length;
   ok(nb > 8 && ids.size === C.babies.length, `far regions hide baby octopuses too (${nb}), ids are unique`);
   ok(C.shells.filter((s) => s.reg).length > 20, 'far regions scatter shells too');
+}
+
+// ================================================================ gatherables + satchel (t236u)
+{
+  const w = worlds[2026], w2 = new WorldData(2026);
+  ok(w.gather.length === w2.gather.length && w.gather.every((g, i) => g.id === w2.gather[i].id && g.kind === w2.gather[i].kind && g.x === w2.gather[i].x && g.z === w2.gather[i].z), 'gatherables are reproducible (same ids, kinds and positions)');
+  const kinds = {}; for (const g of w.gather) kinds[g.kind] = (kinds[g.kind] || 0) + 1;
+  ok(GATHER_KINDS.length === 14 && GATHER_KINDS.every((k) => kinds[k] > 0), `all 14 kinds are scattered (${JSON.stringify(kinds)})`);
+  const K = w.areaScale;
+  ok(GATHER_KINDS.every((k) => kinds[k] >= GATHER_COUNT[k] * K * 0.4), 'every kind reaches at least 40% of its target density');
+  ok(new Set(w.gather.map((g) => g.id)).size === w.gather.length && w.gather.every((g) => /^o\d+$/.test(g.id)), 'item ids are unique and stable (o0, o1 ...)');
+  const by = (k) => w.gather.filter((g) => g.kind === k);
+  const sea = (g) => w.tAt(g.x, g.z) > 1.0;
+  ok(by('kelp').every((g) => sea(g) && g.y < -0.1) && by('sponge').every(sea) && by('coral').every(sea), 'kelp, sponge and coral live on the sea floor');
+  ok(by('shrimp').every((g) => g.pool && Math.hypot(g.x - g.pool.x, g.z - g.pool.z) < g.pool.r), 'every shrimp sits inside its pool');
+  ok(by('snail').every((g) => !w.isSea(g.x, g.z) && w.tAt(g.x, g.z) < 1.0), 'snails are on land');
+  ok(by('crab').every((g) => !w.waterAt(g.x, g.z)), 'crabs are not in water');
+  ok(by('cap').every((g) => { const b = w.biomeAt(g.x, g.z); return ['suburb', 'town', 'beach', 'dunes', 'estuary', 'coast', 'headland'].some((n) => String(b).toLowerCase().includes(n)) || w.tAt(g.x, g.z) > 0.7; }), 'bottle caps are in built-up areas or on the shore');
+  ok(w.gather.every((g) => Number.isFinite(g.x + g.z + g.y + g.rot + g.s) && g.s > 0.5 && g.s < 2), 'every item has finite numbers and a sane size');
+  // far regions: items with their own prefix, deterministic per tile
+  const C = new WorldData(2026), r1 = C.regions.generate(6, 1), C2 = new WorldData(2026), r2 = C2.regions.generate(6, 1);
+  ok(r1.gather.length > 5 && r1.gather.length === r2.gather.length && r1.gather.every((g, i) => g.id === r2.gather[i].id && g.x === r2.gather[i].x), `far tiles hold gatherables too (${r1.gather.length}), reproducible`);
+  ok(r1.gather.every((g) => g.id.startsWith('r6_1_')), 'far tile item ids carry the tile');
+  const allIds = C.gather.map((g) => g.id); ok(new Set(allIds).size === allIds.length, 'ids stay unique across the original map and far tiles');
+  ok(C.regions.list.flatMap((r) => r.shells).every((s) => typeof s.id === 'string'), 'far shells carry stable ids too');
+}
+{
+  ok(ALL_ITEMS.length === RAW.length + MADE.length && RAW.length === 14 && MADE.length === 8, '14 gathered things and 8 made ones');
+  ok(ALL_ITEMS.every((id) => ICON_IDS.includes(id)), 'every item has a pictogram');
+  ok(RECIPES.every((r) => ALL_ITEMS.includes(r.out) && Object.keys(r.in).every((k) => RAW.includes(k))), 'recipes make known items from raw things');
+  ok(MADE.every((m) => RECIPES.some((r) => r.out === m)) && MADE.every((m) => USABLE.has(m)), 'every made item has a recipe and can be used');
+  const inv = new Inventory();
+  ok(inv.slots().length === 0 && inv.visibleRecipes().length === 0, 'an empty satchel shows nothing');
+  inv.add('crab'); ok(inv.visibleRecipes().map((r) => r.id).join() === 'feast', 'a recipe appears with its first ingredient');
+  ok(inv.craft('feast') && inv.count('feast') === 1 && inv.count('crab') === 0 && inv.seen.has('crab'), 'crafting consumes ingredients; seen items stay known');
+  ok(!inv.craft('feast'), 'a recipe without ingredients can not be crafted');
+  inv.add('shellhalf', 2); inv.add('pebble', 3); inv.add('shellhalf', 1);
+  ok(inv.craft('den') && inv.count('pebble') === 0 && inv.count('shellhalf') === 2 && inv.craft('shield-shell') && inv.count('shield') === 1, 'den and shield recipes work');
+  inv.add('shrimp', 2); inv.add('snail', 2); inv.add('jar'); inv.add('cap'); inv.add('sponge'); inv.add('coral'); inv.add('kelp'); inv.add('lettuce'); inv.add('coconut', 2);
+  ok(['inksac', 'gland', 'hideaway', 'mimic', 'wrap', 'shield-coco'].every((id) => inv.craft(id)), 'every other recipe crafts');
+  const j = JSON.parse(JSON.stringify(inv.toJSON())), inv2 = new Inventory().load(j);
+  ok(JSON.stringify(inv2.toJSON()) === JSON.stringify(inv.toJSON()), 'the satchel round-trips through JSON');
+  const bad = new Inventory().load({ counts: { crab: -5, hax: 9, jar: 1e9, kelp: 'x' }, seen: ['crab', 42, 'zzz'], made: ['den', 'crab'] });
+  ok(bad.count('crab') === 0 && bad.count('hax') === 0 && bad.count('jar') === 999 && bad.count('kelp') === 0 && bad.made.has('den') && !bad.made.has('crab'), 'garbage in a loaded satchel is cleaned up');
+  ok(FX.denMax === 3 && FX.shield > 10 && FX.mimicDrain < 1 && FX.kelpDry < 1, 'effect numbers are sane');
 }
 console.log(`unit checks passed (${checks} assertions).`);

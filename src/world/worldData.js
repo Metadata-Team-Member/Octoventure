@@ -10,6 +10,7 @@ import { makeNoise } from '../util/noise.js';
 import { mulberry32, clamp, lerp, smoothstep } from '../util/rng.js';
 import { BiomeField, B, BIOMES, COAST_KINDS } from './biomes.js';
 import { placeAreas } from './areas.js';
+import { scatterGather } from './gather.js';
 
 const ss = smoothstep;
 
@@ -72,6 +73,7 @@ export class WorldData {
     this.shells = [];        // hidden collectible shells {x,z,y,got}
     this.babies = [];        // baby octopuses to rescue {id,x,z,y,kind,found}
     this.landmarks = [];     // {kind,x,z}
+    this.gather = [];        // gatherable items {id,kind,x,z,y,rot,s} (see gather.js); far regions append theirs
     this.creek = [];         // creek centre-line nodes (every ~2.4 m)
     this.coast = null;
 
@@ -83,6 +85,9 @@ export class WorldData {
     this._placeWater();
     this.freezeTerrain();                 // everything below is placed on the exact terrain mesh
     placeAreas(this);
+    // gatherables (crabs, kelp, pebbles ...): their own random stream, so adding / tuning them never moves anything else
+    const gr = mulberry32((seed ^ 0x6a7e51) >>> 0), e = 30;
+    this.gather = scatterGather(this, gr, { rect: { x0: -this.half + e, x1: this.half - e, z0: -this.half + e, z1: this.half - e }, K: this.areaScale, decor: this.decor, waters: this.waters, prefix: 'o' });
   }
 
   // ---------------- coordinates ----------------------------------------------------

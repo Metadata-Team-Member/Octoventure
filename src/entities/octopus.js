@@ -4,6 +4,9 @@
 import * as THREE from 'three';
 import { CONFIG, TERRAIN, diff } from '../config.js';
 import { clamp, damp, dampAngle, lerp } from '../util/rng.js';
+import { FX } from '../systems/items.js';
+const BIRD_CAUSES = new Set(['gull', 'eagle', 'magpie', 'kookaburra']);
+const INK_TINT = new THREE.Color(0x3a3350), VENOM_TINT = new THREE.Color(0xffd23f);
 
 const TENT = 8, SEG = 12;
 // Australian blue-ringed octopus (Hapalochlaena): small, ochre-yellow/brown body with electric-blue rings.
@@ -162,14 +165,22 @@ export class Octopus {
     this.tunnel = null; this.climb = null; this.pushT = 0; this.carried = null; this.swim = 0; this.dive = 0; this.invuln = 0;
     this.shake = 0; this.thump = 0; this.group.visible = true; this.pendingBabyGlow = 0;
     this.armor = 0;                // hidden: fraction of damage absorbed (set by the game from collected shells)
+    // satchel effects (t236u): seconds left of each buff, plus smoothed 0..1 blends for the visuals
+    this.buff = { shield: 0, jar: 0, kelp: 0, mimic: 0, feast: 0 };
+    this.shieldClosed = 0; this.jarF = 0; this.kelpF = 0; this.mimicF = 0; this.feastF = 0; this.restF = 0; this.restT = 0; this.restEvent = false;
+    this.inkCharges = 0; this.venomReady = false; this.moveMult = 1;
   }
 
   greyOf(c) { const l = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; return new THREE.Color(l * 0.95 + 0.06, l * 0.95 + 0.06, l * 0.95 + 0.06); }
   get camoActive() { return this.camoBlend > 0.85; }     // fully blended
   /** hidden: predators can't hurt or track you. Immediate while the key is held (and energy lasts), brief grace while fading out. */
-  get camoProtected() { return this.alive && (this.camoWanted || this.camoBlend > 0.5 || !!this.tunnel || this.invuln > 0); }
+  get camoProtected() { return this.alive && (this.camoWanted || this.camoBlend > 0.5 || !!this.tunnel || this.invuln > 0 || this.shieldClosed > 0.75); }
   /** how easily predators spot us (1 = normal): tucked inside a shell / tin / under a rock hides us even without camo */
-  get visibility() { return 1 - this.hideBlend * (1 - CONFIG.abilities.hideNoticeMult); }
+  get visibility() { return (1 - this.hideBlend * (1 - CONFIG.abilities.hideNoticeMult)) * (1 - 0.7 * this.shieldClosed) * (this.buff.mimic > 0 ? FX.mimicNotice : 1); }
+  /** the glass jar hides you from birds only (it is see-through to everything else) */
+  get birdHidden() { return this.alive && this.buff.jar > 0 && this.jarF > 0.6; }
+  /** drying multiplier from the satchel: kelp wrap on land, resting in a den, a closed shell */
+  get dryScale() { return (this.buff.kelp > 0 ? FX.kelpDry : 1) * (this.restF > 0.5 ? FX.denDry : 1) * (this.shieldClosed > 0.75 ? 0.85 : 1); }
   get inWater() { return !!this.waterKind; }
   get hiding() { return this.camoWanted && this.alive; }
 
@@ -177,6 +188,7 @@ export class Octopus {
   damage(amount, cause, opts = {}) {
     if (!this.alive || this.won) return;
     if (this.camoProtected && !opts.ignoreCamo) return;            // camouflaged = untouchable
+    if (this.birdHidden && BIRD_CAUSES.has(cause) && !opts.ignoreCamo) return;   // inside the jar: birds can't get at you
     if (this.tunnel && !opts.ignoreCamo) return;
     this.shake = Math.min(1, this.shake + amount / 28);
     this.health = Math.max(0, this.health - amount * CONFIG.predators.damageMult * diff().damage * (1 - this.armor));
@@ -193,6 +205,7 @@ export class Octopus {
     if (!water && this.alive && !this.won && world.isShallow(this.x, this.z)) water = { kind: 'sea' };
     this.waterKind = water ? water.kind : null;
 
+    for (const k in this.buff) this.buff[k] = Math.max(0, this.buff[k] - dt);
     this.inkCool = Math.max(0, this.inkCool - dt); this.biteCool = Math.max(0, this.biteCool - dt); this.invuln = Math.max(0, this.invuln - dt);
     this.shake = Math.max(0, this.shake - dt * 2.2);
     this.thump = Math.max(0, (this.thump || 0) - dt * 5);
@@ -205,7 +218,7 @@ export class Octopus {
       this.camoWanted = wantCamo;
       if (wantCamo) {
         // tucked into a shell, tin or log, camouflage costs nothing
-        if (!this.hiddenIn) this.energy = Math.max(0, this.energy - C.drainPerSec * diff().camoDrain * dt);
+        if (!this.hiddenIn) this.energy = Math.max(0, this.energy - C.drainPerSec * diff().camoDrain * (this.buff.mimic > 0 ? FX.mimicDrain : 1) * dt);
         if (this.energy <= 0.01) { this.camoLocked = true; this.camoWanted = false; }
       } else {
         this.energy = Math.min(C.maxEnergy, this.energy + C.regenPerSec * dt);
@@ -219,7 +232,8 @@ export class Octopus {
       const canMove = !this.camoWanted || C.moveSpeedMult > 0;
       const sprint = input.sprint && mag > 0.1 && canMove;
       const base = this.sz * (sprint ? O.sprintSpeed : O.walkSpeed) * (water ? O.waterSpeedMult * (this.swim > 0.3 ? CONFIG.abilities.swimSpeedMult : 1) : T.speed) * (this.camoWanted ? C.moveSpeedMult : 1) * (this.hiddenIn ? 0.6 : 1);
-      const targetSpeed = canMove ? Math.min(1, mag) * base : 0;
+      this.moveMult = (this.buff.jar > 0 ? 0.45 : 1) * (this.buff.shield > 0 && this.shieldClosed < 0.5 ? 0.88 : 1);
+      const targetSpeed = canMove ? Math.min(1, mag) * base * this.moveMult : 0;
       this.speed = damp(this.speed, targetSpeed, 12, dt);
       this.moving = this.speed > 0.5 * this.sz;
       this.sprinting = sprint && this.moving;
@@ -240,6 +254,7 @@ export class Octopus {
       }
 
       this.updateHideAndTunnels(dt, mag, world);
+      this.updateSatchelState(dt, mag);
       // ---- drying / water -----------------------------------------------------------
       if (water) {
         const gain = CONFIG.water[water.kind] ?? 20;
@@ -247,6 +262,7 @@ export class Octopus {
         this.wetness = Math.min(1, this.wetness + dt * 1.5);
       } else {
         let rate = O.baseDryRate * T.dry * (world.dryMult ?? 1) * (1 + 0.9 * (world.harshAt?.(this.x, this.z) ?? 0)) * diff().dry;   // far inland the air is drier
+        rate *= this.dryScale;
         if (this.sprinting) rate *= O.sprintDryMult;
         if (this.camoWanted) rate *= C.dryMult;
         this.health = Math.max(0, this.health - rate * dt);
@@ -263,6 +279,26 @@ export class Octopus {
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 2.5);
     if (!this.alive) this.deadT += dt;
     this.animate(dt);
+  }
+
+  // ------------------------------------------------------------ satchel effects (t236u)
+  /** blends for the visuals + resting inside a den (still for a couple of seconds: slow recovery, little drying) */
+  updateSatchelState(dt, mag) {
+    const still = mag < 0.1 && this.speed < 0.6 * this.sz;
+    this.shieldClosed = damp(this.shieldClosed, this.buff.shield > 0 && still && !this.carried ? 1 : 0, 5, dt);
+    this.jarF = damp(this.jarF, this.buff.jar > 0 ? 1 : 0, 6, dt);
+    this.kelpF = damp(this.kelpF, this.buff.kelp > 0 ? 1 : 0, 2.5, dt);
+    this.mimicF = damp(this.mimicF, this.buff.mimic > 0 ? 1 : 0, 2.5, dt);
+    this.feastF = damp(this.feastF, this.buff.feast > 0 ? 1 : 0, 2.5, dt);
+    const inDen = this.hiddenIn?.kind === 'den' && still && !this.waterKind;
+    this.restT = inDen ? this.restT + dt : 0;
+    const resting = inDen && this.restT > 2;
+    this.restF = damp(this.restF, resting ? 1 : 0, 3, dt);
+    if (resting) {
+      this.health = Math.min(CONFIG.octopus.maxHealth, this.health + FX.denRest * dt);
+      this._restSave = (this._restSave ?? 0) - dt;
+      if (this._restSave <= 0) { this._restSave = 10; this.restEvent = true; }      // the game saves here (the den is a save point)
+    } else this._restSave = 0;
   }
 
   // ------------------------------------------------------------ abilities
@@ -386,7 +422,8 @@ export class Octopus {
     const t = this.walkPhase;
     const move = clamp(this.speed / (7 * this.sz), 0, 1.4);
     const dry = 1 - clamp(this.health / CONFIG.octopus.maxHealth, 0, 1);
-    const camo = this.camoBlend;
+    const camo = Math.max(this.camoBlend, 0.5 * this.mimicF);
+    const tuck = Math.max(this.shieldClosed, this.jarF);
     const died = this.alive ? 0 : clamp(this.deadT / 1.2, 0, 1);
 
     // colour: skin -> dry & pale -> grey when dead; camo blends toward the ground colour
@@ -398,6 +435,7 @@ export class Octopus {
     // camouflage: blend toward ground colour (a touch darker, like a shadow-pattern)
     const camoTarget = this.camoColor.clone().multiplyScalar(0.92);
     col.lerp(camoTarget, camo * 0.96);
+    if (this.inkCharges > 0) col.lerp(INK_TINT, 0.18 * Math.min(1, this.inkCharges / 2));   // a full ink sac shows through the skin
     this.mat.roughness = lerp(0.3, 0.85, Math.max(dry * 0.8, camo));
 
     // ---- blue rings: calm glow -> flashing warning display when threatened -> hidden when camouflaged ----
@@ -425,6 +463,8 @@ export class Octopus {
     this.wasCooling = this.biteCool > 0;
     this.readyFlash = Math.max(0, (this.readyFlash || 0) - dt * 1.2); this.biteFlash = Math.max(0, (this.biteFlash || 0) - dt * 2.5); this.glowBoost = Math.max(0, (this.glowBoost || 0) - dt * 0.35);
     const readyPulse = ready && this.alarm > 0.25 ? 0.55 * (0.5 + 0.5 * Math.sin(this.flashT * 3.4)) * (1 - camo) : 0;
+    if (this.venomReady) { ringColor.lerp(VENOM_TINT, 0.6 * (0.7 + 0.3 * Math.sin(this.flashT * 1.6))); this.ringBlue.emissive.lerp(VENOM_TINT, 0.6); }
+    this.ringBlue.emissiveIntensity += this.feastF * (0.75 + 0.25 * Math.sin(this.flashT * 1.3)) * vis;
     this.ringBlue.emissiveIntensity += (readyPulse + this.readyFlash * 0.8 + this.biteFlash * 1.2 + this.glowBoost * 1.4) * (1 - died);
     this.ringBlack.color.lerp(PALE_EDGE, warn);
     this.ringBlue.color.multiplyScalar(0.45).lerp(DEAD, died * 0.8);
@@ -447,7 +487,7 @@ export class Octopus {
       for (let j = 0; j < SEG; j++) {
         const s = j / (SEG - 1);
         const m = T.segs[j];
-        let reach = 0.36 + s * (1.12 - died * 0.6 - camo * 0.22);
+        let reach = (0.36 + s * (1.12 - died * 0.6 - camo * 0.22)) * (1 - 0.5 * tuck);
         let ang = T.a + Math.sin(t * 2.0 + T.phase - s * 3) * 0.16 * (0.3 + move) + (1 - died) * 0 + died * s * 0.5;
         const stride = Math.sin(t * 2.4 + T.phase + i * 0.3 - s * 1.5);
         let lift = move * 0.34 * Math.max(0, stride) * Math.sin(Math.PI * Math.min(1, s * 1.3));

@@ -17,6 +17,7 @@
 // =====================================================================
 import { mulberry32 } from '../util/rng.js';
 import { BIOMES } from './biomes.js';
+import { scatterGather } from './gather.js';
 import { TREE_RULES, TREE_SCALE, GRASS_SCALE, PROP_SCALE } from './areas.js';
 
 export const REGION = 400;      // tile size (m); a multiple of the view chunk size (100)
@@ -64,12 +65,16 @@ export class Regions {
     if (rx === this.n0) sk.x0 -= SKIRT; if (rx === -1) sk.x1 += SKIRT; if (rz === this.n0) sk.z0 -= SKIRT; if (rz === -1) sk.z1 += SKIRT;
     const rnd = mulberry32((w.seed ^ Math.imul(rx + 7919, 0x9e3779b1) ^ Math.imul(rz + 104729, 0x85ebca6b)) >>> 0);
     for (let i = 0; i < 4; i++) rnd();
-    const reg = { rx, rz, rect, decor: { trees: [], rocks: [], grass: [], flowers: [], beach: [], reeds: [], seagrass: [], reef: [] }, props: [], waters: [], shells: [], babies: [], hides: [], harsh: 0 };
+    const reg = { rx, rz, rect, decor: { trees: [], rocks: [], grass: [], flowers: [], beach: [], reeds: [], seagrass: [], reef: [] }, props: [], waters: [], shells: [], babies: [], hides: [], gather: [], harsh: 0 };
     const cx = x0 + REGION / 2, cz = z0 + REGION / 2;
     reg.harsh = w.harshAt(cx, cz);
     const ctx = { w, rnd, reg, rect, sk, K: (REGION * REGION) / 640000, H: reg.harsh, G: w.cfg.graphics, W: w.cfg.water };
     this.map.set(this.key(rx, rz), reg); this.list.push(reg);
     water(ctx); trees(ctx); rocks(ctx); ground(ctx); reeds(ctx); coast(ctx); sea(ctx); hides(ctx); shellsAndBabies(ctx);
+    // gatherables: their own random stream per tile (so they never move the rest of the tile)
+    const gr = mulberry32((w.seed ^ Math.imul(rx + 31, 0x27d4eb2f) ^ Math.imul(rz + 57, 0x165667b1)) >>> 0);
+    reg.gather = scatterGather(w, gr, { rect: { x0: rect.x0 + 2, x1: rect.x1 - 2, z0: rect.z0 + 2, z1: rect.z1 - 2 }, K: ctx.K, decor: reg.decor, waters: reg.waters, prefix: `r${rx}_${rz}_` });
+    for (const g of reg.gather) w.gather.push(g);
     for (const fn of this.listeners) fn(reg);
     return reg;
   }
@@ -262,7 +267,7 @@ function shellsAndBabies(ctx) {
   const total = Math.round(w.cfg.shells.count * K);
   const mix = [[['beach', 'dunes'], 0.3], [['headland'], 0.12], [['estuary', 'wetland'], 0.12], [['farm', 'bush', 'riverbank'], 0.26]];
   const mk = (x, z, y, kind) => {
-    const sh = { reg: true, x, z, y, rot: rnd() * 6.28, got: false, kind, k: ['c', 't', 'k'][Math.floor(rnd() * 3)], s: 0.85 + rnd() * 0.7 };
+    const sh = { reg: true, id: `r${reg.rx}_${reg.rz}_s${reg.shells.length}`, x, z, y, rot: rnd() * 6.28, got: false, kind, k: ['c', 't', 'k'][Math.floor(rnd() * 3)], s: 0.85 + rnd() * 0.7 };
     w.shells.push(sh); reg.shells.push(sh); return sh;
   };
   for (const [names, share] of mix) {

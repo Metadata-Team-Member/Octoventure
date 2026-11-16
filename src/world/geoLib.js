@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { tint, merge, at, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
 import { PROP_GEO } from './props.js';
 import { scallop, turban, cowrie } from './shells.js';
+import { buildGatherGeos } from './gatherModels.js';
 
 /** a daisy built from separate pieces so the interactive version can curl its petals: a stem, a small centre and six petals
  *  that each hinge at the head centre (the base of the stem is the origin). The instanced flower is these pieces with the
@@ -36,6 +37,7 @@ export function buildGeoLib() {
     shell: at(scallop(1), 0, 0, 0, 0, 0, 0, 0.55), weed: new THREE.IcosahedronGeometry(0.3, 0), wood: new THREE.BoxGeometry(1.6, 0.18, 0.2),
     seagrass: seagrassGeometry(), coral: coralGeometry(),
     shellc: scallop(0), shellt: turban(), shellk: cowrie(),
+    gather: buildGatherGeos(),
     propGeo(kind) { return (propCache[kind] ??= PROP_GEO[kind]()); },
     propCache,
   };

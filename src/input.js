@@ -23,7 +23,7 @@ export class Input {
     this.invertY = CONFIG.camera.invertY;
     const on = (el, ev, fn, o) => { el.addEventListener(ev, fn, o); this.listeners.push([el, ev, fn, o]); };
     on(window, 'keydown', (e) => {
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (!e.repeat) this.pressed.add(e.code);
       if (this.onKey) this.onKey(e);
@@ -115,15 +115,17 @@ export class Input {
     let climb = k.has('KeyR');
     const pr = this.pressed;
     let ink = pr.has('KeyF') || pr.has('KeyQ'), bite = pr.has('KeyB') || pr.has('Mouse2'), pause = false;
+    let shelter = pr.has('KeyG'), boost = pr.has('KeyH'), den = pr.has('KeyV'), satchel = false;
     // gamepad: left stick moves, right stick looks, triggers sprint, A camo, B ink, X bite, Y climb, Start pause
     const gp = this.pad.poll(dt);
     if (gp) {
       f += gp.f; r += gp.r; sprint = sprint || gp.sprint; camo = camo || gp.camo; climb = climb || gp.climb;
       ink = ink || gp.ink; bite = bite || gp.bite; pause = gp.pause;
+      shelter = shelter || gp.shelter; boost = boost || gp.boost; satchel = gp.back;
       if (gp.lookX || gp.lookY) { this.yaw -= gp.lookX; this.pitch = clamp(this.pitch + gp.lookY, CONFIG.camera.minPitch, CONFIG.camera.maxPitch); }
     }
     pr.clear();
-    return { f: clamp(f, -1, 1), r: clamp(r, -1, 1), sprint, camo, climb, ink, bite, pause };
+    return { f: clamp(f, -1, 1), r: clamp(r, -1, 1), sprint, camo, climb, ink, bite, pause, shelter, boost, den, satchel };
   }
   dispose() { for (const [el, ev, fn, o] of this.listeners) el.removeEventListener(ev, fn, o); }
 }

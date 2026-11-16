@@ -130,6 +130,18 @@ export function installDebugHooks(game) {
       return null;
     },
     teleportToRoad() { const w = game.world; for (let i = 0; i < 4000; i++) { const s = w.findBiomeSpot('town', 60, 1); if (s && w.isRoad(s.x, s.z)) { this.teleport(s.x, s.z); return s; } } return null; },
+    // ---- satchel / gathering (tests)
+    get inv() { return game.inv; },
+    get satchelOpen() { return game.satchelOpen; },
+    get gatherItems() { return game.gather.items(); },
+    give(id, n = 1) { game.inv.add(id, n); },
+    craft(id) { const ok = game.inv.craft(id); if (game.satchelOpen) game.satchel.render(); return ok; },
+    use(id) { return game.abilities.use(id); },
+    get buff() { return { ...game.octopus.buff }; },
+    get abilities() { return game.abilities; },
+    get gather() { return game.gather; },
+    toggleSatchel() { return game.toggleSatchel(); },
+    teleportToGather(kind, i = 0) { const l = game.gather.items().filter((q) => q.kind === kind && !q.got); const g = l[i]; if (!g) return null; this.teleport(g.x - 2.5, g.z); return g; },
     get cars() { return game.cars.cars; },
     get scent() { return game.world.scent.length; },
     terrainTypes: Object.keys(TERRAIN),

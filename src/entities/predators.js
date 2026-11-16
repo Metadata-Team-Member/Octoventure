@@ -292,7 +292,7 @@ export class Predator {
   /** magpies & kookaburras: wait in a tree, swoop at the octopus when it passes underneath, fly back up */
   updateSwooper(dt, player, dist) {
     const s = this.spec, w = this.world;
-    const alive = player.alive && !player.won, fooled = player.camoProtected;
+    const alive = player.alive && !player.won, fooled = player.camoProtected || player.birdHidden;
     const gy = w.heightAt(this.x, this.z);
     const noticeR = s.notice * (player.moving ? 1 : 0.6) * this.act * (player.visibility ?? 1) * diff().notice;
     let dmg = 0;
@@ -372,7 +372,7 @@ export class Predator {
     this.cool = Math.max(0, this.cool - dt); this.ignore = Math.max(0, this.ignore - dt);
     this.phase += dt * (1 + this.speed * 0.9);
     this.toPlayer = Math.atan2(dx, dz);
-    if (player.camoProtected && dist < s.notice * 1.5) this.ignore = Math.max(this.ignore, 7);   // once fooled, it stays uninterested for a while
+    if ((player.camoProtected || (FLYERS.has(this.kind) && player.birdHidden)) && dist < s.notice * 1.5) this.ignore = Math.max(this.ignore, 7);   // once fooled, it stays uninterested for a while
     // daily rhythm: foxes and cats prowl at night, everything else is sleepy in the dark
     const night = world.night ?? 0;
     this.act = s.nocturnal ? lerp(0.7, 1.45, night) : lerp(1, s.swoop ? 0.15 : 0.5, night);
