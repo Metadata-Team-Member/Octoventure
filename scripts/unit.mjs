@@ -134,7 +134,9 @@ console.log(`generated ${SEEDS.length * 2} worlds in ${(performance.now() - t0).
   CONFIG.worldSize = 2400;
   const huge = new WorldData(5);
   CONFIG.worldSize = save;
-  ok(huge.half === 1200 && huge.isSea(huge.start.x + huge.dir.x * 1500, huge.start.z + huge.dir.z * 1500) || true, 'worldSize is configurable');
+  ok(huge.half === 1200, 'worldSize is configurable (2400 m)');
+  let hugeSea = false; for (let d = 0; d < 2400 && !hugeSea; d += 2) hugeSea = huge.isSea(huge.start.x + huge.dir.x * d, huge.start.z + huge.dir.z * d);
+  ok(hugeSea, 'the sea is reachable in a 2400 m world too');
   ok(huge.shells.length > big.shells * 1.8, 'a 2400 m world has proportionally more shells');
 }
 

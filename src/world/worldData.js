@@ -630,20 +630,24 @@ export class WorldData {
     return null;
   }
   /** a random reachable land point inside a biome (used by tests / teleport hooks): the most "central" of a few tries */
-  findBiomeSpot(name, tries = 4000) {
+  findBiomeSpot(name, tries = 4000, clear = 7) {
     const id = B[name]; let best = null, bw = 0;
     const rnd = mulberry32(this.seed ^ 0xabcdef);
+    const reedsNear = (x, z, r) => { for (const q of this.decor.reeds) if (Math.abs(q.x - x) < r && Math.abs(q.z - z) < r) return true; return false; };
     for (let i = 0; i < tries; i++) {
       const x = rnd.range(-this.half + 30, this.half - 30), z = rnd.range(-this.half + 30, this.half - 30);
       const w = this.biomes.weights(x, z)[id];
       if (w <= bw) continue;
       const h = this.heightAt(x, z);
       if (name !== 'sea' && h < 0.3) continue;
-      if (name === 'sea' && !this.isSea(x, z)) continue;
-      if (name !== 'sea' && this._blocked(x, z, 1.2)) continue;
+      if (name === 'sea' && !(this.isSea(x, z) && h < -1.2 && h > -4)) continue;
+      // keep the spot clear of trees, rocks, props and reeds so a camera there sees something
+      if (name !== 'sea' && (this._blocked(x, z, clear) || reedsNear(x, z, 5))) continue;
       best = { x, z, w }; bw = w;
       if (w > 0.97) break;
     }
+    if ((!best || bw < 0.75) && clear > 1.2) { const alt = this.findBiomeSpot(name, tries, clear > 3 ? 3 : 1.2); if (alt && (!best || alt.w > bw)) return alt; }
     return best;
   }
+
 }
