@@ -9,17 +9,34 @@
 //  Versioned: every format change adds a step to MIGRATIONS (older saves are carried forward; saves from a newer game are ignored).
 // =====================================================================
 import { ALL_ITEMS, Inventory } from './items.js';
+import { CONFIG } from '../config.js';
 
-export const SAVE_KEY = 'octo.save.v1';
-export const SAVE_VERSION = 1;
+export const SAVE_KEY = 'octo.save.v2';
+export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their save here; it is carried forward on first load, then removed
+export const SAVE_VERSION = 2;
 const WEATHER_KINDS = ['clear', 'heatwave', 'rain', 'storm'];
-const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast'];
+const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast', 'tonic'];
 const MAX_IDS = 6000, MAX_CELLS = 6000, MAX_DENS = 3;
 
 /** old formats -> the next one. Each takes a plain object at version N and returns it at N + 1. */
 export const MIGRATIONS = {
   // v0 was an early prototype shape: { v:0, seed, pos:{x,z}, hp }  ->  the v1 layout
   0: (o) => ({ v: 1, seed: o.seed, octo: { x: o.pos?.x, z: o.pos?.z, heading: o.heading ?? 0, health: o.hp ?? 100, energy: o.energy ?? 100 }, run: o.run ?? 0 }),
+  // v1 saves belonged to a per-seed random world. v2 has ONE fixed world, so the old map no longer exists: keep what the octopus
+  // IS (satchel, effects, health, the armour and baby tally, the clock and weather) and drop everything tied to the old map
+  // (position, which things were picked up, den spots, explored cells). `fresh` = "begin at a new start point in the one world".
+  1: (o) => {
+    const p = o.octo, okN = (n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 1e6;
+    if (!p || typeof p !== 'object' || !okN(p.x) || !okN(p.z) || typeof o.seed !== 'number' || !Number.isInteger(o.seed) || o.seed < 0 || o.seed > 4294967295) throw new Error('not a v1 save');   // damaged v1 saves stay refused
+    return {
+    v: 2, seed: CONFIG.worldSeed, fresh: true, saved: o.saved,
+    octo: { heading: o.octo?.heading, health: o.octo?.health, energy: o.octo?.energy },
+    run: o.run, sea: o.sea,
+    shells: { n: o.shells?.n, o: [], r: [] },
+    babies: (Array.isArray(o.babies) ? o.babies : []).slice(0, 2000).map((_, i) => 'm' + i),
+    inv: o.inv, fx: o.fx, dens: [], got: [], explored: [], env: o.env,
+    };
+  },
 };
 
 const num = (v, lo, hi, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
@@ -46,7 +63,8 @@ export function validateSave(o) {
   const seed = o.seed;
   if (typeof seed !== 'number' || !Number.isFinite(seed) || seed < 0 || seed > 4294967295 || Math.floor(seed) !== seed) return null;
   const p = o.octo || {};
-  if (typeof p.x !== 'number' || typeof p.z !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.z) || Math.abs(p.x) > 1e6 || Math.abs(p.z) > 1e6) return null;
+  const fresh = !!o.fresh;                                  // migrated from an older world: no position, begin at a new start
+  if (!fresh && (typeof p.x !== 'number' || typeof p.z !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.z) || Math.abs(p.x) > 1e6 || Math.abs(p.z) > 1e6)) return null;
   const e = o.env || {};
   const fx = o.fx || {}, buff = {};
   for (const k of BUFFS) buff[k] = num(fx.buff?.[k], 0, 600, 0);
@@ -55,8 +73,8 @@ export function validateSave(o) {
   const inv = new Inventory().load(o.inv).toJSON();
   const cells = Array.isArray(o.explored) ? o.explored.filter((n) => Number.isInteger(n) && n >= 0 && n < 1e9).slice(0, MAX_CELLS) : [];
   return {
-    v: SAVE_VERSION, seed, saved: num(o.saved, 0, 4e12, 0),
-    octo: { x: p.x, z: p.z, heading: num(p.heading, -1000, 1000, 0), health: num(p.health, 1, 100, 100), energy: num(p.energy, 0, 100, 100) },
+    v: SAVE_VERSION, seed, fresh, saved: num(o.saved, 0, 4e12, 0),
+    octo: { x: fresh ? null : p.x, z: fresh ? null : p.z, heading: num(p.heading, -1000, 1000, 0), health: num(p.health, 1, 100, 100), energy: num(p.energy, 0, 100, 100) },
     run: num(o.run, 0, 1e9, 0),
     sea: !!o.sea,
     shells: { n: Math.floor(num(sh.n, 0, 100000, 0)), o: (Array.isArray(sh.o) ? sh.o.filter((n) => Number.isInteger(n) && n >= 0 && n < 100000).slice(0, MAX_IDS) : []), r: ids(sh.r, ID_RE) },
@@ -102,9 +120,8 @@ export function snapshot(game) {
 /** put a (validated) save into a game whose world was just built from save.seed */
 export function applySave(game, s) {
   const o = game.octopus, w = game.world;
-  o.x = s.octo.x; o.z = s.octo.z; o.y = w.heightAt(o.x, o.z); o.heading = s.octo.heading;
+  if (!s.fresh) { o.x = s.octo.x; o.z = s.octo.z; o.y = w.heightAt(o.x, o.z); o.heading = s.octo.heading; game.input.yaw = s.octo.heading + Math.PI; }
   o.health = s.octo.health; o.energy = s.octo.energy;
-  game.input.yaw = s.octo.heading + Math.PI;
   game.runTime = s.run;
   game.progress.shells = s.shells.n; game.progress.rescued = new Set(s.babies); game.progress.seaReached = s.sea;
   o.armor = game.progress.armor;
@@ -125,9 +142,20 @@ export function applySave(game, s) {
 
 // ---------------------------------------------------------------- browser storage (never throws)
 const isFuture = (text) => { try { const o = JSON.parse(text); return Number.isInteger(o?.v) && o.v > SAVE_VERSION; } catch { return false; } };
+/** a save from an older game (kept under an older key): carry it forward, store it under the current key, forget the old one. Never throws. */
+function loadLegacy(storage) {
+  for (const k of LEGACY_KEYS) {
+    let text; try { text = storage.getItem(k); } catch { return null; }
+    if (!text) continue;
+    const s = readSaveText(text);
+    if (s) { if (writeSave(s, storage)) { try { storage.removeItem(k); } catch { /* ignore */ } } return s; }
+    if (!isFuture(text)) { try { storage.removeItem(k); } catch { /* ignore */ } }
+  }
+  return null;
+}
 export function loadSave(storage = globalThis.localStorage) {
   let text; try { text = storage?.getItem(SAVE_KEY); } catch { return null; }
-  if (!text) return null;
+  if (!text) return loadLegacy(storage);
   const s = readSaveText(text);
   if (!s && !isFuture(text)) { try { storage.removeItem(SAVE_KEY); } catch { /* ignore */ } }      // damaged: forget it rather than trip on it every time (a newer game's save is left alone)
   return s;

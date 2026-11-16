@@ -43,6 +43,7 @@ export function placeAreas(w) {
   ctx.prop = prop;
   const dom = (x, z) => { const q = w.biomes.weights(x, z); let id = 0; for (let i = 1; i < q.length; i++) if (q[i] > q[id]) id = i; return BIOMES[id]; };
   ctx.dom = dom;
+  ctx.mix = (x, z) => BIOMES[w.biomes.sample(x, z, rnd())];            // ecotones: pick a biome in proportion to its weight here (see BiomeField.sample)
   const freeSpot = (x, z, pad = 1) => !w._blocked(x, z, pad);
 
   // ---- 1. buildings, yards, streets, farms ---------------------------------------------------
@@ -160,7 +161,7 @@ function town(ctx) {
     }
     for (const [dx, dz] of [[-hw + 1, -hd + 1], [hw - 1, -hd + 1], [-hw + 1, hd - 1], [hw - 1, hd - 1]]) prop('lamp', s.x + dx, s.z + dz, {});
     // puddles & a drip-prone drain in the lot
-    if (w._farFromWater(s.x + 10, s.z, 6)) w._addWater('puddle', s.x + 10, s.z, 3.0);
+    if (w._farFromWater(s.x + 10, s.z, 6) && w._ringStats(s.x + 10, s.z, 3.0).spread < 0.15 && w.creekDist(s.x + 10, s.z) > 18) w._addWater('puddle', s.x + 10, s.z, 3.0);
     made++;
   }
   // street bins & lamps along the roads
@@ -298,7 +299,7 @@ function scatterTrees(ctx) {
   const startTrees = trees.length;
   while (trees.length - startTrees < target && tries++ < target * 22) {
     const x = rnd.range(-w.half + edge, w.half - edge), z = rnd.range(-w.half + edge, w.half - edge);
-    const b = ctx.dom(x, z);
+    const b = ctx.mix(x, z);
     const rule = TREE_RULES[b];
     if (!rule || rnd() > rule.p) continue;
     const tw = w.tAt(x, z);
@@ -323,7 +324,7 @@ function scatterRocks(ctx) {
   let tries = 0, n = 0;
   while (n < target && tries++ < target * 40) {
     const x = rnd.range(-w.half + 30, w.half - 30), z = rnd.range(-w.half + 30, w.half - 30);
-    const b = ctx.dom(x, z);
+    const b = ctx.mix(x, z);
     let p = P[b] ?? 0;
     if (b === 'bush' && w.baseType(x, z) === 'rock') p = 0.5;
     if (b === 'headland' && w.tAt(x, z) > 0.96) p = 0.12;

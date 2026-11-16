@@ -9,7 +9,8 @@ export const CONFIG = {
   terrainCell: 2.5,        // terrain grid spacing (smaller = prettier but heavier)
   startDistance: 0.42,     // how far from the world centre the octopus starts (fraction of half-size)
   coastDistance: 0.48,     // how far the shoreline is on the opposite side (fraction of half-size)
-  seed: null,              // null = new random world each run; or a number. URL: ?seed=123
+  worldSeed: 45,           // THE world: one fixed map for everybody (chosen so every biome is within ~800 m of every start). Only the start point varies.
+  seed: null,              // dev/debug only: null = the one world; or a number for a different one. URL: ?seed=123
 
   // ---- Octopus -----------------------------------------------------
   octopus: {

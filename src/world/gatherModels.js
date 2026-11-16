@@ -144,7 +144,51 @@ export const shrimp = () => merge([
   at(SHRIMP.feeler(), -0.02, 0.07, 0.17, 0, 0.12, 0), at(SHRIMP.feeler(), 0.02, 0.07, 0.17, 0, -0.12, 0),
 ]);
 
-export const GATHER_MODELS = { crab, shrimp, snail, mussel, kelp, lettuce, sponge, coral: coralBit, shellhalf, pebble, moss, coconut, cap, jar };
+// ---------------------------------------------------------------- biome-specific finds (t239u)
+export const urchin = () => {
+  const parts = [at(paint(sph(1, 9, 7), (x, y) => mixC(0x3a2458, 0x7a58a8, y * 0.5 + 0.5)), 0, 0.07, 0, 0, 0, 0, 0.07, 0.06, 0.07)];
+  const N = 22, up = new THREE.Vector3(0, 1, 0), q = new THREE.Quaternion(), m = new THREE.Matrix4();
+  for (let i = 0; i < N; i++) {                                                     // spines on a Fibonacci sphere, none pointing into the ground
+    const yy = 1 - (i + 0.5) / N * 1.7, r = Math.sqrt(1 - yy * yy), a = i * 2.39996;
+    const d = new THREE.Vector3(Math.cos(a) * r, yy, Math.sin(a) * r);
+    const g = paint(new THREE.ConeGeometry(0.0075, 0.1, 4), (x, y) => mixC(0x4a3070, 0xb89ee0, y * 6 + 0.4));
+    g.translate(0, 0.05, 0);
+    q.setFromUnitVectors(up, d); m.compose(new THREE.Vector3(d.x * 0.055, 0.07 + d.y * 0.05, d.z * 0.055), q, new THREE.Vector3(1, 1, 1));
+    parts.push(g.applyMatrix4(m));
+  }
+  return merge(parts);
+};
+export const worm = () => {
+  const curve = new THREE.CatmullRomCurve3(Array.from({ length: 9 }, (_, i) => new THREE.Vector3(-0.15 + i * 0.0375, 0.014, Math.sin(i * 1.5) * 0.04)));
+  const tube = paint(new THREE.TubeGeometry(curve, 28, 0.014, 6, false), (x) => (x > -0.02 && x < 0.04 ? 0xf0b0a4 : mixC(0xc4706a, 0xdb8f86, (x + 0.15) * 3)));
+  return merge([tube, at(paint(sph(1, 6, 4), () => 0xe0968c), 0.152, 0.014, 0.0, 0, 0, 0, 0.018, 0.013, 0.013)]);
+};
+export const beetle = () => {
+  const parts = [
+    at(paint(sph(1, 10, 7), (x, y, z) => mixC(0x1f6a52, 0x7ee0b6, y * 0.7 + 0.2 + Math.abs(z) * 0.05)), 0, 0.045, -0.01, 0, 0, 0, 0.055, 0.04, 0.085),
+    at(tint(sph(1, 7, 5), 0x15302a), 0, 0.04, 0.085, 0, 0, 0, 0.032, 0.026, 0.028),
+    at(tint(new THREE.BoxGeometry(0.004, 0.003, 0.15), 0x103a2c), 0, 0.083, -0.01),
+  ];
+  for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) parts.push(at(tint(new THREE.CylinderGeometry(0.004, 0.004, 0.07, 3), 0x15302a), sx * 0.05, 0.022, -0.045 + i * 0.045, 0, 0, sx * (Math.PI / 2 - 0.6)));
+  for (const sx of [-1, 1]) parts.push(at(tint(new THREE.CylinderGeometry(0.0025, 0.0025, 0.06, 3), 0x15302a), sx * 0.02, 0.06, 0.12, Math.PI / 2 - 0.3, 0, sx * 0.4));
+  return merge(parts);
+};
+export const spawn = () => {
+  const parts = [], pts = [[0, 0], [0.05, 0.01], [-0.045, 0.02], [0.02, -0.05], [-0.02, 0.05], [0.07, -0.035], [-0.07, -0.02], [0.0, 0.0, 1], [0.03, 0.02, 1], [-0.03, -0.02, 1], [0.01, -0.03, 1]];
+  pts.forEach(([x, z, up], i) => {
+    const y = up ? 0.07 : 0.028;
+    parts.push(at(paint(sph(1, 7, 5), (px, py) => mixC(0xb8e0d0, 0xe8fff4, py * 0.5 + 0.5)), x, y, z, 0, 0, 0, 0.03, 0.027, 0.03));
+    parts.push(at(tint(sph(1, 5, 4), 0x23302a), x, y, z, 0, 0, 0, 0.011, 0.011, 0.011));
+  });
+  return merge(parts);
+};
+export const propagule = () => merge([
+  at(paint(sph(1, 9, 6), (x, y) => mixC(0x6e8a30, 0xb8cc60, x * 3 + 0.5 + y * 0.2)), 0, 0.03, 0, 0, 0, 0, 0.16, 0.03, 0.03),
+  at(tint(new THREE.ConeGeometry(0.014, 0.05, 6), 0x9bb34a), 0.185, 0.03, 0, 0, 0, -Math.PI / 2),
+  at(paint(sph(1, 7, 5), (x, y) => mixC(0x7a5a2c, 0xa88650, y * 0.5 + 0.5)), -0.15, 0.03, 0, 0, 0, 0, 0.04, 0.034, 0.034),
+]);
+
+export const GATHER_MODELS = { crab, shrimp, snail, mussel, kelp, lettuce, sponge, coral: coralBit, shellhalf, pebble, moss, coconut, cap, jar, urchin, worm, beetle, spawn, propagule };
 export function buildGatherGeos() { const o = {}; for (const k in GATHER_MODELS) o[k] = GATHER_MODELS[k](); return o; }
 /** how each kind sits: tilt to the slope (0..1) */
-export const GATHER_TILT = { crab: 0.5, shrimp: 0.3, snail: 0.6, mussel: 0.8, kelp: 0, lettuce: 0.7, sponge: 0.2, coral: 0.2, shellhalf: 1, pebble: 1, moss: 0.6, coconut: 1, cap: 1, jar: 0.8 };
+export const GATHER_TILT = { crab: 0.5, shrimp: 0.3, snail: 0.6, mussel: 0.8, kelp: 0, lettuce: 0.7, sponge: 0.2, coral: 0.2, shellhalf: 1, pebble: 1, moss: 0.6, coconut: 1, cap: 1, jar: 0.8, urchin: 0.6, worm: 0.9, beetle: 0.5, spawn: 0.7, propagule: 1 };

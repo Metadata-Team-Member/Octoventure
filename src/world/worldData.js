@@ -120,8 +120,8 @@ export class WorldData {
   // ---------------- coast stretches & the creek (decided first: no heights needed) -----------------
   _makeCoast() {
     const rnd = this.rnd;
-    const order = [0, 1, 2, 3];
-    for (let i = 3; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    // natural neighbours along the shore: rocky headland -> beach (and dunes) -> river mouth -> mangroves -> (headland again)
+    const order = [2, 0, 3, 1];
     const segs = []; let a = 0;
     for (const k of order) { const wdt = k === 3 ? rnd.range(240, 330) : rnd.range(290, 440); segs.push({ kind: k, a, b: a + wdt }); a += wdt; }
     const period = a;
@@ -193,9 +193,10 @@ export class WorldData {
     const amp = w[B.suburb] * 0.8 + w[B.town] * 0.45 + w[B.farm] * 1.9 + w[B.bush] * (3.4 + 5.2 * hills) + w[B.riverbank] * 1.6 +
       w[B.wetland] * 0.5 + w[B.dunes] * 2.4 + w[B.beach] * 0.9 + w[B.headland] * 7.5 + w[B.estuary] * 0.3 + w[B.sea] * 0.8;
     const low = w[B.wetland] + w[B.estuary];
-    let h = lerp(2.3, 1.1, low) + amp * (n.fbm(x * 0.011, z * 0.011, 4) + 1) * 0.95 + 0.22 * n.noise2(x * 0.13, z * 0.13) * (1 - low * 0.6);
-    // creek valley: the banks slope gently down to the water
     const cd = this.creekDist(x, z);
+    // (the fine ground ripple is ironed out along the creek bed, so the water surface never hangs over a bump)
+    let h = lerp(2.3, 1.1, low) + amp * (n.fbm(x * 0.011, z * 0.011, 4) + 1) * 0.95 + 0.22 * n.noise2(x * 0.13, z * 0.13) * (1 - low * 0.6) * (cd < 14 ? 0.25 + 0.75 * ss(3, 14, cd) : 1);
+    // creek valley: the banks slope gently down to the water
     if (cd < 22) h -= 0.55 * (1 - ss(3, 22, cd)) * (1 - low);
     // ---- the shore: each stretch of coast has its own profile ------------------------------
     const coast = ss(0.64, 0.74, tw);
@@ -333,8 +334,14 @@ export class WorldData {
     const tw = this.tAt(x, z);
     if (tw > 1.0) return 'wet';
     const w = this.biomes.weights(x, z);
-    let id = 0;
-    for (let i = 1; i < w.length; i++) if (w[i] > w[id]) id = i;
+    // ground in an ecotone: the biome whose weight (plus a patchy ~15 m noise) is highest, so ground of both biomes interleaves in
+    // irregular patches across the blend and is pure in the middle of each biome
+    let id = 0, best = -9;
+    for (let i = 0; i < w.length; i++) {
+      if (w[i] < 0.02) continue;
+      const sc = w[i] >= 0.86 ? w[i] + 1 : w[i] + 0.34 * n.noise2(x * 0.07 + i * 31.7, z * 0.07 - i * 13.1);
+      if (sc > best) { best = sc; id = i; }
+    }
     switch (BIOMES[id]) {
       case 'suburb':
         if (this.isRoad(x, z)) return 'road';
@@ -516,7 +523,35 @@ export class WorldData {
       sx = x; sz = z; break;
     }
     this.start = { x: sx, z: sz };
+    this.home = { x: sx, z: sz };
   }
+
+  /**
+   * ONE fixed world, a different start every game. `home` is where the canonical start garden is (its tap and puddle);
+   * `start` is where THIS game begins. pickSpawn() chooses a dry, flat, walkable spot on the inland side of the map (so the
+   * sea is a long way off in a direction the player cannot know), with a drink of water close by.
+   */
+  spawnOk(x, z) {
+    if (Math.abs(x) > this.half - 70 || Math.abs(z) > this.half - 70) return false;
+    if (this.heightAt(x, z) < 1.0 || this.waterAt(x, z) || this._blocked(x, z, 3) || this.isRoad(x, z, 8) || this._slope(x, z, 3) > 0.15) return false;
+    if (this.inLot(x, z, 4)) return false;
+    const w = this.biomes.weights(x, z);
+    if (w[B.suburb] + w[B.town] + w[B.farm] + w[B.bush] + w[B.riverbank] < 0.8) return false;
+    for (const q of this.waters) { const d = Math.hypot(q.x - x, q.z - z) - q.r; if (d < 95 && d > 4) return true; }
+    return false;
+  }
+  /** a random valid start point (rnd: a seeded random function, so the daily start is the same for everybody) */
+  pickSpawn(rnd, apply = true) {
+    for (let i = 0; i < 800; i++) {
+      const u = rnd.range(-0.78, 0.78) * this.half, t = rnd.range(-0.08, 0.5);
+      const p = this.shorePoint(u, t);
+      if (!this.spawnOk(p.x, p.z)) continue;
+      if (apply) this.start = { x: p.x, z: p.z };
+      return { x: p.x, z: p.z };
+    }
+    return { x: this.home.x, z: this.home.z };
+  }
+  setSpawn(x, z) { this.start = { x, z }; }
 
   _placeWater() {
     const W = this.cfg.water, rnd = this.rnd, K = this.areaScale;
@@ -563,18 +598,19 @@ export class WorldData {
         const r = rnd.range(rr[0], rr[1]);
         if (this.typeAt(s.x, s.z) === 'road') continue;
         if (opts.spread !== undefined && this._ringStats(s.x, s.z, r).spread > opts.spread) continue;     // too sloped to hold a level pool
+        if (this.creekDist(s.x, s.z) < r + 12) continue;                                                     // the creek carves its own banks: keep pools clear of them
         this._addWater(kind, s.x, s.z, r, { depth: opts.depth ?? 0.1 });
         made++;
       }
       return made;
     };
     const ALL = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'headland'];
-    put('puddle', Math.round(W.puddleCount * K), ALL, [2.6, 4.4], { zone: true, spacing: 16, minW: 0.5, maxSlope: 0.05, spread: 0.2 });
-    put('dam', Math.round(8 * K / 4 * 1), ['farm'], [9, 13], { spacing: 60, depth: 0.4, maxSlope: 0.04, spread: 0.7 });
-    put('pond', Math.round((W.pondCount ?? 6) * K * 0.5), ['bush', 'suburb', 'riverbank'], [5, 8], { spacing: 40, depth: 0.35, maxSlope: 0.06, spread: 0.4 });
-    put('pond', Math.round(10 * K), ['wetland'], [4, 8], { spacing: 18, depth: 0.3, maxSlope: 0.07, spread: 0.4, minH: 0.5, minW: 0.5 });
-    put('tidepool', Math.round(W.tidepoolCount * K * 0.8), ['headland'], [2.6, 4.4], { spacing: 12, minH: 0.2, maxSlope: 0.1, spread: 0.3, depth: 0.2, minW: 0.3 });
-    put('tidepool', Math.round(W.tidepoolCount * K * 0.15), ['beach', 'estuary'], [2.2, 3.4], { spacing: 25, minH: 0.2, maxSlope: 0.08, spread: 0.3, depth: 0.2, minW: 0.3 });
+    put('puddle', Math.round(W.puddleCount * K), ALL, [2.6, 4.4], { zone: true, spacing: 16, minW: 0.5, maxSlope: 0.05, spread: 0.15 });
+    put('dam', Math.round(8 * K / 4 * 1), ['farm'], [9, 13], { spacing: 60, depth: 0.4, maxSlope: 0.04, spread: 0.5 });
+    put('pond', Math.round((W.pondCount ?? 6) * K * 0.5), ['bush', 'suburb', 'riverbank'], [5, 8], { spacing: 40, depth: 0.35, maxSlope: 0.06, spread: 0.2 });
+    put('pond', Math.round(10 * K), ['wetland'], [4, 8], { spacing: 18, depth: 0.3, maxSlope: 0.07, spread: 0.2, minH: 0.5, minW: 0.5 });
+    put('tidepool', Math.round(W.tidepoolCount * K * 0.8), ['headland'], [2.6, 4.4], { spacing: 12, minH: 0.2, maxSlope: 0.1, spread: 0.24, depth: 0.2, minW: 0.3 });
+    put('tidepool', Math.round(W.tidepoolCount * K * 0.15), ['beach', 'estuary'], [2.2, 3.4], { spacing: 25, minH: 0.2, maxSlope: 0.08, spread: 0.24, depth: 0.2, minW: 0.3 });
     // leaky taps in gardens, dripping seeps in the bush and on the headlands, pumps on the farm
     {
       const total = Math.round(W.dripCount * K);
@@ -635,8 +671,11 @@ export class WorldData {
         let H = Math.min(sum / c, last); last = H;
         // a stream never runs through a still pool (its carve would warp the pool's rim): leave a gap there
         let hit = false;
-        for (const q of this.carveHash.at(pts[i].x, pts[i].z)) if (STILL.has(q.kind) && Math.hypot(q.x - pts[i].x, q.z - pts[i].z) < q.r * 1.7 + 3.2) { hit = true; break; }
-        if (!hit) this._addWater('stream', pts[i].x, pts[i].z, 1.7, { H, depth: 0.1 });
+        {
+          const c = this.centreHash.cell, ix = Math.floor(pts[i].x / c), iz = Math.floor(pts[i].z / c), rr = Math.ceil(14 / c);       // every pool within reach, not just those whose own cells touch this one
+          for (let a = -rr; a <= rr && !hit; a++) for (let b = -rr; b <= rr && !hit; b++) for (const q of this.centreHash.map.get(this.centreHash.key(ix + a, iz + b)) || EMPTY) if (STILL.has(q.kind) && Math.hypot(q.x - pts[i].x, q.z - pts[i].z) < q.r * 1.7 + 3.2) { hit = true; break; }
+        }
+        if (!hit && this._slope(pts[i].x, pts[i].z, 2) < 0.16) this._addWater('stream', pts[i].x, pts[i].z, 1.7, { H, depth: 0.1 });      // (and none on a steep bank: its disc would hang over the slope)
       }
     }
     // rain clouds drifting around

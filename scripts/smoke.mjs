@@ -269,6 +269,7 @@ ok(species.length === 7, `all 7 predator species run (${species.join(' ')})`);
 
 // ---- lose -> restart ------------------------------------------------------------------------
 const seedBefore = await page.evaluate(() => { const G = window.__game; G.clearPredators(); return G.seed; });
+const startBefore = await page.evaluate(() => ({ ...window.__game.game.world.start }));
 await page.evaluate(() => { const G = window.__game; G.teleport(G.pos.x, G.pos.z); G.setHealth(0.3); window.__game.game.input.keys.add('KeyW'); });
 await page.evaluate(() => window.__game.advance(3));
 ok(await page.evaluate(() => window.__game.state) === 'dead', 'losing all health -> dead');
@@ -285,7 +286,9 @@ ok(await page.evaluate(() => window.__game.lockRequests) > reqR, 'Restart re-cap
 await page.waitForFunction(() => window.__game.state === 'playing', { timeout: 30000 });
 const after = await page.evaluate(() => ({ h: window.__game.health, seed: window.__game.seed, vis: window.__game.restartVisible }));
 ok(after.h > 98 && !after.vis, 'restart resets health and hides the overlay');
-ok(after.seed !== seedBefore, 'restart builds a new world (new sea direction)');
+const startAfter = await page.evaluate(() => ({ ...window.__game.game.world.start, ox: window.__game.game.octopus.x, oz: window.__game.game.octopus.z }));
+ok(after.seed === seedBefore, 'restart keeps the ONE world (same seed)');
+ok(Math.hypot(startAfter.x - startBefore.x, startAfter.z - startBefore.z) > 20 && Math.hypot(startAfter.ox - startAfter.x, startAfter.oz - startAfter.z) < 1, 'restart begins somewhere else in it (a new start point, the octopus is there)');
 
 // ---- the sea is part of the world: arriving is a quiet moment, play continues ------------------------------
 await page.evaluate(() => { const G = window.__game; G.clearPredators(); G.setHealth(40); });
@@ -315,15 +318,17 @@ const back = await page.evaluate(() => {
 });
 ok(back.state === 'playing' && !back.sea, 'the octopus can leave the sea and return to land');
 
-// ---- the sea direction is random per world ------------------------------------------------------------
-const angles = [];
+// ---- one world, many starts: the sea direction is fixed, the start point is not --------------------------------
+const starts = [], angles = [];
 for (let i = 0; i < 4; i++) {
-  const prev = await page.evaluate(() => window.__game.seed);
+  const prevStart = await page.evaluate(() => JSON.stringify(window.__game.game.world.start));
   await page.evaluate(() => window.__game.restart());
-  await page.waitForFunction((s) => window.__game.seed !== s && window.__game.state === 'playing', { timeout: 30000 }, prev);
+  await page.waitForFunction((s) => JSON.stringify(window.__game.game.world.start) !== s && window.__game.state === 'playing', { timeout: 30000 }, prevStart);
+  starts.push(await page.evaluate(() => { const w = window.__game.game.world; return { x: w.start.x, z: w.start.z, toSea: -w.distToSea(w.start.x, w.start.z) }; }));
   angles.push(await page.evaluate(() => window.__game.seaAngle));
 }
-ok(new Set(angles.map((a) => a.toFixed(3))).size === 4, `sea direction differs in each new world (${angles.map((a) => (a * 57.3).toFixed(0) + '°').join(', ')})`);
+ok(new Set(angles.map((a) => a.toFixed(3))).size === 1, `the sea is always in the same direction in the one world (${(angles[0] * 57.3).toFixed(0)}°)`);
+ok(new Set(starts.map((p) => p.x.toFixed(0) + ',' + p.z.toFixed(0))).size === 4 && starts.every((p) => p.toSea > 250), `each new game starts somewhere else, a trek from the sea (${starts.map((p) => p.toSea.toFixed(0) + ' m').join(', ')})`);
 
 // ---- screenshot ------------------------------------------------------------------------------------
 await page.evaluate(() => {

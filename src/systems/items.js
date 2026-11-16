@@ -7,8 +7,8 @@
 // =====================================================================
 import { GATHER_KINDS } from '../world/gather.js';
 
-export const RAW = GATHER_KINDS;                                   // crab shrimp snail mussel kelp lettuce sponge coral shellhalf pebble moss coconut cap jar
-export const MADE = ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic'];
+export const RAW = GATHER_KINDS;                                   // crab shrimp snail mussel kelp lettuce sponge coral shellhalf pebble moss coconut cap jar + urchin worm beetle spawn propagule
+export const MADE = ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'tonic', 'meal'];
 export const ALL_ITEMS = [...RAW, ...MADE];
 
 /** craft recipes: `in` = ingredient counts, `out` = the made item. More than one recipe may make the same thing. */
@@ -18,10 +18,15 @@ export const RECIPES = [
   { id: 'den', out: 'den', in: { pebble: 3, shellhalf: 1 } },
   { id: 'inksac', out: 'inksac', in: { shrimp: 2 } },
   { id: 'wrap', out: 'wrap', in: { kelp: 1, lettuce: 1 } },
+  { id: 'wrap-moss', out: 'wrap', in: { kelp: 1, moss: 1 } },                 // sea + bushland
   { id: 'feast', out: 'feast', in: { crab: 1 } },
   { id: 'gland', out: 'gland', in: { snail: 2 } },
+  { id: 'gland-beetle', out: 'gland', in: { beetle: 1, urchin: 1 } },         // bushland + rocky headland
   { id: 'hideaway', out: 'hideaway', in: { jar: 1, cap: 1 } },
   { id: 'mimic', out: 'mimic', in: { sponge: 1, coral: 1 } },
+  { id: 'mimic-moss', out: 'mimic', in: { sponge: 1, moss: 1 } },             // sea + bushland
+  { id: 'tonic', out: 'tonic', in: { urchin: 1, propagule: 1 } },             // rocky headland + mangroves
+  { id: 'meal', out: 'meal', in: { worm: 1, spawn: 1 } },                     // farmland + wetland
 ];
 
 /** how long each effect lasts (s) and how strong it is */
@@ -31,6 +36,8 @@ export const FX = {
   kelp: 110, kelpDry: 0.4,        // drying on land x0.4 while wrapped
   mimic: 140, mimicDrain: 0.35, mimicNotice: 0.55,
   feast: 45, feastHeal: 45,       // rings glow brighter; health restored at once
+  tonic: 80, tonicDrain: 0.45,    // camouflage energy refilled at once, then drains x0.45 as fast for this long
+  mealHeal: 100, mealGlow: 90,    // a hearty meal: full health at once and the rings glow for twice as long
   inkCharges: 3,                  // squirts per ink sac (usable anywhere, no cooldown)
   venomScare: 2.4, venomRange: 1.6,  // the next bite scares for x2.4 as long, from x1.6 as far
   mussel: 20, moss: 12,           // eaten straight from the satchel (health)
@@ -38,7 +45,7 @@ export const FX = {
 };
 
 /** things you can use straight from the satchel (a click / Enter / quick key) */
-export const USABLE = new Set(['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'mussel', 'moss']);
+export const USABLE = new Set(['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'mussel', 'moss', 'tonic', 'meal']);
 
 export class Inventory {
   constructor() { this.reset(); }

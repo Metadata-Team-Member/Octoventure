@@ -166,7 +166,7 @@ export class Octopus {
     this.shake = 0; this.thump = 0; this.group.visible = true; this.pendingBabyGlow = 0;
     this.armor = 0;                // hidden: fraction of damage absorbed (set by the game from collected shells)
     // satchel effects (t236u): seconds left of each buff, plus smoothed 0..1 blends for the visuals
-    this.buff = { shield: 0, jar: 0, kelp: 0, mimic: 0, feast: 0 };
+    this.buff = { shield: 0, jar: 0, kelp: 0, mimic: 0, feast: 0, tonic: 0 };
     this.shieldClosed = 0; this.jarF = 0; this.kelpF = 0; this.mimicF = 0; this.feastF = 0; this.restF = 0; this.restT = 0; this.restEvent = false;
     this.inkCharges = 0; this.venomReady = false; this.moveMult = 1;
   }
@@ -218,7 +218,7 @@ export class Octopus {
       this.camoWanted = wantCamo;
       if (wantCamo) {
         // tucked into a shell, tin or log, camouflage costs nothing
-        if (!this.hiddenIn) this.energy = Math.max(0, this.energy - C.drainPerSec * diff().camoDrain * (this.buff.mimic > 0 ? FX.mimicDrain : 1) * dt);
+        if (!this.hiddenIn) this.energy = Math.max(0, this.energy - C.drainPerSec * diff().camoDrain * (this.buff.mimic > 0 ? FX.mimicDrain : 1) * (this.buff.tonic > 0 ? FX.tonicDrain : 1) * dt);
         if (this.energy <= 0.01) { this.camoLocked = true; this.camoWanted = false; }
       } else {
         this.energy = Math.min(C.maxEnergy, this.energy + C.regenPerSec * dt);

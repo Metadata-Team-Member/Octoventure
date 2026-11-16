@@ -378,7 +378,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   const waitWorld = (prev) => page.waitForFunction((p) => window.__game.game.world.seed !== p || false, { timeout: 60000 }, prev);
   await pauseMenu();
   const vis = await E(() => [...document.querySelectorAll('#opts button')].map((b) => b.innerText.trim()).join('|'));
-  ok(vis === 'Gentle|Normal|Harsh|Daily|New world|Copy code|Paste code', `pause menu: Resume plus tiny chips (${vis})`);
+  ok(vis === 'Gentle|Normal|Harsh|Daily|New start|Copy code|Paste code', `pause menu: Resume plus tiny chips (${vis})`);
   await page.click('[data-diff="harsh"]');
   ok(await E(() => window.__game.game.constructor && document.querySelector('[data-diff="harsh"]').classList.contains('on') && !document.querySelector('[data-diff="normal"]').classList.contains('on')), 'Harsh chip selects Harsh');
   const dmg = await E(() => { const G = window.__game; return { d: G.game.hud && G.difficulty, cfg: G.difficultyName }; });

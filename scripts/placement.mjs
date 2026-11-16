@@ -14,7 +14,7 @@ import { PARTS, treeGeometries } from '../src/world/models.js';
 import { treeConnectivity } from '../src/world/treeCheck.js';
 
 const LEGACY = process.argv.includes('legacy');
-const SEEDS = (process.env.SEEDS || '11,2026,77,5150,9001').split(',').map(Number);
+const SEEDS = (process.env.SEEDS || '45,1,2,3,7,11,77').split(',').map(Number);
 const PLANT = new Set(['grass', 'reed', 'seagrass', 'flower']);
 const BUILDING = new Set(['house0', 'house1', 'house2', 'shop', 'barn', 'silo', 'shed', 'shack', 'lighthouse', 'windmill', 'watertower']);
 
@@ -138,6 +138,7 @@ function auditSet(w, seed, surf, items, waterItems) {
   }
   // water decals: lowest point of the disc rim over the terrain
   for (const wd of waterItems) {
+    globalThis.__it = `seed ${seed} water at ${wd.q.x.toFixed(1)},${wd.q.z.toFixed(1)} r ${wd.q.r.toFixed(1)}`;
     let hov = -1e9;
     const plane = (dx, dz) => wd.y0 !== undefined ? wd.y0 + wd.gx * dx + wd.gz * dz : wd.y;
     for (let k = 0; k < 36; k++) { const a = (k + 0.37) / 36 * Math.PI * 2, dx = Math.cos(a) * wd.r, dz = Math.sin(a) * wd.r; hov = Math.max(hov, plane(dx, dz) - surf(wd.q.x + dx, wd.q.z + dz)); }
@@ -166,6 +167,8 @@ function auditSet(w, seed, surf, items, waterItems) {
 }
 const FAR_TILES = [[4, 1], [-1, 2], [1, -3], [5, 5], [-2, -2], [8, 0], [0, 7], [-4, 3], [12, -9]];
 const FARN = { tiles: 0, items: 0 };
+// the ONE world (seed 45) gets a much denser far-tile sweep: every tile of the ring just outside the original map, on all four sides and the corners
+const RING = []; for (let a = -1; a <= 4; a++) for (let b = -1; b <= 4; b++) if (a === -1 || b === -1 || a === 4 || b === 4) RING.push([a, b]);   // original map = tiles 0..3
 for (const seed of seeds) {
   const w = new WorldData(seed);
   const surf = makeSurface(w);
@@ -174,7 +177,7 @@ for (const seed of seeds) {
   auditSet(w, seed, surf, items, waterItems);
   if (!LEGACY && P.placedExtras) for (const ex of P.placedExtras(w)) tally(ex.cat, ex.name, ex.hover(surf), ex.bury(surf), ex.limit);
   // ---- the endless far land: generate tiles (coast, inland, harsh far inland, sea side) and audit them exactly like the original map
-  if (!LEGACY) for (const [rx, rz] of FAR_TILES) {
+  if (!LEGACY) for (const [rx, rz] of (seed === CONFIG.worldSeed ? [...FAR_TILES, ...RING] : FAR_TILES)) {
     const reg = w.regions.generate(rx, rz);
     FARN.tiles++; FARN.items += reg.decor.trees.length + reg.decor.rocks.length + reg.decor.grass.length + reg.decor.flowers.length + reg.waters.length + reg.shells.length;
     auditSet(w, seed + `/tile ${rx},${rz}`, surf, P.placedItems(w, lib, { region: reg }), P.waterDiscs(w, reg));

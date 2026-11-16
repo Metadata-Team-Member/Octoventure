@@ -109,12 +109,12 @@ function water(ctx) {
     }
   };
   const ALL = ['farm', 'bush', 'riverbank', 'headland'];
-  put('puddle', Math.round(W.puddleCount * K), ALL, [2.6, 4.4], { zone: true, spacing: 16, minW: 0.5, maxSlope: 0.05, spread: 0.2 });
-  put('dam', Math.round(2 * K), ['farm'], [9, 13], { spacing: 60, depth: 0.4, maxSlope: 0.04, spread: 0.7 });
-  put('pond', Math.round((W.pondCount ?? 6) * K * 0.5), ['bush', 'riverbank'], [5, 8], { spacing: 40, depth: 0.35, maxSlope: 0.06, spread: 0.4 });
-  put('pond', Math.round(10 * K), ['wetland'], [4, 8], { spacing: 18, depth: 0.3, maxSlope: 0.07, spread: 0.4, minH: 0.5, minW: 0.5 });
-  put('tidepool', Math.round(W.tidepoolCount * K * 0.8), ['headland'], [2.6, 4.4], { spacing: 12, minH: 0.2, maxSlope: 0.1, spread: 0.3, depth: 0.2, minW: 0.3 });
-  put('tidepool', Math.round(W.tidepoolCount * K * 0.15), ['beach', 'estuary'], [2.2, 3.4], { spacing: 25, minH: 0.2, maxSlope: 0.08, spread: 0.3, depth: 0.2, minW: 0.3 });
+  put('puddle', Math.round(W.puddleCount * K), ALL, [2.6, 4.4], { zone: true, spacing: 16, minW: 0.5, maxSlope: 0.05, spread: 0.15 });
+  put('dam', Math.round(2 * K), ['farm'], [9, 13], { spacing: 60, depth: 0.4, maxSlope: 0.04, spread: 0.5 });
+  put('pond', Math.round((W.pondCount ?? 6) * K * 0.5), ['bush', 'riverbank'], [5, 8], { spacing: 40, depth: 0.35, maxSlope: 0.06, spread: 0.2 });
+  put('pond', Math.round(10 * K), ['wetland'], [4, 8], { spacing: 18, depth: 0.3, maxSlope: 0.07, spread: 0.2, minH: 0.5, minW: 0.5 });
+  put('tidepool', Math.round(W.tidepoolCount * K * 0.8), ['headland'], [2.6, 4.4], { spacing: 12, minH: 0.2, maxSlope: 0.1, spread: 0.24, depth: 0.2, minW: 0.3 });
+  put('tidepool', Math.round(W.tidepoolCount * K * 0.15), ['beach', 'estuary'], [2.2, 3.4], { spacing: 25, minH: 0.2, maxSlope: 0.08, spread: 0.24, depth: 0.2, minW: 0.3 });
 }
 
 // ---------------------------------------------------------------- trees, rocks, ground cover
@@ -124,7 +124,7 @@ function trees(ctx) {
   const out = reg.decor.trees; let tries = 0;
   while (out.length < target && tries++ < target * 22) {
     const [x, z] = pt(rnd, sk, 4);
-    const b = dom(w, x, z), rule = TREE_RULES[b];
+    const b = BIOMES[w.biomes.sample(x, z, rnd())], rule = TREE_RULES[b];
     if (!rule || rnd() > rule.p || !keep(ctx, x, z, 0.6)) continue;
     const tw = w.tAt(x, z);
     let kind = null, r = rnd(), acc = 0;
@@ -147,7 +147,7 @@ function rocks(ctx) {
   let tries = 0, n = 0;
   while (n < target && tries++ < target * 40) {
     const [x, z] = pt(rnd, sk, 4);
-    const b = dom(w, x, z);
+    const b = BIOMES[w.biomes.sample(x, z, rnd())];
     let p = P[b] ?? 0;
     if (b === 'bush' && w.baseType(x, z) === 'rock') p = 0.5;
     if (b === 'headland' && w.tAt(x, z) > 0.96) p = 0.12;

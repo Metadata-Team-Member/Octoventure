@@ -7,6 +7,8 @@
 //    feast      the blue rings glow brighter; health comes back at once
 //    gland      amber rings: the next bite reaches further and scares for much longer
 //    hideaway   you tuck inside a glass jar; birds can't get at you; slow going
+//    tonic      urchin + mangrove seed: camouflage energy refilled, then it drains slowly for a while
+//    meal       worm + frog spawn: full health and long-glowing rings
 //    mimic      sponge + coral on the back, skin half-matched to the ground; cheaper camouflage, harder to notice
 //  Nothing is spelled out in the game itself: the pictures in the satchel and what you see on the octopus are the whole interface.
 // =====================================================================
@@ -69,6 +71,8 @@ export class Abilities {
       case 'feast': o.health = Math.min(100, o.health + FX.feastHeal); o.buff.feast = FX.feast; o.glowBoost = 1; break;
       case 'gland': if (o.venomReady) return false; o.venomReady = true; break;
       case 'mimic': o.buff.mimic = FX.mimic; break;
+      case 'tonic': if (o.energy > 96 && o.buff.tonic > 0) return false; o.energy = 100; o.buff.tonic = FX.tonic; o.glowBoost = 0.6; break;
+      case 'meal': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.mealHeal); o.buff.feast = FX.mealGlow; o.glowBoost = 1; break;
       case 'mussel': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.mussel); o.glowBoost = 0.5; break;
       case 'moss': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.moss); o.glowBoost = 0.3; break;
       default: ok = false;
@@ -81,7 +85,9 @@ export class Abilities {
   quickShelter() { return this.use(this.game.inv.count('shield') ? 'shield' : 'hideaway'); }
   quickBoost() {
     const o = this.game.octopus, n = (k) => this.game.inv.count(k);
+    if (n('meal') && o.health < 55) return this.use('meal');
     if (n('feast') && o.health < 92) return this.use('feast');
+    if (n('tonic') && o.energy < 35 && !o.buff.tonic) return this.use('tonic');
     if (n('wrap') && !o.buff.kelp && !o.inWater) return this.use('wrap');
     if (n('gland') && !o.venomReady) return this.use('gland');
     if (n('mimic') && !o.buff.mimic) return this.use('mimic');

@@ -64,24 +64,34 @@ export class BiomeField {
     w.fill(0);
     const tw = W.tAt(x, z);
     const u = W.lateral(x, z);
-    // ---- inland bands -------------------------------------------------------------------
-    let urban = 1 - ss(0.12, 0.20, tw);
-    let farm = ss(0.14, 0.22, tw) * (1 - ss(0.36, 0.44, tw));
-    let bush = ss(0.36, 0.44, tw) * (1 - ss(0.66, 0.74, tw));
+    // ---- inland bands: a warped mosaic, not stripes ---------------------------------------
+    // the band coordinate is pushed around by two scales of noise (borders meander by ~70 m), and patches of the
+    // neighbouring biome (a farm in the bush hills, a stand of bush in the paddocks, a hamlet) break the bands up.
+    const tb = tw + n.fbm(x * 0.0042 + 101, z * 0.0042 - 57, 3) * 0.1 + n.fbm(x * 0.012 - 8, z * 0.012 + 3, 2) * 0.025;
+    const pk = n.fbm(x * 0.0038 - 211, z * 0.0038 + 61, 2);
+    let urban = 1 - ss(0.12, 0.20, tb);
+    let farm = ss(0.14, 0.22, tb) * (1 - ss(0.36, 0.44, tb));
+    let bush = ss(0.36, 0.44, tb) * (1 - ss(0.66, 0.74, tb));
+    const farmInBush = ss(0.1, 0.28, pk) * ss(0.38, 0.5, tb) * (1 - ss(0.58, 0.68, tb));
+    const bushInFarm = ss(0.1, 0.28, -pk) * ss(0.14, 0.24, tb) * (1 - ss(0.34, 0.44, tb));
+    const hamlet = ss(0.25, 0.45, n.fbm(x * 0.0036 + 400, z * 0.0036 - 90, 2)) * ss(0.2, 0.27, tb) * (1 - ss(0.36, 0.44, tb));
+    farm = Math.max(farm * (1 - bushInFarm) * (1 - hamlet), farmInBush);
+    bush = Math.max(bush * (1 - farmInBush), bushInFarm);
+    urban = Math.max(urban, hamlet * 0.9);
     // far behind the start there is no band structure any more: a patchwork of everything inland
     const behind = ss(-0.12, -0.34, tw);
     if (behind > 0) {
       const pn = n.fbm(x * 0.0032 + 17, z * 0.0032 - 5, 2);
-      const tf = ss(0.0, 0.28, pn), tb = ss(0.0, -0.28, pn);
-      urban *= 1 - behind * Math.min(1, tf + tb);
+      const tf = ss(0.0, 0.28, pn), tb2 = ss(0.0, -0.28, pn);
+      urban *= 1 - behind * Math.min(1, tf + tb2);
       farm = Math.max(farm, behind * tf);
-      bush = Math.max(bush, behind * tb);
+      bush = Math.max(bush, behind * tb2);
     }
     // beyond the original map there are no more streets: the suburbs and town thin out into farmland and bush
     const out = Math.max(Math.abs(x), Math.abs(z)) - W.half;
     if (out > -80) { const f = ss(-80, 120, out); farm = Math.max(farm, urban * f * 0.5); bush = Math.max(bush, urban * f * 0.5); urban *= 1 - f; }
     const townN = ss(-0.05, 0.3, n.fbm(x * 0.0046 - 31, z * 0.0046 + 9, 2));
-    const townMask = townN * ss(0.02, 0.06, tw);                 // none right at the start
+    const townMask = townN * ss(0.02, 0.06, tw) * (1 - hamlet * 0.9);  // none right at the start, and hamlets are all houses
     w[B.town] = urban * townMask;
     w[B.suburb] = urban * (1 - townMask);
     w[B.farm] = farm;
@@ -118,6 +128,17 @@ export class BiomeField {
     if (sum < 1e-6) { w[B.bush] = 1; sum = 1; }
     for (let i = 0; i < NB; i++) w[i] /= sum;
     return w;
+  }
+
+  /**
+   * a biome id drawn AT RANDOM in proportion to the weights at x,z (u = a uniform random number). In the middle of a biome this is
+   * always that biome; across a blended ecotone it hands out both, so trees, rocks and props of the two biomes intermix and thin out
+   * instead of stopping at a line.
+   */
+  sample(x, z, u) {
+    const q = this.weights(x, z); let acc = 0;
+    for (let i = 0; i < NB; i++) { acc += q[i]; if (u <= acc) return i; }
+    return this.at(x, z);
   }
 
   /** index of the dominant biome */

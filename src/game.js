@@ -24,7 +24,7 @@ import { Abilities } from './systems/abilities.js';
 import { Inventory, FX } from './systems/items.js';
 import { Satchel } from './ui/satchel.js';
 import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell } from './systems/save.js';
-import { clamp, damp, lerp } from './util/rng.js';
+import { clamp, damp, lerp, mulberry32 } from './util/rng.js';
 const _fadeT = new THREE.Vector3();
 
 const CAUSE = { dry: 'The octopus dried out', gull: 'Pecked by a seagull', cat: 'Caught by a cat', dog: 'Chased down by a dog', fox: 'Caught by a fox', crab: 'Pinched by a crab', eagle: 'Snatched by an eagle', human: 'Picked up by a person', car: 'Hit by a car', magpie: 'Swooped by a magpie', kookaburra: 'Swooped by a kookaburra' };
@@ -152,20 +152,23 @@ void main(){
     try { localStorage.setItem('octo.settings', JSON.stringify({ difficulty: CONFIG.difficulty, daily: this.daily })); } catch { /* ignore */ }
   }
   setDifficulty(d) { if (!CONFIG.difficulties[d]) return; CONFIG.difficulty = d; this.saveSettings(); }
-  /** pause-menu: leave the pause overlay and start a fresh world (the daily world when Daily is on) */
-  newRun() { this.setPaused(false); this.restart(this.daily ? dailySeed() : undefined); }
+  /** pause-menu: leave the pause overlay and begin again somewhere else in the (one) world; Daily gives the day's shared start */
+  newRun() { this.setPaused(false); this.restart(); }
 
   // ------------------------------------------------------------------ worlds
   newWorld(seed, save = null) {
     const hadWorld = this.hadWorld;
     if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); }
-    // ?seed= / CONFIG.seed only fix the FIRST world; every restart rolls a new world (and a new sea direction)
-    const fixed = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
-    const s = seed ?? (!this.hadWorld && fixed != null ? fixed : this.daily ? dailySeed() : Math.floor(Math.random() * 1e9));
+    // ONE fixed world for everyone (CONFIG.worldSeed); ?seed= is a dev/debug override only. Each new game starts somewhere else in it.
+    const dbg = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
+    const s = seed ?? dbg ?? CONFIG.worldSeed;
     this.hadWorld = true;
     const g0 = performance.now();
     this.world = new WorldData(s);
     this.genMs = performance.now() - g0;
+    // where this game begins: a saved position, or a fresh random start (the daily start is the same for everybody that day)
+    if (save?.octo && !save.fresh) this.world.setSpawn(save.octo.x, save.octo.z);
+    else this.world.pickSpawn(this.daily ? mulberry32(dailySeed()) : mulberry32((Math.random() * 4294967296) >>> 0));
     this.view = new WorldView(this.world, this.scene, { shadows: this.shadows });
     if (!this.octopus) this.octopus = new Octopus(this.world, this.scene); else this.octopus.reset(this.world);
     this.env = new Environment(this.world);
