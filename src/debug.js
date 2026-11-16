@@ -1,5 +1,6 @@
+import { dailySeed } from './util/daily.js';
 // window.__game: handy hooks for tests and for tinkering from the browser console.
-import { TERRAIN } from './config.js';
+import { TERRAIN, CONFIG } from './config.js';
 
 export function installDebugHooks(game) {
   window.__game = {
@@ -24,6 +25,8 @@ export function installDebugHooks(game) {
     get yaw() { return game.input.yaw; },
     get pitch() { return game.input.pitch; },
     get paused() { return game.paused; },
+    get difficultyName() { return CONFIG.difficulty; },
+    get dailySeed() { return dailySeed(); },
     get pauseVisible() { return !document.getElementById('pause').hidden; },
     get lockSupported() { return game.input.lockSupported; },
     get lockFailed() { return game.input.lockFailed; },

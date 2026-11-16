@@ -38,3 +38,13 @@ button.link { display: block; margin: 14px auto 0; background: none; border: 0; 
 canvas#game.locked { cursor: none; }
 
 #fade { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: #dff6ff; transition: opacity 0.25s linear; z-index: 5; }
+
+/* pause-menu extras: deliberately tiny and quiet so the pause screen still reads as "Resume" */
+#pause { flex-direction: column; gap: 22px; }
+#opts { display: flex; gap: 6px; align-items: center; justify-content: center; opacity: 0.55; transition: opacity .2s; flex-wrap: wrap; max-width: 90vw; }
+#opts:hover, #opts:focus-within { opacity: 1; }
+#opts .sep { width: 10px; }
+button.chip { font: 600 11px/1 system-ui, sans-serif; letter-spacing: .04em; color: #dff6ff; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.28); border-radius: 12px; padding: 5px 10px; cursor: pointer; }
+button.chip:hover { background: rgba(255,255,255,0.22); }
+button.chip.on { background: rgba(255,154,99,0.85); border-color: transparent; color: #fff; }
+button.chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }

@@ -4,6 +4,7 @@ import { WorldData } from '../src/world/worldData.js';
 import { BIOMES, NB } from '../src/world/biomes.js';
 import { PROP_GEO } from '../src/world/props.js';
 import { CONFIG, TERRAIN } from '../src/config.js';
+import { dailySeed, perthDate } from '../src/util/daily.js';
 import { Progress } from '../src/systems/progress.js';
 
 let checks = 0;
@@ -161,4 +162,10 @@ ok(CONFIG.octopus.waterSpeedMult > 1, 'wading is faster than walking');
   for (let d = 0; d < 1200 && !found; d += 1) found = w.isShallow(w.start.x + w.dir.x * d, w.start.z + w.dir.z * d);
   ok(found, 'shallows exist before the open sea');
 }
+// daily seed: same Perth calendar day -> same seed; next day differs; the day rolls over at Perth midnight (UTC+8)
+ok(dailySeed(new Date('2026-11-16T00:00:00+08:00')) === dailySeed(new Date('2026-11-16T23:59:00+08:00')), 'daily seed stable within a Perth day');
+ok(dailySeed(new Date('2026-11-16T12:00:00+08:00')) !== dailySeed(new Date('2026-11-17T12:00:00+08:00')), 'daily seed differs between days');
+ok(perthDate(new Date('2026-11-16T17:00:00Z')) === '2026-11-17', 'Perth date rolls over at 16:00 UTC');
+{ const a = new WorldData(dailySeed(new Date('2026-11-16T12:00:00+08:00'))), b = new WorldData(dailySeed(new Date('2026-11-16T20:00:00+08:00')));
+  ok(a.angle === b.angle && a.waters.length === b.waters.length && a.shells.length === b.shells.length, 'daily seed reproduces the same world'); }
 console.log(`unit checks passed (${checks} assertions).`);

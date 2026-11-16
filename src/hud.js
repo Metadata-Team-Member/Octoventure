@@ -6,8 +6,13 @@ export class Hud {
   constructor() {
     this.el = {
       hurt: $('hurt'), debug: $('debug'), start: $('start'), pause: $('pause'), end: $('end'), endTitle: $('end-title'),
-      loading: $('loading'), play: $('play'), restart: $('restart'),
+      loading: $('loading'), play: $('play'), restart: $('restart'), opts: $('opts'), daily: $('chip-daily'), newWorld: $('chip-new'),
     };
+  }
+  /** reflect the current difficulty / daily setting on the pause-menu chips */
+  setOptions({ difficulty, daily }) {
+    for (const b of this.el.opts.querySelectorAll('[data-diff]')) b.classList.toggle('on', b.dataset.diff === difficulty);
+    this.el.daily.classList.toggle('on', !!daily);
   }
   setLoading(on) { this.el.loading.hidden = !on; }
   setStartVisible(on) { this.el.start.hidden = !on; }

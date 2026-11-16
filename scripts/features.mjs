@@ -371,6 +371,36 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(resumed === true, 'paused state holds until Start is pressed again');
 }
 
+// ================================================================ pause-menu chips: difficulty, daily seed, new world
+{
+  // like pressing Esc: release the pointer lock (a locked pointer can't click) and show the pause overlay
+  const pauseMenu = async () => { await E(() => { const G = window.__game; document.exitPointerLock?.(); G.game.setPaused(true); }); await new Promise((r) => setTimeout(r, 400)); await E(() => { if (!window.__game.paused) window.__game.game.setPaused(true); }); };
+  const waitWorld = (prev) => page.waitForFunction((p) => window.__game.game.world.seed !== p || false, { timeout: 60000 }, prev);
+  await pauseMenu();
+  const vis = await E(() => [...document.querySelectorAll('#opts button')].map((b) => b.innerText.trim()).join('|'));
+  ok(vis === 'Gentle|Normal|Harsh|Daily|New world', `pause menu: Resume plus tiny chips (${vis})`);
+  await page.click('[data-diff="harsh"]');
+  ok(await E(() => window.__game.game.constructor && document.querySelector('[data-diff="harsh"]').classList.contains('on') && !document.querySelector('[data-diff="normal"]').classList.contains('on')), 'Harsh chip selects Harsh');
+  const dmg = await E(() => { const G = window.__game; return { d: G.game.hud && G.difficulty, cfg: G.difficultyName }; });
+  ok(dmg.cfg === 'harsh', `difficulty applied live (${dmg.cfg})`);
+  await page.click('[data-diff="normal"]');
+  const s0 = await E(() => window.__game.game.world.seed);
+  await page.click('#chip-daily'); await waitWorld(s0);
+  const s1 = await E(() => window.__game.game.world.seed);
+  const daily = await E(() => window.__game.dailySeed);
+  ok(s1 === daily, `Daily chip loads today's Perth seed (${s1})`);
+  ok(await E(() => !window.__game.paused && window.__game.game.state === 'playing'), 'new world leaves the pause menu');
+  await pauseMenu();
+  await page.click('#chip-new'); await page.waitForFunction(() => !window.__game.game.hud.el.loading.hidden === false && window.__game.game.state === 'playing', { timeout: 60000 });
+  await new Promise((r) => setTimeout(r, 400));
+  ok(await E(() => window.__game.game.world.seed) === s1, 'New world with Daily on gives the same daily world');
+  await pauseMenu();
+  await page.click('#chip-daily'); await waitWorld(s1);
+  ok(await E(() => window.__game.game.world.seed) !== s1, 'turning Daily off gives a random world again');
+  ok(await E(() => JSON.parse(localStorage.getItem('octo.settings')).difficulty) === 'normal', 'settings persist');
+  await E(() => { const G = window.__game; G.clearPredators(); G.freezeTime(true); G.setTime(0.45); G.setWeather('clear'); });
+}
+
 // ================================================================ the screen stays clean
 {
   await E(() => { const G = window.__game; if (G.paused) G.game.setPaused(false); });

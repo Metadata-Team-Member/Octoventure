@@ -82,7 +82,7 @@ const paused = await page.evaluate(async () => {
   const s0 = { rt: G.runTime, h: G.health, x: G.pos.x, z: G.pos.z, f: G.frame };
   await new Promise((r) => setTimeout(r, 700));
   const s1 = { rt: G.runTime, h: G.health, x: G.pos.x, z: G.pos.z, f: G.frame };
-  return { paused: G.paused, overlay: G.pauseVisible, text: document.getElementById('pause').innerText, yawMoved, still: s0.rt === s1.rt && s0.h === s1.h && s0.x === s1.x && s0.z === s1.z, rendering: s1.f > s0.f };
+  return { paused: G.paused, overlay: G.pauseVisible, text: document.getElementById('resume').innerText, yawMoved, still: s0.rt === s1.rt && s0.h === s1.h && s0.x === s1.x && s0.z === s1.z, rendering: s1.f > s0.f };
 });
 ok(paused.paused && paused.overlay && paused.text.trim() === 'Resume', `losing the lock pauses with a single Resume button ("${paused.text.trim()}")`);
 ok(paused.still && paused.rendering, 'paused: nothing dries or moves, but the scene keeps rendering');

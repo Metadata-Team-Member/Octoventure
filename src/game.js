@@ -13,6 +13,7 @@ import { GameAudio } from './audio.js';
 import { Progress } from './systems/progress.js';
 import { Environment } from './systems/environment.js';
 import { Atmosphere } from './systems/atmosphere.js';
+import { dailySeed } from './util/daily.js';
 import { CarManager } from './entities/cars.js';
 import { Collectibles } from './systems/collect.js';
 import { Effects } from './systems/effects.js';
@@ -63,6 +64,7 @@ export class Game {
     window.addEventListener('resize', () => this.resize());
     this.resize();
     this.paused = false;
+    this.initSettings();
     this.input.onLockChange = (locked) => this.onLockChange(locked);
     this.hud.el.pause.addEventListener('click', () => this.input.requestLock());
     this.input.onKey = (e) => {
@@ -71,7 +73,14 @@ export class Game {
       if (this.state === 'menu' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(F\d+|Tab|Escape|Shift.*|Control.*|Alt.*|Meta.*|CapsLock)$/.test(e.code)) this.begin();
       if (e.code === 'KeyR' && this.state !== 'playing' && this.state !== 'menu') this.restart();
     };
-    this.hud.el.play.addEventListener('click', () => this.begin());
+    this.hud.el.play.addEventListener('click', (e) => { this.begin(); if (e.shiftKey && !this.daily) { this.daily = true; this.saveSettings(); this.restart(dailySeed()); } });
+    this.hud.el.opts.addEventListener('click', (e) => {
+      e.stopPropagation();                                    // chips must not count as "click to resume"
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.diff) this.setDifficulty(b.dataset.diff);
+      else if (b === this.hud.el.daily) { this.daily = !this.daily; this.saveSettings(); this.newRun(); }
+      else if (b === this.hud.el.newWorld) this.newRun();
+    });
     this.hud.el.restart.addEventListener('click', () => this.restart());
     this.hud.el.start.addEventListener('click', () => this.begin());
   }
@@ -104,12 +113,28 @@ void main(){
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
   }
 
+  // ------------------------------------------------------------------ settings (difficulty / daily seed)
+  initSettings() {
+    let st = {}; try { st = JSON.parse(localStorage.getItem('octo.settings') || '{}'); } catch { /* storage unavailable */ }
+    const d = (this.params.get('difficulty') || st.difficulty || CONFIG.difficulty || 'normal').toLowerCase();
+    CONFIG.difficulty = CONFIG.difficulties[d] ? d : 'normal';
+    this.daily = this.params.has('daily') ? this.params.get('daily') !== '0' : !!st.daily;
+    this.hud.setOptions({ difficulty: CONFIG.difficulty, daily: this.daily });
+  }
+  saveSettings() {
+    this.hud.setOptions({ difficulty: CONFIG.difficulty, daily: this.daily });
+    try { localStorage.setItem('octo.settings', JSON.stringify({ difficulty: CONFIG.difficulty, daily: this.daily })); } catch { /* ignore */ }
+  }
+  setDifficulty(d) { if (!CONFIG.difficulties[d]) return; CONFIG.difficulty = d; this.saveSettings(); }
+  /** pause-menu: leave the pause overlay and start a fresh world (the daily world when Daily is on) */
+  newRun() { this.setPaused(false); this.restart(this.daily ? dailySeed() : undefined); }
+
   // ------------------------------------------------------------------ worlds
   newWorld(seed) {
     if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); }
     // ?seed= / CONFIG.seed only fix the FIRST world; every restart rolls a new world (and a new sea direction)
     const fixed = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
-    const s = seed ?? (!this.hadWorld && fixed != null ? fixed : Math.floor(Math.random() * 1e9));
+    const s = seed ?? (!this.hadWorld && fixed != null ? fixed : this.daily ? dailySeed() : Math.floor(Math.random() * 1e9));
     this.hadWorld = true;
     const g0 = performance.now();
     this.world = new WorldData(s);
