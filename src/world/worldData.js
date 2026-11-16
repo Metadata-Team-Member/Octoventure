@@ -30,6 +30,8 @@ export class Hash {
 }
 const EMPTY = [];
 
+const STILL = new Set(['puddle', 'dam', 'pond', 'tidepool', 'drip', 'aircon', 'trough']);
+
 export class WorldData {
   constructor(seed = Math.floor(Math.random() * 1e9), cfg = CONFIG) {
     this.cfg = cfg;
@@ -412,7 +414,9 @@ export class WorldData {
   }
 
   _addWater(kind, x, z, r, opts = {}) {
-    const H = opts.H ?? this.baseHeight(x, z);
+    // a still pool is a level dip: its water level is the LOWEST ground around its rim, so carving only ever digs (never
+    // builds a lip) and the surface can never stand above the ground on the downhill side. Streams follow the slope instead.
+    const H = opts.H ?? (STILL.has(kind) && opts.carve !== false ? this._ringMin(x, z, r) : this.baseHeight(x, z));
     const w = { kind, x, z, r, H, carve: opts.carve !== false, depth: opts.depth ?? 0.1 };
     this.waters.push(w);
     this.waterHash.add(x, z, r, w);
@@ -423,6 +427,16 @@ export class WorldData {
     }
     return w;
   }
+  /** lowest and spread (max - min) of the natural ground around a ring of radius r (and the bank just outside it) */
+  _ringStats(x, z, r) {
+    let lo = this.baseHeight(x, z), hi = lo;
+    for (const k of [1, 1.3]) for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2, h = this.baseHeight(x + Math.cos(a) * r * k, z + Math.sin(a) * r * k);
+      if (h < lo) lo = h; if (h > hi) hi = h;
+    }
+    return { lo, hi, spread: hi - lo };
+  }
+  _ringMin(x, z, r) { return this._ringStats(x, z, r * 0.96).lo; }
   _slope(x, z, r) {
     const a = this.baseHeight(x + r, z), b = this.baseHeight(x - r, z), c = this.baseHeight(x, z + r), d = this.baseHeight(x, z - r);
     return Math.max(Math.abs(a - b), Math.abs(c - d)) / (2 * r);
@@ -520,34 +534,36 @@ export class WorldData {
     }
     const put = (kind, count, names, rr, opts = {}) => {
       let made = 0;
-      for (let i = 0; i < count * 8 && made < count; i++) {
+      for (let i = 0; i < count * (opts.spread !== undefined ? 40 : 8) && made < count; i++) {
         const s = this._spotB(names, { maxSlope: opts.maxSlope ?? 0.1, slopeR: rr[1], minH: opts.minH ?? 1.0, minW: opts.minW ?? 0.55 });
         if (!s) continue;
         if (opts.zone) { const b = dominant(s.x, s.z); if (rnd() > (accept[b] ?? 0.5)) continue; }
         if (!this._farFromWater(s.x, s.z, opts.spacing ?? 14)) continue;
         const r = rnd.range(rr[0], rr[1]);
         if (this.typeAt(s.x, s.z) === 'road') continue;
+        if (opts.spread !== undefined && this._ringStats(s.x, s.z, r).spread > opts.spread) continue;     // too sloped to hold a level pool
         this._addWater(kind, s.x, s.z, r, { depth: opts.depth ?? 0.1 });
         made++;
       }
       return made;
     };
     const ALL = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'headland'];
-    put('puddle', Math.round(W.puddleCount * K), ALL, [2.6, 4.4], { zone: true, spacing: 16, minW: 0.5 });
-    put('dam', Math.round(8 * K / 4 * 1), ['farm'], [9, 13], { spacing: 60, depth: 0.4, maxSlope: 0.06 });
-    put('pond', Math.round((W.pondCount ?? 6) * K * 0.5), ['bush', 'suburb', 'riverbank'], [5, 8], { spacing: 40, depth: 0.35, maxSlope: 0.07 });
-    put('pond', Math.round(10 * K), ['wetland'], [4, 8], { spacing: 18, depth: 0.3, maxSlope: 0.08, minH: 0.5, minW: 0.5 });
-    put('tidepool', Math.round(W.tidepoolCount * K * 0.8), ['headland'], [2.6, 4.4], { spacing: 12, minH: 0.2, maxSlope: 0.2, minW: 0.3 });
-    put('tidepool', Math.round(W.tidepoolCount * K * 0.15), ['beach', 'estuary'], [2.2, 3.4], { spacing: 25, minH: 0.2, maxSlope: 0.12, minW: 0.3 });
+    put('puddle', Math.round(W.puddleCount * K), ALL, [2.6, 4.4], { zone: true, spacing: 16, minW: 0.5, maxSlope: 0.05, spread: 0.2 });
+    put('dam', Math.round(8 * K / 4 * 1), ['farm'], [9, 13], { spacing: 60, depth: 0.4, maxSlope: 0.04, spread: 0.7 });
+    put('pond', Math.round((W.pondCount ?? 6) * K * 0.5), ['bush', 'suburb', 'riverbank'], [5, 8], { spacing: 40, depth: 0.35, maxSlope: 0.06, spread: 0.4 });
+    put('pond', Math.round(10 * K), ['wetland'], [4, 8], { spacing: 18, depth: 0.3, maxSlope: 0.07, spread: 0.4, minH: 0.5, minW: 0.5 });
+    put('tidepool', Math.round(W.tidepoolCount * K * 0.8), ['headland'], [2.6, 4.4], { spacing: 12, minH: 0.2, maxSlope: 0.1, spread: 0.3, depth: 0.2, minW: 0.3 });
+    put('tidepool', Math.round(W.tidepoolCount * K * 0.15), ['beach', 'estuary'], [2.2, 3.4], { spacing: 25, minH: 0.2, maxSlope: 0.08, spread: 0.3, depth: 0.2, minW: 0.3 });
     // leaky taps in gardens, dripping seeps in the bush and on the headlands, pumps on the farm
     {
       const total = Math.round(W.dripCount * K);
       const plan = [['tap', ['suburb'], 0.28], ['seep', ['bush', 'headland'], 0.3], ['pump', ['farm'], 0.14], ['ac', ['town'], 0.28]];
       for (const [type, names, share] of plan) {
         let made = 0; const target = Math.round(total * share);
-        for (let i = 0; i < 500 && made < target; i++) {
+        for (let i = 0; i < 2000 && made < target; i++) {
           const s = this._spotB(names, { maxSlope: 0.12, tries: 30 });
           if (!s || !this._farFromWater(s.x, s.z, 20)) continue;
+          if (this._ringStats(s.x, s.z, 2.3).spread > 0.2) continue;       // the little pools under taps and air-con units sit in level ground too
           if (type === 'ac') { if (this.isRoad(s.x, s.z, 8)) continue; this._addWater('aircon', s.x, s.z, 2.0, { depth: 0.08 }); }
           else if (type === 'pump') this._addWater('trough', s.x, s.z, 2.2, { depth: 0.1 });
           else this._addWater('drip', s.x, s.z, 2.3, { depth: 0.1 });

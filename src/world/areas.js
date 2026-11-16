@@ -540,19 +540,39 @@ function shellsAndBabies(ctx) {
     const h = w.heightAt(x, z); if (h > -0.4 || h < -4) continue;
     w.shells.push({ x, z, y: h, rot: rnd() * 6.28, got: false, kind: 'sea' }); n++;
   }
-  // baby octopuses: hidden in tins, big shells, rock pools and puddles
-  const want = Math.round(5 * K);
+  // baby octopuses: hidden in tins, big shells, rock pools and puddles (or just in the long grass). Discoverable: more of
+  // them (7 per 800x800 m), a good share close to the run from the start to the sea, the rest spread over the whole world.
+  const want = Math.round(7 * K);
   const spots = [];
   for (const h of w.hides) if (h.kind === 'tin' || h.kind === 'shellhide') spots.push({ x: h.x, z: h.z, kind: h.kind });
-  for (const q of w.waters) if (q.kind === 'tidepool' || (q.kind === 'puddle' && rnd() < 0.08)) spots.push({ x: q.x, z: q.z, kind: q.kind });
+  for (const q of w.waters) if (q.kind === 'tidepool' || (q.kind === 'puddle' && rnd() < 0.1) || q.kind === 'pond' || q.kind === 'trough') spots.push({ x: q.x, z: q.z, kind: q.kind === 'tidepool' ? 'tidepool' : 'puddle' });
   spots.sort(() => rnd() - 0.5);
+  // the corridor: lateral distance from the start-to-sea line, and progress along it
+  const corridor = (s) => { const t = w.progress(s.x, s.z); return Math.abs(w.lateral(s.x, s.z) - w.lateral(w.start.x, w.start.z)) < 170 && t > 0.0 && t < 0.97; };
   const used = [];
-  for (const s of spots) {
-    if (w.babies.length >= want) break;
-    if (Math.hypot(s.x - w.start.x, s.z - w.start.z) < 60) continue;
-    if (used.some((u) => Math.hypot(u.x - s.x, u.z - s.z) < 70)) continue;
-    used.push(s);
-    w.babies.push({ id: w.babies.length, x: s.x, z: s.z, y: w.heightAt(s.x, s.z), kind: s.kind, found: false });
+  const take = (s, gap) => {
+    if (Math.hypot(s.x - w.start.x, s.z - w.start.z) < 30) return false;
+    if (used.some((u) => Math.hypot(u.x - s.x, u.z - s.z) < gap)) return false;
+    used.push(s); w.babies.push({ id: w.babies.length, x: s.x, z: s.z, y: w.heightAt(s.x, s.z), kind: s.kind, found: false }); return true;
+  };
+  // a few close to where the octopus starts, so the first rescue comes early
+  const close = (s) => Math.hypot(s.x - w.start.x, s.z - w.start.z) < 230;
+  for (const s of spots) { if (w.babies.length >= 3) break; if (close(s)) take(s, 45); }
+  for (let i = 0; i < 600 && w.babies.length < 4; i++) {
+    const s = w._spotB(['farm', 'bush', 'riverbank', 'suburb', 'wetland'], { maxSlope: 0.3, tries: 6, minW: 0.4, minH: 0.3, notRoad: true });
+    if (s && close(s) && !w._blocked(s.x, s.z, 0.6)) take({ x: s.x, z: s.z, kind: 'grass' }, 45);
+  }
+  const onPath = Math.round(want * 0.55);
+  for (const s of spots) { if (w.babies.length >= onPath) break; if (corridor(s)) take(s, 45); }
+  // top up the corridor with babies in the long grass / reeds if there were too few hides and pools along it
+  for (let i = 0; i < 400 && w.babies.length < onPath; i++) {
+    const s = w._spotB(['farm', 'bush', 'riverbank', 'suburb', 'wetland', 'dunes', 'beach'], { maxSlope: 0.3, tries: 6, minW: 0.4, minH: 0.3, notRoad: true });
+    if (s && corridor(s) && !w._blocked(s.x, s.z, 0.6)) take({ x: s.x, z: s.z, kind: 'grass' }, 45);
+  }
+  for (const s of spots) { if (w.babies.length >= want) break; take(s, 60); }
+  for (let i = 0; i < 800 && w.babies.length < want; i++) {
+    const s = w._spotB(['farm', 'bush', 'riverbank', 'wetland', 'dunes', 'beach', 'headland'], { maxSlope: 0.3, tries: 6, minW: 0.4, minH: 0.3, notRoad: true });
+    if (s && !w._blocked(s.x, s.z, 0.6)) take({ x: s.x, z: s.z, kind: 'grass' }, 60);
   }
 }
 

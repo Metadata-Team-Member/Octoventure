@@ -98,7 +98,7 @@ export class Atmosphere {
     }
     const k = 1 - Math.exp(-1.2 * dt);
     this.bTint.lerp(want, k); this.bFog += (fog - this.bFog) * k;
-    for (const key of ['hum', 'birds', 'wind', 'cows', 'cicada', 'babble', 'frogs', 'surf', 'gulls']) this.ambient[key] = (this.ambient[key] || 0) + ((amb[key] || 0) - (this.ambient[key] || 0)) * k;
+    for (const key of ['hum', 'birds', 'wind', 'cows', 'babble', 'frogs', 'surf', 'gulls']) this.ambient[key] = (this.ambient[key] || 0) + ((amb[key] || 0) - (this.ambient[key] || 0)) * k;
   }
 
   update(dt, env, camera, o, prox, t) {

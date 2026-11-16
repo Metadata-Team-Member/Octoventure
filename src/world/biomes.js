@@ -19,7 +19,7 @@ export const BIOME_INFO = {
   suburb:    { label: 'Suburban backyards',  tint: 0xffffff, fog: 1.0,  amb: { hum: 0.5, birds: 0.5 } },
   town:      { label: 'Streets & car park',  tint: 0xe6e8f0, fog: 0.95, amb: { hum: 1.0 } },
   farm:      { label: 'Farmland',            tint: 0xffe9b8, fog: 1.05, amb: { wind: 1.0, birds: 0.6, cows: 1.0 } },
-  bush:      { label: 'Eucalypt bushland',   tint: 0xd8efc8, fog: 0.85, amb: { cicada: 1.0, birds: 1.0 } },
+  bush:      { label: 'Eucalypt bushland',   tint: 0xd8efc8, fog: 0.85, amb: { birds: 1.0 } },
   riverbank: { label: 'Creek & riverbank',   tint: 0xcfe8f0, fog: 0.9,  amb: { babble: 1.0, birds: 0.5 } },
   wetland:   { label: 'Wetlands & mangroves', tint: 0xc9dcc0, fog: 0.62, amb: { frogs: 1.0, babble: 0.2 } },
   dunes:     { label: 'Dunes',               tint: 0xfff0c8, fog: 1.1,  amb: { wind: 1.0, surf: 0.5 } },

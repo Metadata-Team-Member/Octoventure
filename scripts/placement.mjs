@@ -10,6 +10,8 @@ import * as THREE from 'three';
 import { CONFIG } from '../src/config.js';
 import { WorldData } from '../src/world/worldData.js';
 import { TOL } from '../src/world/placement.js';
+import { PARTS, treeGeometries } from '../src/world/models.js';
+import { treeConnectivity } from '../src/world/treeCheck.js';
 
 const LEGACY = process.argv.includes('legacy');
 const SEEDS = (process.env.SEEDS || '11,2026,77,5150,9001').split(',').map(Number);
@@ -72,7 +74,7 @@ function legacyItems(w) {
     else add('reef', 'rock', lib.rock, M(r.x, r.y + r.s * 0.2, r.z, 0, r.rot, 0, r.s, r.s * 0.7, r.s));
   }
   for (const p of w.props) add('prop', p.kind, lib.propGeo(p.kind), M(p.x, p.y, p.z, 0, p.rot, 0, p.s));
-  w.shells.forEach((sh, i) => { const s = 0.85 + ((i * 37) % 10) / 14; add('shell', 'c', lib.shellc, M(sh.x, sh.y + 0.03, sh.z, 0, sh.rot, 0, s)); });
+  w.shells.forEach((sh, i) => { const s = 0.85 + ((i * 37) % 10) / 14; const k = ['c', 't', 'k'][i % 3]; add('shell', k, { c: lib.shellc, t: lib.shellt, k: lib.shellk }[k], M(sh.x, sh.y + 0.03, sh.z, 0, sh.rot, 0, s)); });
   return out;
 }
 
@@ -86,6 +88,23 @@ function tally(cat, name, hover, bury, limit, tol = TOL, steep = false) {
   if (bury > t.maxBury) t.maxBury = bury;
 }
 
+// ---- tree integrity: every primitive of every tree model must overlap the rest (no floating foliage / loose branches)
+let TREE_BAD = 0;
+{
+  PARTS.on = true; const T = treeGeometries(); PARTS.on = false;
+  for (const [kind, g] of Object.entries(T)) {
+    const r = treeConnectivity(g.userData.parts, -0.03);          // overlap, not merely tangent
+    g.computeBoundingBox();
+    const groundGap = g.boundingBox.min.y;                          // models stand on y = 0 (seating adds the rest)
+    const ok = r.components.length === 1;
+    if (!ok) TREE_BAD++;
+    console.log(`  tree ${kind.padEnd(9)} ${String(r.parts).padStart(2)} parts, ${r.components.length} piece(s)${ok ? '' : '  LOOSE parts ' + JSON.stringify(r.loose)}  lowest y ${groundGap.toFixed(2)}`);
+  }
+}
+const TREES = { n: 0, bad: 0 };
+const DIP_KINDS = new Set(['puddle', 'dam', 'pond', 'tidepool', 'drip', 'aircon', 'trough']);
+const DIP = { clip: 0.12, float: 0.12, bank: 0.1 };       // u (1 u ~ 32 cm). clip: ground above the water at its edge; float: water above the ground at its edge
+const DIPS = { n: 0, badWater: 0, badAny: 0, bad: {}, kinds: {}, maxClip: 0, maxFloat: 0, maxTilt: 0 };
 const seeds = SEEDS;
 const t0 = performance.now();
 for (const seed of seeds) {
@@ -103,6 +122,10 @@ for (const seed of seeds) {
       if (-gap > bury) bury = -gap;
     }
     const sy = Math.hypot(it.m.elements[4], it.m.elements[5], it.m.elements[6]);
+    if (it.cat === 'tree') {          // instancing: trees keep uniform scale and stand upright, whatever the yaw / scale
+      const e = it.m.elements, sx = Math.hypot(e[0], e[1], e[2]), sz = Math.hypot(e[8], e[9], e[10]);
+      TREES.n++; if (Math.abs(sx - sy) > 1e-4 * sy || Math.abs(sz - sy) > 1e-4 * sy || Math.abs(e[5] / sy - 1) > 1e-4) TREES.bad++;
+    }
     const height = b.h * sy;
     const lim = it.cat === 'rock' || (it.cat === 'reef' && it.sub === 'rock') ? 0.55 * height + 0.1 : BUILDING.has(it.sub) ? 0.45 * height : PLANT.has(it.cat) ? 0.7 * height : it.sub === 'bush' || it.sub === 'fence' ? 1.0 * height : it.sub === 'wood' ? Math.max(0.6 * height, 0.5) : Math.max(0.5 * height, 0.3);
     const cx = it.m.elements[12], cz = it.m.elements[14], sl = Math.hypot(surf(cx + 1.25, cz) - surf(cx - 1.25, cz), surf(cx, cz + 1.25) - surf(cx, cz - 1.25)) / 2.5;
@@ -118,6 +141,25 @@ for (const seed of seeds) {
     const hid = surf(wd.q.x, wd.q.z) - plane(0, 0);            // >0 : the centre of the pool is buried under the ground (invisible water)
     tally('water', wd.q.kind, hov, hid, 1.5, 0.175, Math.max(Math.abs(wd.gx ?? 0), Math.abs(wd.gz ?? 0)) >= 0.59 || w.half - Math.max(Math.abs(wd.q.x), Math.abs(wd.q.z)) < 24);
   }
+  // still water (puddles, ponds, dams, tide pools, drips, troughs): the surface must be level, sit in a dip and meet the ground all
+  // the way round - no rim clipping into a slope (half in the ground) and no edge hanging in the air
+  if (!LEGACY) for (const wd of waterItems) {
+    const q = wd.q; if (!DIP_KINDS.has(q.kind) || !q.carve) continue;
+    const plane = (dx, dz) => wd.y0 + wd.gx * dx + wd.gz * dz;
+    let clip = -1e9, flt = -1e9, bank = 1e9;
+    for (let k = 0; k < 36; k++) {
+      const a = (k + 0.37) / 36 * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+      const dr = wd.r, t = surf(q.x + c * dr, q.z + sn * dr), L = plane(c * dr, sn * dr);
+      clip = Math.max(clip, t - L); flt = Math.max(flt, L - t);
+      bank = Math.min(bank, surf(q.x + c * wd.r * 1.3, q.z + sn * wd.r * 1.3) - plane(c * wd.r * 1.3, sn * wd.r * 1.3));
+    }
+    const tilt = Math.max(Math.abs(wd.gx), Math.abs(wd.gz));
+    const bad = { tilted: tilt > 0.004, clipped: clip > q.depth + DIP.clip, floating: flt > DIP.float, 'above surroundings': bank < -DIP.bank };
+    if (process.env.DIPLIST && Object.values(bad).some(Boolean)) console.log('dip', q.kind, 'r', q.r.toFixed(1), 'depth', q.depth, 'clip', clip.toFixed(2), 'float', flt.toFixed(2), 'bank', bank.toFixed(2), 'spread', w.baseHeight ? (() => { const st = w._ringStats(q.x, q.z, q.r); return st.spread.toFixed(2); })() : '');
+    DIPS.n++; DIPS.maxClip = Math.max(DIPS.maxClip, clip); DIPS.maxFloat = Math.max(DIPS.maxFloat, flt); DIPS.maxTilt = Math.max(DIPS.maxTilt, tilt);
+    for (const [k, v] of Object.entries(bad)) if (v) { DIPS.bad[k] = (DIPS.bad[k] || 0) + 1; DIPS.badAny++; if (!DIPS.kinds[q.kind + ':' + k]) DIPS.kinds[q.kind + ':' + k] = 0; DIPS.kinds[q.kind + ':' + k]++; }
+    if (Object.values(bad).some(Boolean)) DIPS.badWater++;
+  }
   if (!LEGACY && P.placedExtras) for (const ex of P.placedExtras(w)) tally(ex.cat, ex.name, ex.hover(surf), ex.bury(surf), ex.limit);
 }
 const rows = Object.entries(TAB).sort();
@@ -126,6 +168,8 @@ console.log(`${LEGACY ? 'LEGACY placement' : 'CURRENT placement'}: ${seeds.lengt
 console.log('category'.padEnd(10), 'objects'.padStart(8), 'hover'.padStart(7), 'maxHover'.padStart(9), 'buried'.padStart(7), 'maxBury'.padStart(8), ' on-cliffs  worst hoverer');
 if (process.env.DETAIL) for (const [k, t] of rows) if (t.bk) console.log('  buried', k, JSON.stringify(t.bk));
 for (const [k, t] of rows) { nTot += t.n; hTot += t.hover; bTot += t.buried; console.log(k.padEnd(10), String(t.n).padStart(8), String(t.hover).padStart(7), t.maxHover.toFixed(2).padStart(9), String(t.buried).padStart(7), t.maxBury.toFixed(2).padStart(8), String(t.steep || 0).padStart(9), ' ', t.worst ?? ''); }
+console.log(`tree instances: ${TREES.n} placed, ${TREES.bad} skewed or tilted`);
+console.log(`still-water dips: ${DIPS.n} water bodies, ${DIPS.badWater} bad (${JSON.stringify(DIPS.bad)}), max rim clip ${DIPS.maxClip.toFixed(3)} u, max edge float ${DIPS.maxFloat.toFixed(3)} u, max tilt ${DIPS.maxTilt.toFixed(3)}${process.env.DETAIL ? ' ' + JSON.stringify(DIPS.kinds) : ''}`);
 console.log(`TOTAL ${nTot} objects, ${hTot} hovering, ${bTot} over-buried   (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
-if (!LEGACY && (hTot || bTot)) { console.log('PLACEMENT AUDIT FAILED'); process.exit(1); }
+if (!LEGACY && (hTot || bTot || DIPS.badWater || TREES.bad || TREE_BAD)) { console.log('PLACEMENT AUDIT FAILED'); process.exit(1); }
 if (!LEGACY) console.log('placement audit passed');

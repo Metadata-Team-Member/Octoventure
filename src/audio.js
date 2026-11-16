@@ -1,5 +1,5 @@
 // Procedural WebAudio sound-scape (no audio files). Starts on first user input.
-//  - per-biome ambient layers (hum, wind, cicadas, creek babble, surf ...) driven by Atmosphere.ambient
+//  - per-biome ambient layers (hum, wind, creek babble, surf ...) driven by Atmosphere.ambient
 //  - positional (3D) creature sounds: gulls, magpie warble, kookaburra laugh, barks, car engine & horn
 //  - squelchy wet footsteps, heartbeat when nearly dry, ink / bite / chime effects
 import { CONFIG } from './config.js';
@@ -32,10 +32,7 @@ export class GameAudio {
       this.wind = mk(420, 0.7, 'lowpass');
       this.surf = mk(700, 0.4, 'lowpass');
       this.hum = mk(150, 1.2, 'lowpass');
-      this.cicada = mk(5200, 6, 'bandpass');
       this.babble = mk(1250, 2.2, 'bandpass');
-      // cicadas pulse
-      this.cicadaLfo = c.createOscillator(); this.cicadaLfo.frequency.value = 17; const lg = c.createGain(); lg.gain.value = 0.5; this.cicadaLfo.connect(lg); lg.connect(this.cicada.g.gain); this.cicadaLfo.start();
       // car engine (positional)
       this.engine = { o: c.createOscillator(), f: c.createBiquadFilter(), g: c.createGain(), p: this.panner(0, 0, 0) };
       this.engine.o.type = 'sawtooth'; this.engine.o.frequency.value = 62; this.engine.f.type = 'lowpass'; this.engine.f.frequency.value = 420; this.engine.g.gain.value = 0;
@@ -67,7 +64,7 @@ export class GameAudio {
   }
 
   /**
-   * ctx: { coast 0..1, ambient {hum,birds,wind,cows,cicada,babble,frogs,surf,gulls}, cam (THREE camera), health, moving, swim, night,
+   * ctx: { coast 0..1, ambient {hum,birds,wind,cows,babble,frogs,surf,gulls}, cam (THREE camera), health, moving, swim, night,
    *        car {dist,x,y,z,horn,speed}|null, sprint }
    */
   update(dt, k) {
@@ -83,7 +80,6 @@ export class GameAudio {
     this.surf.g.gain.setTargetAtTime(gate * (0.02 + 0.22 * coast * coast * (0.7 + 0.3 * Math.sin(this.t * 0.7)) + 0.05 * (A.surf || 0)) * (k.swim > 0.5 ? 1.4 : 1), now, 0.4);
     this.surf.f.frequency.setTargetAtTime(k.swim > 0.5 ? 380 : 700, now, 0.3);
     this.hum.g.gain.setTargetAtTime(0.035 * (A.hum || 0) * under, now, 0.6);
-    this.cicada.g.gain.setTargetAtTime(0.012 * (A.cicada || 0) * (1 - (k.night || 0) * 0.7) * under, now, 0.6);
     this.babble.g.gain.setTargetAtTime(0.045 * (A.babble || 0) * (0.8 + 0.2 * Math.sin(this.t * 3.1)) * under, now, 0.4);
     // scheduled one-shots: gulls, birds, cows, frogs
     const due = (name, every) => { this.timers[name] = (this.timers[name] ?? R() * every) - dt; if (this.timers[name] <= 0) { this.timers[name] = every * (0.6 + R() * 0.9); return true; } return false; };
@@ -160,7 +156,8 @@ export class GameAudio {
   carHit() { this.noise(0.4, 140, 0.5); this.tone(90, 0.5, 'sawtooth', 0.3, -50); }
 
   // ------------------------------------------------------------ the octopus
-  step(wet = 0.5, speed = 5) { const v = 0.04 + 0.1 * clamp(wet, 0, 1); this.noise(0.08, 300 + R() * 220, v, null, 0.9); if (wet > 0.35) this.tone(150 + R() * 70, 0.07, 'sine', v * 0.6, -70); }
+  /** a gentle, occasional wet squelch under a damp octopus (called at most every ~2-5 s; no chirp, nothing loops) */
+  step(wet = 0.5, speed = 5) { const v = 0.025 + 0.045 * clamp(wet, 0, 1); this.noise(0.22, 240 + R() * 90, v, null, 0.6); this.tone(105 + R() * 25, 0.2, 'sine', v * 0.4, -25, 0.02); }
   /** a low thud through the ground when something big walks past (amp 0..1.3) */
   thump(amp, x, y, z) { if (!this.ctx) return; const d = this.at(x, y, z); this.tone(52 + 20 * Math.min(1, amp), 0.16, 'sine', Math.min(0.5, 0.12 + amp * 0.32), -30, 0, d); this.noise(0.1, 140, Math.min(0.3, amp * 0.2), d, 0.8); }
   heartbeat(v = 0.25) { this.tone(62, 0.13, 'sine', v); this.tone(52, 0.16, 'sine', v * 0.8, 0, 0.17); }
@@ -171,6 +168,10 @@ export class GameAudio {
   grab() { this.noise(0.25, 260, 0.35); this.tone(130, 0.3, 'sawtooth', 0.14, -60); }
   /** the quiet reward when a baby octopus is found */
   chime(x, y, z) { const d = x != null ? this.at(x, y, z) : null; [1047, 1319, 1568, 2093].forEach((f, i) => this.tone(f, 1.1, 'sine', 0.085, 0, i * 0.13, d)); this.tone(523, 1.6, 'sine', 0.05, 0, 0, d); }
+  /** brushing a flower: a soft leafy rustle, and when dew falls a faint two-note glint */
+  flower(x, y, z, dew) { if (!this.ctx) return; const d = this.at(x, y, z); this.noise(0.28, 3400, 0.05, d, 0.9); if (dew) { this.tone(1760, 0.5, 'sine', 0.035, 0, 0.05, d); this.tone(2349, 0.6, 'sine', 0.028, 0, 0.17, d); } }
+  /** a faint little bubbling blip from a hidden baby octopus close by */
+  babyTell(x, y, z) { if (!this.ctx) return; const d = this.at(x, y, z); this.tone(760, 0.12, 'sine', 0.03, 380, 0, d); this.tone(1020, 0.1, 'sine', 0.022, 300, 0.11, d); }
   splash() { this.noise(0.35, 1400, 0.25); }
   alert() { this.tone(520, 0.12, 'square', 0.08); this.tone(780, 0.16, 'square', 0.08, 0, 0.1); }
   camo(on) { this.tone(on ? 260 : 420, 0.3, 'sine', 0.1, on ? 220 : -200); }

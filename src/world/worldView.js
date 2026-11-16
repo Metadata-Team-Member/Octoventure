@@ -195,11 +195,15 @@ export class WorldView {
     }
     if (b.grass) add(instancedSeat(this.world, this.geo.grass, this.grassMat, b.grass.g, 'grass', 'g',
       (o, c) => (o.wet ? c.set(0x4f8a3a) : o.dry ? c.set(0xb8a45a) : c.set(0x6fa83c)).multiplyScalar(o.tint)), FAR.grass);
-    if (b.flower) add(instancedSeat(this.world, this.geo.flower, this.vcMat, b.flower.f, 'flower', 'f', (o, c) => c.set(o.color)), FAR.flower);
+    if (b.flower) {
+      const fm = instancedSeat(this.world, this.geo.flower, this.vcMat, b.flower.f, 'flower', 'f', (o, c) => c.set(o.color));
+      b.flower.f.forEach((f, i) => { f.inst = { mesh: fm, i }; });        // systems/flowers.js swaps a touched flower for an animated copy
+      add(fm, FAR.flower);
+    }
     if (b.reed) add(instancedSeat(this.world, this.geo.reed, this.vcMat, b.reed.r, 'reed', 'r'), FAR.reed);
     if (b.beach) {
-      const col = { shell: 0xf3d9cf, weed: 0x3f5a2c, wood: 0x7a5d44 };
-      for (const kind in b.beach) add(instancedSeat(this.world, this.geo[kind], this.whiteMat, b.beach[kind], 'beach', kind, (o, c) => c.set(col[kind])), FAR.beach);
+      const col = { shell: 0xffffff, weed: 0x3f5a2c, wood: 0x7a5d44 };
+      for (const kind in b.beach) add(instancedSeat(this.world, this.geo[kind], kind === 'shell' ? this.vcMat : this.whiteMat, b.beach[kind], 'beach', kind, (o, c) => c.set(col[kind])), FAR.beach);
     }
     if (b.seagrass) add(instancedSeat(this.world, this.geo.seagrass, this.vcMat, b.seagrass.s, 'seagrass', 's', (o, c) => c.setHSL(0.27 + (o.rot % 1) * 0.07, 0.55, 0.3)), FAR.seagrass);
     if (b.reef) {

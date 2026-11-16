@@ -128,7 +128,7 @@ export function geoFor(lib, cat, sub) {
     case 'beach': return lib[sub];
     case 'seagrass': return lib.seagrass;
     case 'reef': return sub === 'coral' ? lib.coral : lib.rock;
-    case 'shell': return lib.shellc;
+    case 'shell': return sub === 't' ? lib.shellt : sub === 'k' ? lib.shellk : lib.shellc;
     case 'prop': return lib.propGeo(sub);
     default: throw new Error('unknown placement category ' + cat);
   }
@@ -158,10 +158,17 @@ export function discMatrix(f, x, z, rx, rz, yaw, out) {
   _q.premultiply(_qt);
   return out.compose(_p.set(x, f.y0, z), _q, _sc.set(rx, 1, rz));
 }
+const STILL_KINDS = new Set(['puddle', 'dam', 'pond', 'tidepool', 'drip', 'aircon', 'trough']);
 /** render radius and plane of a static water source */
 export function waterDisc(world, q) {
   if (q._disc) return q._disc;
   const r = q.kind === 'drip' ? q.r * 0.7 : q.kind === 'stream' ? q.r * 1.15 : q.r * 0.96;
+  if (STILL_KINDS.has(q.kind) && q.carve) {
+    // level water in a dip: the surface is horizontal, just above the floor of the carved hollow
+    let y0 = world.heightAt(q.x, q.z);
+    for (let k = 0; k < 48; k++) { const a = (k / 48) * Math.PI * 2; y0 = Math.min(y0, world.heightAt(q.x + Math.cos(a) * r, q.z + Math.sin(a) * r)); }
+    return (q._disc = { q, r, y0: y0 + 0.02, gx: 0, gz: 0 });
+  }
   return (q._disc = { q, r, ...fitDisc(world, q.x, q.z, r) });
 }
 export const waterDiscs = (world) => world.waters.filter((q) => q.kind !== 'sprinkler' && q.kind !== 'rain' && q.kind !== 'sea').map((q) => waterDisc(world, q));
@@ -184,7 +191,9 @@ export function placedItems(world, lib) {
   for (const s of d.seagrass) add('seagrass', 's', s);
   for (const r of d.reef) add('reef', r.kind, r);
   for (const p of world.props) add('prop', p.kind, p);
-  world.shells.forEach((sh, i) => add('shell', 'c', { x: sh.x, z: sh.z, rot: sh.rot, s: shellScale(i) }));
+  world.shells.forEach((sh, i) => add('shell', shellKind(i), { x: sh.x, z: sh.z, rot: sh.rot, s: shellScale(i) }));
   return out;
 }
+/** which model a collectible shell uses: scallop 'c', turban 't' or cowrie 'k' (by index, so the audit and the renderer agree) */
+export const shellKind = (i) => ['c', 't', 'k'][i % 3];
 export const shellScale = (i) => 0.85 + ((i * 37) % 10) / 14;

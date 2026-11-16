@@ -467,6 +467,109 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.fade, 'camera occluder fade is compiled into the grass, tree and prop materials');
 }
 
+// ================================================================ wet trail: tentacle drag marks, fading
+{
+  const r = await E(async () => {
+    const G = window.__game, g = G.game, o = g.octopus, fx = g.fx, out = {};
+    if (G.paused) g.setPaused(false);
+    G.teleport(g.world.start.x, g.world.start.z); G.advance(0.2);
+    o.wetness = 1; o.hp = 100;
+    G.pressKey('KeyW');
+    for (let i = 0; i < 90; i++) { o.wetness = 1; G.advance(0.05); }
+    G.releaseKey('KeyW');
+    const A = fx.printAlpha.array;
+    out.marks = Array.from(A).filter((a) => a > 0.05).length;
+    const geo = fx.printMesh.geometry; geo.computeBoundingBox();
+    out.w = geo.boundingBox.max.x - geo.boundingBox.min.x; out.l = geo.boundingBox.max.z - geo.boundingBox.min.z;
+    out.round = geo.type === 'CircleGeometry';
+    out.verts = geo.attributes.position.count;
+    G.advance(0.3);
+    const a0 = Math.max(...A);
+    G.advance(12);                      // fades away completely
+    out.fadedTo = Math.max(...A); out.a0 = a0;
+    return out;
+  });
+  ok(r.marks >= 3, `walking while wet leaves drag marks (${r.marks} live)`);
+  ok(!r.round && r.verts > 100 && r.w < 0.6 && r.l >= 0.9, `marks are thin multi-arm strokes with sucker dots, not footprints (${r.verts} verts, ${r.w.toFixed(2)} wide x ${r.l.toFixed(2)} long)`);
+  ok(r.fadedTo === 0, `the marks fade away completely (peak ${r.a0.toFixed(2)} -> ${r.fadedTo})`);
+}
+
+// ================================================================ pause screen lists the controls; nowhere else
+{
+  const r = await E(() => {
+    const G = window.__game, g = G.game;
+    const keys = document.getElementById('keys');
+    const out = { inPause: !!keys && document.getElementById('pause').contains(keys), startHas: document.getElementById('start').innerText, hiddenWhilePlaying: keys.offsetParent === null };
+    g.setPaused(true);
+    const rows = [...keys.querySelectorAll('dt')].map((dt) => [dt.innerText.replace(/\s+/g, ' ').trim(), dt.nextElementSibling.innerText.trim()]);
+    out.rows = rows; out.pad = keys.querySelector('p').innerText; out.shown = keys.offsetParent !== null;
+    out.cols = getComputedStyle(keys.querySelector('dl')).gridTemplateColumns.split(' ').length;
+    const txt = keys.innerText.toLowerCase(); out.leak = /shell|armou?r|tough|harden|hidden/.test(txt);
+    g.setPaused(false);
+    return out;
+  });
+  ok(r.inPause && r.hiddenWhilePlaying, 'the controls list lives only inside the pause overlay (hidden while playing)');
+  ok(r.shown && r.cols === 2 && r.rows.length >= 8, `pause shows a two-column key / action list (${r.rows.length} rows)`);
+  ok(['Move', 'Look', 'Sprint', 'Camouflage (hold)', 'Pause'].every((a) => r.rows.some((x) => x[1] === a)), 'it lists move, look, sprint, camouflage and pause');
+  ok(/gamepad/i.test(r.pad), 'a compact gamepad line follows the list');
+  ok(!r.leak, 'no hidden mechanics are mentioned in the controls list');
+  ok(!/move|sprint|esc/i.test(r.startHas), `the start screen carries no controls or hints ("${r.startHas.replace(/\s+/g, ' ').trim()}")`);
+}
+
+// ================================================================ flowers react to a touch
+{
+  const r = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus, w = g.world, F = g.flowers, out = {};
+    if (G.paused) g.setPaused(false);
+    const f = w.decor.flowers.find((q) => q.inst && q.inst.mesh.parent && w.typeAt(q.x, q.z) !== 'road');
+    G.teleport(f.x - 3, f.z); G.advance(0.3); o.health = 60; F.rand = () => 0.01; F.nextSip = 0; f.cd = 0;
+    const mesh = f.inst.mesh, mat = () => Array.from(mesh.instanceMatrix.array.slice(f.inst.i * 16, f.inst.i * 16 + 16)), m0 = mat();
+    const before = o.health; const rec = F.touch(f, o);
+    out.started = !!rec; out.hidden = mat()[0] === 0;
+    G.advance(0.6); out.curl = rec.curl;
+    out.sipped = o.health - before; out.sparks = Array.from(F.sl).filter((x) => x > 0).length; out.critter = F.critters.some((c) => c.on);
+    // touching again right away: no second sip (per-flower cooldown + global gap)
+    o.health = 60; F.touch(f, o); G.advance(0.1); out.again = o.health - 60;
+    // another flower within the global gap: animates but gives nothing
+    const f2 = w.decor.flowers.find((q) => q !== f && q.inst && !q.live); o.health = 60; f2.cd = 0; F.touch(f2, o); out.gap = o.health - 60;
+    G.advance(12);
+    const m1 = mat();
+    out.reopened = m0.every((v, i) => Math.abs(v - m1[i]) < 1e-5) && !f.live;
+    out.pool = F.pool.filter((p) => p.busy).length;
+    F.nextSip = 0; o.health = 60; f.cd = F.t + 1000; F.touch(f, o); out.cool = o.health - 60; G.advance(12);
+    // many flowers at once never exceed the pool
+    const near = w.decor.flowers.filter((q) => q.inst && !q.live).slice(0, 40); near.forEach((q) => F.touch(q, o)); out.maxLive = F.live.length; G.advance(14);
+    out.liveAfter = F.live.length;
+    return out;
+  });
+  ok(r.started && r.hidden, 'touching a flower swaps its instance for an animated live copy (instance hidden meanwhile)');
+  ok(r.curl > 0.9, `the petals curl shut (${r.curl.toFixed(2)})`);
+  ok(r.sipped > 0 && r.sipped <= 1.5, `a little dew gives a tiny sip (+${r.sipped.toFixed(2)})`);
+  ok(r.sparks >= 4, `dew sparkles lift off (${r.sparks} sparks)`);
+  ok(r.critter, 'a butterfly or bee lifts off (forced here; ~1 touch in 5 otherwise)');
+  ok(r.again < 0.1 && r.gap < 0.1 && r.cool < 0.1, 'no second sip: per-flower cooldown, and a global gap between any two sips');
+  ok(r.reopened && r.pool === 0, 'the flower slowly reopens and its original instance is restored exactly');
+  ok(r.maxLive <= 8 && r.liveAfter === 0, `at most 8 live flowers animate at a time (${r.maxLive}), all released afterwards`);
+}
+// ================================================================ hidden babies give a faint tell, and the squelch is occasional
+{
+  const r = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus, w = g.world, out = {};
+    const b = w.babies.find((q) => !q.found);
+    G.teleport(b.x - 6, b.z); g.collect.tells(0.1, o);
+    const bi = w.babies.indexOf(b), pm = () => g.collect.peek.instanceMatrix.array[bi * 16];
+    out.peekNear = pm() !== 0;
+    G.teleport(b.x - 120, b.z); g.collect.tells(0.1, o);
+    out.peekFar = pm() === 0;
+    // squelch: walk wet for 20 s and count step sounds
+    let n = 0; const orig = g.audio.step; g.audio.step = () => { n++; };
+    G.teleport(w.start.x, w.start.z); G.advance(0.2); G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig;
+    out.steps = n; return out;
+  });
+  ok(r.peekNear && r.peekFar, 'a hidden baby wriggles into view only when the octopus is near');
+  ok(r.steps <= 10 && r.steps >= 2, `the wet squelch is occasional (${r.steps} in 20 s walking, not 5-8 per second)`);
+}
+
 // ================================================================ the screen stays clean
 {
   await E(() => { const G = window.__game; if (G.paused) G.game.setPaused(false); });

@@ -1,6 +1,7 @@
 // Low-poly geometry for every prop kind placed by areas.js (all from primitives).
 import * as THREE from 'three';
 import { tint, merge, at } from './models.js';
+import { bigShell } from './shells.js';
 
 const box = (w, h, d, hex, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0) => at(tint(new THREE.BoxGeometry(w, h, d), hex), x, y, z, rx, ry, rz);
 const cyl = (r1, r2, h, hex, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, seg = 8) => at(tint(new THREE.CylinderGeometry(r1, r2, h, seg), hex), x, y, z, rx, ry, rz);
@@ -55,9 +56,7 @@ export const PROP_GEO = {
   bowl: () => merge([cyl(0.42, 0.34, 0.16, 0xd04a4a, 0, 0.08, 0, 0, 0, 0, 9), cyl(0.33, 0.33, 0.02, 0x6cc0ea, 0, 0.15, 0, 0, 0, 0, 9)]),
   trough: () => merge([box(2.8, 0.5, 0.1, 0x8d9399, 0, 0.25, 0.7), box(2.8, 0.5, 0.1, 0x8d9399, 0, 0.25, -0.7), box(0.1, 0.5, 1.5, 0x8d9399, 1.4, 0.25, 0), box(0.1, 0.5, 1.5, 0x8d9399, -1.4, 0.25, 0)]),
   tin: () => merge([cyl(0.36, 0.36, 0.85, 0xc9ced4, 0, 0.36, 0, 0, 0, Math.PI / 2, 10), cyl(0.37, 0.37, 0.05, 0x1b1b1d, 0.43, 0.36, 0, 0, 0, Math.PI / 2, 10), cyl(0.37, 0.37, 0.3, 0xd04a4a, -0.1, 0.36, 0, 0, 0, Math.PI / 2, 10)]),
-  shellhide: () => merge([at(tint(new THREE.SphereGeometry(1, 9, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0xf3d7cc), 0, 0, 0, 0, 0, 0, 1.1, 0.8, 1.3),
-    ...[0, 1, 2, 3, 4].map((i) => box(0.12, 0.7, 1.9, 0xe2b8a8, (i - 2) * 0.42, 0.45 - Math.abs(i - 2) * 0.08, 0, 0, 0, (i - 2) * -0.18)),
-    box(1.4, 0.8, 0.1, 0x3a2a2a, 0, 0.35, 1.2)]),
+  shellhide: () => bigShell(),
   slab: () => merge([ball(0.55, 0x77756f, -0.9, 0.3, 0, 1, 0.8, 1), ball(0.5, 0x75736d, 0.9, 0.28, 0.1, 1, 0.8, 1), box(2.8, 0.38, 2.0, 0x8c8a85, 0, 0.78, 0, 0.2)]),
   hollowlog: () => merge([cyl(0.62, 0.62, 3.2, 0x6b4d33, 0, 0.62, 0, 0, 0, Math.PI / 2, 9), cyl(0.38, 0.38, 3.3, 0x1b130d, 0, 0.62, 0, 0, 0, Math.PI / 2, 9)]),
   log: () => cyl(0.36, 0.36, 2.8, 0x7a5d44, 0, 0.3, 0, 0, 0, Math.PI / 2, 7),

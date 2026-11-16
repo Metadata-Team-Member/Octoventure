@@ -13,7 +13,13 @@ export function tint(geo, hex) {
   g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
   return g;
 }
-export function merge(list) { return mergeGeometries(list, false); }
+/** set PARTS.on = true before building models to keep each primitive's raw triangles on `geometry.userData.parts` (used by the tree-integrity audit) */
+export const PARTS = { on: false };
+export function merge(list) {
+  const g = mergeGeometries(list, false);
+  if (PARTS.on) g.userData.parts = list.map((p) => Float32Array.from(p.attributes.position.array));
+  return g;
+}
 
 const M = new THREE.Matrix4();
 export function at(geo, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) {
@@ -54,16 +60,17 @@ export function treeGeometries() {
     at(tint(ico(1.15), 0x468c38), -0.8, 2.5, -0.45),
     at(tint(ico(0.9), 0x62b04c), 0.1, 3.7, -0.2),
   ]);
-  const palmParts = [at(tint(cyl(0.14, 0.24, 3.6), 0x9a7b4f), 0, 1.8, 0, 0, 0, 0.12)];
+  // trunk leans (top at x ~ +0.21, y ~ 3.58); every frond starts at that crown point
+  const palmParts = [at(tint(cyl(0.14, 0.24, 3.6), 0x9a7b4f), 0, 1.8, 0, 0, 0, -0.12)];
   for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2;
-    const frond = at(tint(new THREE.ConeGeometry(0.28, 2.6, 4), i % 2 ? 0x3f9b4a : 0x2f8a44), 0, 0, 0, 0, 0, Math.PI / 2 + 0.5);
-    at(frond, 1.3, 0, 0);
+    const a = (i / 7) * Math.PI * 2, lift = i % 2 ? 0.45 : 0.1;                 // alternate fronds rise and arch
+    const frond = at(tint(new THREE.ConeGeometry(0.28, 2.6, 4), i % 2 ? 0x3f9b4a : 0x2f8a44), 0, 0, 0, 0, 0, -(Math.PI / 2 - lift));   // tip points outward and up
+    at(frond, 1.3 * Math.cos(lift), 1.3 * Math.sin(lift), 0);                 // base sits on the crown point
     at(frond, 0, 0, 0, 0, a, 0);
-    at(frond, 0.42, 3.65, 0);
+    at(frond, 0.21, 3.58, 0);
     palmParts.push(frond);
   }
-  palmParts.push(at(tint(ico(0.22), 0x5a3b1e), 0.3, 3.5, 0.1));
+  palmParts.push(at(tint(ico(0.22), 0x5a3b1e), 0.25, 3.45, 0.1));
   const palm = merge(palmParts);
   const bush = merge([
     at(tint(ico(0.9), 0x4f8f3a), 0, 0.55, 0, 0, 0, 0, 1.15, 0.8, 1.15),
@@ -78,7 +85,7 @@ export function treeGeometries() {
     at(tint(ico(1.25), 0x6d9a7b), 1.4, 6.8, 0, 0, 0, 0, 1.2, 0.6, 1.1),
     at(tint(ico(1.3), 0x5f8d70), -1.2, 6.7, 0.4, 0, 0, 0, 1.2, 0.6, 1.1),
     at(tint(ico(1.1), 0x74a283), 0.1, 7.7, -0.3, 0, 0, 0, 1.1, 0.6, 1.0),
-    at(tint(ico(0.8), 0x6a9778), 0.6, 5.9, 1.1, 0, 0, 0, 1.1, 0.6, 1.0),
+    at(tint(ico(0.8), 0x6a9778), 0.55, 5.9, 0.55, 0, 0, 0, 1.1, 0.6, 1.0),
   ]);
   // --- paperbark: pale shaggy trunk, dense dark crown
   const paperbark = merge([
@@ -90,12 +97,15 @@ export function treeGeometries() {
   ]);
   // --- mangrove: tangle of prop roots under a round crown
   const mangParts = [at(tint(cyl(0.14, 0.2, 1.4, 5), 0x4d3b26), 0, 1.3, 0), at(tint(ico(1.2), 0x2f6b3b), 0, 2.5, 0, 0, 0, 0, 1.2, 0.8, 1.2), at(tint(ico(0.8), 0x3c7d46), 0.7, 2.2, 0.3)];
+  // prop roots: thin tip on the ground 0.9 out, rising inward to meet the trunk at y ~1.3 (so the tree stands on its roots)
+  const rootL = Math.hypot(0.9, 1.3), rootT = Math.atan2(0.9, 1.3);
   for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2;
-    const root = at(tint(cone(0.1, 1.5, 4), 0x56422b), 0, 0, 0, 0, 0, Math.PI);
-    at(root, 0, 0.75, 0, 0, 0, 0);
-    at(root, 0, 0, 0, 0.5, a, 0);
-    at(root, Math.cos(a) * 0.3, 0.55, Math.sin(a) * 0.3);
+    const a = (i / 7) * Math.PI * 2 + 0.2;
+    const root = at(tint(cone(0.11, rootL, 4), 0x56422b), 0, 0, 0, 0, 0, Math.PI);       // apex down
+    at(root, 0, rootL / 2, 0);                                                           // apex at the origin (ground)
+    at(root, 0, 0, 0, 0, 0, rootT);                                                      // lean the base inward
+    at(root, 0.9, 0, 0);                                                                  // tip 0.9 from the trunk axis
+    at(root, 0, 0, 0, 0, a, 0);
     mangParts.push(root);
   }
   const mangrove = merge(mangParts);
@@ -109,7 +119,7 @@ export function treeGeometries() {
   }
   const willow = merge(willParts);
   // --- Norfolk Island pine: very tall, regular tiers (the classic coastal landmark)
-  const norParts = [at(tint(cyl(0.2, 0.35, 15, 6), 0x5a4a38), 0, 7.5, 0)];
+  const norParts = [at(tint(cyl(0.14, 0.35, 18.4, 6), 0x5a4a38), 0, 9.2, 0)];       // trunk runs up through every tier to the crown
   for (let i = 0; i < 9; i++) {
     const y = 4 + i * 1.5, r = 2.0 - i * 0.16;
     norParts.push(at(tint(cone(r, 1.6, 7), i % 2 ? 0x2f6a40 : 0x2a5f39), 0, y, 0));

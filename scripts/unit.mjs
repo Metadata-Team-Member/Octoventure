@@ -6,6 +6,11 @@ import { PROP_GEO } from '../src/world/props.js';
 import { CONFIG, TERRAIN } from '../src/config.js';
 import { dailySeed, perthDate } from '../src/util/daily.js';
 import { Progress } from '../src/systems/progress.js';
+import { TRAIL, trailGeometry } from '../src/systems/trail.js';
+import { PARTS, treeGeometries } from '../src/world/models.js';
+import { treeConnectivity } from '../src/world/treeCheck.js';
+import { waterDisc } from '../src/world/placement.js';
+import { readFileSync } from 'node:fs';
 
 let checks = 0;
 const ok = (c, m) => { assert.ok(c, m); checks++; };
@@ -171,4 +176,55 @@ ok(perthDate(new Date('2026-11-16T17:00:00Z')) === '2026-11-17', 'Perth date rol
 // predators show awareness through body language only: no sprite / text marker code may exist in the predator module
 { const { readFileSync } = await import('node:fs'); const src = readFileSync(new URL('../src/entities/predators.js', import.meta.url), 'utf8');
   ok(!/Sprite|setMark|makeMark|CanvasTexture|fillText/.test(src), 'predators.js has no sprite / canvas-text markers above heads'); }
+
+// cicadas are gone for good: no cicada voice in the audio engine or the ambience mix (other sounds remain)
+{ const au = readFileSync(new URL('../src/audio.js', import.meta.url), 'utf8') + readFileSync(new URL('../src/systems/atmosphere.js', import.meta.url), 'utf8') + readFileSync(new URL('../src/world/biomes.js', import.meta.url), 'utf8');
+  ok(!/cicada/i.test(au), 'no cicada sound code anywhere in audio / atmosphere / biome ambience');
+  ok(/birds/.test(au) && /wind/.test(au) && /surf|wave/.test(au), 'the other ambient sounds are still there'); }
+// wet trail: thin tentacle drag marks (wavy arms + small sucker dots), not footprints
+{ const g = trailGeometry(); g.computeBoundingBox(); const b = g.boundingBox;
+  ok(g.type === 'BufferGeometry' && g.attributes.position.count > TRAIL.arms * 20, 'trail geometry has several arms plus dots');
+  ok(b.max.x - b.min.x < 0.6 && b.max.x - b.min.x > TRAIL.spread, 'trail is a narrow fan of arms (not a foot-sized blob)');
+  ok(b.max.z - b.min.z > 0.9 && b.max.z <= 1e-6, 'trail marks are long drag strokes, one stamp per segment');
+  ok(Math.abs(b.max.y - b.min.y) < 1e-6, 'trail is flat on the ground');
+  const fx = readFileSync(new URL('../src/systems/effects.js', import.meta.url), 'utf8');
+  ok(!/CircleGeometry/.test(fx), 'no round footprint geometry left in effects'); }
+// trees: every primitive overlaps the rest, so canopies / fronds / branches are always attached to the trunk
+{ PARTS.on = true; const T = treeGeometries(); PARTS.on = false;
+  ok(Object.keys(T).length >= 9, 'all tree kinds built');
+  for (const [k, g] of Object.entries(T)) { const r = treeConnectivity(g.userData.parts, -0.03); ok(r.components.length === 1, `${k}: foliage and branches are connected to the trunk (loose ${JSON.stringify(r.loose)})`); }
+  // the checker itself must catch a floating canopy
+  { const parts = T.oak.userData.parts.map((t) => Float32Array.from(t)); const last = parts[parts.length - 1]; for (let i = 1; i < last.length; i += 3) last[i] += 3;   // lift one crown blob off the tree
+    ok(treeConnectivity(parts, -0.03).components.length === 2, 'checker flags a canopy blob floating above its tree'); } }
+// still water: a carved puddle / pond is one level disc, at or just under the lowest bank, never tilted
+for (const seed of [1, 42, 2026]) {
+  const w = worlds[seed]; let n = 0, bad = 0;
+  for (const q of w.waters) {
+    if (!['puddle', 'pond', 'tidepool', 'trough', 'dam'].includes(q.kind) || !q.carve) continue;
+    const d = waterDisc(w, q); n++;
+    if (d.gx !== 0 || d.gz !== 0) { bad++; continue; }
+    let lo = 1e9; for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; lo = Math.min(lo, w.heightAt(q.x + Math.cos(a) * q.r * 1.05, q.z + Math.sin(a) * q.r * 1.05)); }
+    if (d.y0 > lo + 0.35) bad++;      // never floats above the bank
+  }
+  ok(n > 20 && bad === 0, `seed ${seed}: ${n} carved still-water discs are level and sit within the bank (${bad} bad)`);
+}
+// shells: real shell shapes (smooth, naturally coloured, finite, a few centimetres to ~half a unit across), no metal look
+{ const { scallop, turban, cowrie, bigShell } = await import('../src/world/shells.js');
+  for (const [k, g] of Object.entries({ scallop: scallop(0), turban: turban(), cowrie: cowrie(), big: bigShell() })) {
+    g.computeBoundingBox(); const b = g.boundingBox, P = g.attributes.position.array, Cc = g.attributes.color.array;
+    ok(P.every(Number.isFinite) && g.attributes.normal && Cc.length === P.length, `${k}: finite positions, normals and baked colours`);
+    const sz = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
+    ok(k === 'big' ? sz > 1.5 : sz > 0.25 && sz < 0.7, `${k}: sensible size (${sz.toFixed(2)})`);
+    let r = 0, g2 = 0, bl = 0; for (let i = 0; i < Cc.length; i += 3) { r += Cc[i]; g2 += Cc[i + 1]; bl += Cc[i + 2]; }
+    ok(r >= bl && r / Cc.length > 0.12, `${k}: warm sand / cream / pink / brown tones, not metallic grey or blue`);
+  }
+  const col = readFileSync(new URL('../src/systems/collect.js', import.meta.url), 'utf8');
+  ok(/metalness: 0/.test(col) && !/wireframe|metalness: [1-9]/.test(col), 'shell material is non-metallic'); }
+// babies: plenty, spread over the world, a good share along the run from start to sea, and some close to the start
+{ let tot = 0, corr = 0, close = 0;
+  for (const seed of SEEDS) { const w = worlds[seed]; tot += w.babies.length;
+    ok(w.babies.length >= 24, `seed ${seed}: ${w.babies.length} baby octopuses`);
+    const d = w.babies.map((b) => Math.hypot(b.x - w.start.x, b.z - w.start.z)); ok(d.filter((x) => x < 250).length >= 3, `seed ${seed}: at least 3 babies within 250 u of the start`);
+    corr += w.babies.filter((b) => Math.abs(w.lateral(b.x, b.z) - w.lateral(w.start.x, w.start.z)) < 170 && w.progress(b.x, b.z) > 0 && w.progress(b.x, b.z) < 0.97).length; }
+  ok(corr / SEEDS.length >= 9, `${(corr / SEEDS.length).toFixed(1)} babies per world lie along the start-to-sea corridor`); }
 console.log(`unit checks passed (${checks} assertions).`);

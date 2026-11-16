@@ -1,12 +1,14 @@
 // =====================================================================
 //  Effects - small visual feedback that makes the octopus feel physical:
-//  ink clouds (an ability), wet footprints, droplets shaken off, venom puff, ripples.
+//  ink clouds (an ability), wet tentacle trail, droplets shaken off, venom puff, ripples.
 // =====================================================================
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { dotTexture } from '../world/worldView.js';
 import { clamp } from '../util/rng.js';
+import { trailGeometry, trailMaterial } from './trail.js';
 
+const _Y = new THREE.Vector3(0, 1, 0), _X = new THREE.Vector3(1, 0, 0), _qp = new THREE.Quaternion();
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
 
 export class Effects {
@@ -21,12 +23,13 @@ export class Effects {
     this.inkMesh.count = 0; this.inkMesh.frustumCulled = false; this.inkMesh.renderOrder = 4;
     scene.add(this.inkMesh);
     this.inkSeeds = Array.from({ length: this.inkPer }, (_, i) => ({ a: i * 2.399, r: 0.25 + ((i * 53) % 10) / 14, h: ((i * 29) % 10) / 10, s: 0.5 + ((i * 17) % 10) / 12 }));
-    // ---- wet footprints
-    this.printN = 48; this.prints = []; this.printI = 0; this.lastPrint = null;
-    const pg = new THREE.CircleGeometry(0.3, 8); pg.rotateX(-Math.PI / 2);
-    this.printMat = new THREE.MeshBasicMaterial({ color: 0x1b2b3a, transparent: true, opacity: 0.38, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
-    this.printMesh = new THREE.InstancedMesh(pg, this.printMat, this.printN); this.printMesh.count = this.printN; this.printMesh.frustumCulled = false;
-    for (let i = 0; i < this.printN; i++) { _m.compose(_v.set(0, -999, 0), _q.identity(), _s.set(0.001, 1, 0.001)); this.printMesh.setMatrixAt(i, _m); this.prints.push({ age: 99, x: 0, y: 0, z: 0, rot: 0 }); }
+    // ---- wet trail: thin wavy tentacle drag lines with sucker dots (see trail.js), instanced and fading
+    this.printN = 64; this.prints = []; this.printI = 0; this.lastPrint = null;
+    const pg = trailGeometry();
+    this.printAlpha = new THREE.InstancedBufferAttribute(new Float32Array(this.printN), 1); pg.setAttribute('aA', this.printAlpha);
+    this.printMat = trailMaterial();
+    this.printMesh = new THREE.InstancedMesh(pg, this.printMat, this.printN); this.printMesh.count = this.printN; this.printMesh.frustumCulled = false; this.printMesh.renderOrder = 2;
+    for (let i = 0; i < this.printN; i++) { _m.compose(_v.set(0, -999, 0), _q.identity(), _s.set(0.001, 1, 0.001)); this.printMesh.setMatrixAt(i, _m); this.prints.push({ age: 99, x: 0, y: 0, z: 0, rot: 0, len: 1, pitch: 0, wet: 0 }); }
     scene.add(this.printMesh);
     // ---- droplets (shaken off a wet octopus; splash when entering water; venom puff)
     this.dN = 90; this.dp = new Float32Array(this.dN * 3); this.dv = new Float32Array(this.dN * 3); this.dl = new Float32Array(this.dN); this.dI = 0;
@@ -82,22 +85,35 @@ export class Effects {
     this.inkMesh.count = n; this.inkMesh.instanceMatrix.needsUpdate = true;
     this.inkMat.opacity = w.ink.length ? 0.5 : 0;
 
-    // ---- wet footprints while walking on dry ground
+    // ---- wet trail while walking on dry ground: a stamp covers the stretch between two sample points
     const wet = o.wetness ?? 0;
     for (let i = 0; i < this.printN; i++) {
       const p = this.prints[i];
-      if (p.age < 90) { p.age += dt; const f = clamp(1 - p.age / (3 + 5 * p.wet), 0, 1);
-        _m.compose(_v.set(p.x, p.y + 0.05, p.z), _q.setFromEuler(_e.set(0, p.rot, 0)), _s.set(Math.max(0.001, f) * p.sz, 1, Math.max(0.001, f) * p.sz * 1.5)); this.printMesh.setMatrixAt(i, _m); if (f <= 0) p.age = 99; }
+      if (p.age < 90) {
+        p.age += dt; const f = clamp(1 - p.age / (3 + 5 * p.wet), 0, 1);
+        _q.setFromAxisAngle(_Y, p.rot).multiply(_qp.setFromAxisAngle(_X, p.pitch));
+        _m.compose(_v.set(p.x, p.y + 0.03, p.z), _q, _s.set(1, 1, p.len)); this.printMesh.setMatrixAt(i, _m);
+        this.printAlpha.setX(i, f * f * (0.5 + 0.5 * p.wet));
+        if (f <= 0) { p.age = 99; this.printAlpha.setX(i, 0); }
+      }
     }
-    this.printMesh.instanceMatrix.needsUpdate = true;
+    this.printMesh.instanceMatrix.needsUpdate = true; this.printAlpha.needsUpdate = true;
     const onDry = !o.waterKind && !o.swim && !o.tunnel && !o.climb && !o.carried && o.alive;
+    // the wet squelch is NOT tied to the marks (that was a rapid squeak): one soft sound every couple of seconds at most
+    this.stepGap = (this.stepGap ?? 2) - dt;
+    if (onDry && o.moving && wet > 0.4 && this.stepGap <= 0) { this.stepGap = 2.4 + Math.random() * 2.6; ctx?.step?.(wet, o.speed); }
+    if (!onDry || !o.moving) this.lastPrint = null;          // a new trail starts the next time it drags itself along
     if (onDry && o.moving && wet > 0.25) {
-      if (!this.lastPrint || Math.hypot(o.x - this.lastPrint.x, o.z - this.lastPrint.z) > 0.9 * (o.sz ?? 1)) {
+      const step = 0.55 * (o.sz ?? 1);
+      if (!this.lastPrint) this.lastPrint = { x: o.x, z: o.z };
+      const dx = o.x - this.lastPrint.x, dz = o.z - this.lastPrint.z, d = Math.hypot(dx, dz);
+      if (d > 4 * step) this.lastPrint = { x: o.x, z: o.z };       // jumped (teleport / climb): no long smear
+      else if (d > step) {
         const p = this.prints[this.printI++ % this.printN];
-        const side = (this.printI % 2 ? 1 : -1) * 0.22 * (o.sz ?? 1);
-        p.x = o.x + Math.cos(o.heading) * side; p.z = o.z - Math.sin(o.heading) * side; p.y = w.heightAt(p.x, p.z); p.rot = o.heading; p.age = 0; p.wet = wet; p.sz = (0.7 + wet * 0.5) * (o.sz ?? 1);
+        p.x = o.x; p.z = o.z; p.y = w.heightAt(o.x, o.z);
+        const y0 = w.heightAt(this.lastPrint.x, this.lastPrint.z);
+        p.rot = Math.atan2(dx, dz); p.len = d; p.pitch = -Math.atan2(p.y - y0, d); p.age = 0; p.wet = wet;
         this.lastPrint = { x: o.x, z: o.z };
-        ctx?.step?.(wet, o.speed);
       }
     }
     // ---- droplets: shaken off while moving fast and wet, big splash on entering water

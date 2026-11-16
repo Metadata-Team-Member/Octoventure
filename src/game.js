@@ -17,6 +17,7 @@ import { Atmosphere } from './systems/atmosphere.js';
 import { dailySeed } from './util/daily.js';
 import { CarManager } from './entities/cars.js';
 import { Collectibles } from './systems/collect.js';
+import { Flowers } from './systems/flowers.js';
 import { Effects } from './systems/effects.js';
 import { clamp, damp, lerp } from './util/rng.js';
 const _fadeT = new THREE.Vector3();
@@ -68,7 +69,7 @@ export class Game {
     this.paused = false;
     this.initSettings();
     this.input.onLockChange = (locked) => this.onLockChange(locked);
-    this.hud.el.pause.addEventListener('click', () => this.input.requestLock());
+    this.hud.el.pause.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#keys')) return; this.input.requestLock(); });   // the controls list is for reading, not clicking
     this.input.onKey = (e) => {
       if (e.code === 'KeyM') this.audio.toggleMute();
       // press any (real) key to start
@@ -133,7 +134,7 @@ void main(){
 
   // ------------------------------------------------------------------ worlds
   newWorld(seed) {
-    if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); }
+    if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); }
     // ?seed= / CONFIG.seed only fix the FIRST world; every restart rolls a new world (and a new sea direction)
     const fixed = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
     const s = seed ?? (!this.hadWorld && fixed != null ? fixed : this.daily ? dailySeed() : Math.floor(Math.random() * 1e9));
@@ -150,6 +151,7 @@ void main(){
     this.fx = new Effects(this.world, this.scene);
     this.progress.reset();
     this.collect = new Collectibles(this.world, this.scene, this.progress, this.audio);
+    this.flowers = new Flowers(this.world, this.scene, this.audio);
     this.world.scent = []; this.lastScent = null;
     this.runTime = 0; this.deadShown = false; this.threat = 0;
     this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
@@ -222,6 +224,7 @@ void main(){
       if (o.hitByCar) { o.hitByCar = false; this.audio.carHit(); }
       this.fx.update(dt, o, { step: (wet, spd) => this.audio.step(wet, spd) });
       this.collect.update(dt, o, this.runTime);
+      this.flowers.update(dt, o, this.runTime);
       if (o.tunnelEvent) { o.tunnelEvent = null; this.audio.squeeze(); }
       if (o.climbEvent) { o.climbEvent = null; this.audio.climb(); }
       if (o.hideEvent) o.hideEvent = null;
