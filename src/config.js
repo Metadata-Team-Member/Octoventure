@@ -76,7 +76,13 @@ export const CONFIG = {
     rockCount: 650,
     flowerCount: 700,
   },
-  camera: { distance: 7.5, minDistance: 3.5, maxDistance: 16, height: 1.4, fov: 58, pitch: 0.42 },
+  camera: {
+    distance: 7.5, minDistance: 3.5, maxDistance: 16, height: 1.4, fov: 58, pitch: 0.42,
+    usePointerLock: true,    // click once to capture the mouse, then just move it to look (Esc releases + pauses)
+    mouseSensitivity: 0.0022, // radians per pixel of mouse movement
+    invertY: false,          // true = push mouse up to raise the camera
+    minPitch: 0.08, maxPitch: 1.35,
+  },
 
   audio: { enabled: true, volume: 0.6 },
 };

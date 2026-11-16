@@ -21,6 +21,34 @@ export function installDebugHooks(game) {
     get restartVisible() { return !document.getElementById('end').hidden; },
     get endTitle() { return document.getElementById('end-title').textContent; },
     get lastDamage() { return game.octopus.lastDamage; },
+    get yaw() { return game.input.yaw; },
+    get pitch() { return game.input.pitch; },
+    get paused() { return game.paused; },
+    get pauseVisible() { return !document.getElementById('pause').hidden; },
+    get lockSupported() { return game.input.lockSupported; },
+    get lockFailed() { return game.input.lockFailed; },
+    get realLock() { return document.pointerLockElement === game.canvas; },
+    /** pretend the browser granted (true) / dropped (false) the pointer lock; null = back to the real state */
+    mockLock(v) {
+      const i = game.input;
+      if (i._saveEver === undefined) i._saveEver = i.everLocked;
+      i._mock = v;
+      if (v === null) { i.everLocked = i._saveEver; i._saveEver = undefined; return; }
+      if (v === true) i.everLocked = true;
+      game.onLockChange(v);
+    },
+    /** force "not locked" without firing the pause logic (to test the click-and-drag fallback) */
+    mockUnlockedSilently(v) { game.input._mock = v ? false : null; },
+    /** simulate a browser without pointer lock: click-and-drag fallback, never pauses */
+    forceFallback(on) {
+      const i = game.input;
+      if (on) { i.lockSupported = false; i.everLocked = false; i.lockFailed = true; i.releaseLock(); }
+      else { i.lockSupported = true; i.lockFailed = false; }
+    },
+    get lockRequests() { return game.input.lockRequests; },
+    get runTime() { return game.runTime; },
+    get zoom() { return game.input.zoom; },
+    mouseMove(dx, dy) { window.dispatchEvent(new MouseEvent('mousemove', { movementX: dx, movementY: dy })); },
     get speed() { return game.octopus.speed; },
         get webgl() { return !!game.renderer.getContext(); },
     get alarm() { return game.octopus.alarm; },

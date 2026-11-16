@@ -30,3 +30,9 @@ button.link { display: block; margin: 14px auto 0; background: none; border: 0; 
 .sub-title { font-size: 22px; font-weight: 600; color: #7fd8ff; letter-spacing: 0.04em; }
 
 .card.start { cursor: pointer; padding: 34px 44px; }
+
+.pause-title { font-size: 24px; margin: 0; }
+#pause { background: rgba(6, 30, 38, 0.35); }
+#start { background: rgba(6, 30, 38, 0.35); }
+#start, #pause { cursor: pointer; }
+canvas#game.locked { cursor: none; }

@@ -1,5 +1,6 @@
-// Keyboard, mouse-drag camera, wheel zoom and a simple touch joystick.
+// Keyboard, mouse-look (Pointer Lock, with click-and-drag fallback), wheel zoom and a simple touch joystick.
 import { clamp } from './util/rng.js';
+import { CONFIG } from './config.js';
 
 export class Input {
   constructor(canvas) {
@@ -8,6 +9,15 @@ export class Input {
     this.touchMove = { x: 0, y: 0 }; this.touchCamo = false; this.touchSprint = false;
     this.listeners = [];
     this.dragging = false;
+    this.canvas = canvas;
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+    this.lockSupported = CONFIG.camera.usePointerLock && typeof canvas.requestPointerLock === 'function' && !coarse;
+    this.locked = false;       // real browser state
+    this.everLocked = false;   // did a lock ever succeed? (only then does losing it mean "paused")
+    this.lockFailed = false;   // first attempt was refused -> plain click-and-drag mode
+    this.lockRequests = 0;
+    this._mock = null;         // tests can force true/false
+    this.invertY = CONFIG.camera.invertY;
     const on = (el, ev, fn, o) => { el.addEventListener(ev, fn, o); this.listeners.push([el, ev, fn, o]); };
     on(window, 'keydown', (e) => {
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -17,12 +27,20 @@ export class Input {
     on(window, 'keyup', (e) => this.keys.delete(e.code));
     on(window, 'blur', () => this.keys.clear());
     on(canvas, 'contextmenu', (e) => e.preventDefault());
+    on(document, 'pointerlockchange', () => {
+      this.locked = document.pointerLockElement === canvas;
+      if (this.locked) { this.everLocked = true; this.lockFailed = false; this.dragging = false; }
+      this.onLockChange?.(this.isLocked);
+    });
+    on(document, 'pointerlockerror', () => { if (!this.everLocked) this.lockFailed = true; this.onLockError?.(); });
+    on(window, 'mousemove', (e) => this.mouseLook(e.movementX || 0, e.movementY || 0));
     on(canvas, 'pointerdown', (e) => {
       if (e.pointerType === 'touch') return;
-      this.dragging = true; this.lx = e.clientX; this.ly = e.clientY; canvas.setPointerCapture?.(e.pointerId);
+      if (!this.isLocked) this.requestLock();          // every click retries the lock
+      this.dragging = true; this.lx = e.clientX; this.ly = e.clientY; try { canvas.setPointerCapture?.(e.pointerId); } catch (err) { /* synthetic / inactive pointer */ }
     });
     on(window, 'pointermove', (e) => {
-      if (!this.dragging || e.pointerType === 'touch') return;
+      if (!this.dragging || e.pointerType === 'touch' || this.isLocked) return;
       this.yaw -= (e.clientX - this.lx) * 0.006; this.pitch = clamp(this.pitch + (e.clientY - this.ly) * 0.005, 0.08, 1.35);
       this.lx = e.clientX; this.ly = e.clientY;
     });
@@ -30,6 +48,27 @@ export class Input {
     on(canvas, 'wheel', (e) => { e.preventDefault(); this.zoom = clamp(this.zoom + e.deltaY * 0.01, -4, 9); }, { passive: false });
     this.setupTouch(canvas, on);
   }
+
+  get isLocked() { return this._mock ?? this.locked; }
+
+  /** mouse movement while the pointer is captured: orbit the camera (no button needed) */
+  mouseLook(dx, dy) {
+    if (!this.isLocked) return;
+    const sens = CONFIG.camera.mouseSensitivity, sgn = this.invertY ? -1 : 1;
+    this.yaw -= dx * sens;
+    this.pitch = clamp(this.pitch + dy * sens * sgn, CONFIG.camera.minPitch, CONFIG.camera.maxPitch);
+  }
+
+  /** must be called from a user gesture (click / key). Safe to call when unsupported. */
+  requestLock() {
+    if (!this.lockSupported || this.locked) return;
+    this.lockRequests++;
+    try {
+      const r = this.canvas.requestPointerLock();
+      if (r && typeof r.catch === 'function') r.catch(() => { if (!this.everLocked) this.lockFailed = true; });
+    } catch (e) { if (!this.everLocked) this.lockFailed = true; }
+  }
+  releaseLock() { try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) { /* ignore */ } }
 
   setupTouch(canvas, on) {
     const ui = document.getElementById('touch');

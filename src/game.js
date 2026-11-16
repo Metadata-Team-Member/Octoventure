@@ -52,6 +52,9 @@ export class Game {
     this.deadShown = false;
     window.addEventListener('resize', () => this.resize());
     this.resize();
+    this.paused = false;
+    this.input.onLockChange = (locked) => this.onLockChange(locked);
+    this.hud.el.pause.addEventListener('click', () => this.input.requestLock());
     this.input.onKey = (e) => {
       if (e.code === 'KeyM') this.audio.toggleMute();
       // press any (real) key to start
@@ -108,14 +111,29 @@ void main(){
     this.updateCamera(0.016, true);
   }
 
+  /** pointer lock gained / lost: losing it mid-game pauses; regaining it resumes */
+  onLockChange(locked) {
+    this.canvas.classList.toggle('locked', locked);
+    if (locked) { this.setPaused(false); return; }
+    if (this.state === 'playing' && this.input.everLocked) this.setPaused(true);
+  }
+  setPaused(on) {
+    if (this.paused === on) return;
+    this.paused = on;
+    this.hud.setPauseVisible(on);
+    if (on) { this.input.keys.clear(); this.audio.ctx?.suspend?.(); } else { this.audio.resume(); this.clock.getDelta(); }
+  }
+
   begin() {
     if (this.state !== 'menu') return;
+    this.input.requestLock();
     this.audio.start(); this.audio.resume();
     this.state = 'playing';
     this.hud.setStartVisible(false);
   }
 
   restart(seed) {
+    this.input.requestLock();
     this.audio.resume();
     this.hud.setEndVisible(false);
     this.hud.setLoading(true);
@@ -165,6 +183,7 @@ void main(){
     if (this.state === 'dead' && !this.deadShown && o.deadT > 1.4) {
       this.deadShown = true;
       this.hud.setEndVisible(true);
+      this.input.releaseLock();       // free the cursor so the Restart button can be clicked
     }
 
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);
@@ -194,6 +213,7 @@ void main(){
     this.hud.el.endTitle.textContent = 'You made it to the sea!';
     this.hud.el.restart.textContent = 'Play again';
     this.hud.setEndVisible(true);
+    this.input.releaseLock();
   }
 
   fmt(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
@@ -232,7 +252,7 @@ void main(){
   tick = () => {
     const dt = Math.min(0.05, this.clock.getDelta());
     this.fps = lerp(this.fps, 1 / Math.max(dt, 1e-4), 0.05);
-    this.update(dt);
+    if (!this.paused) this.update(dt);
     this.render();
     this.frame++;
     this.raf = requestAnimationFrame(this.tick);

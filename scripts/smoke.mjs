@@ -33,6 +33,8 @@ await page.waitForFunction(() => window.__game && window.__game.frame > 3, { tim
 // ---- start screen -> playing ---------------------------------------------------
 ok(await page.evaluate(() => window.__game.webgl), 'WebGL context created');
 ok(await page.evaluate(() => window.__game.state) === 'menu', 'starts on the menu');
+const startText = await page.evaluate(() => document.getElementById('start').innerText.trim());
+ok(startText === 'Play', `start screen shows only a Play button (text: "${startText}")`);
 await page.click('#play');
 ok(await page.evaluate(() => window.__game.state) === 'playing', 'Play button starts the game');
 const f0 = await page.evaluate(() => window.__game.frame);
@@ -40,6 +42,73 @@ await sleep(1500);
 const f1 = await page.evaluate(() => window.__game.frame);
 ok(f1 > f0, `game loop is running (frame ${f0} -> ${f1})`);
 ok(await page.evaluate(() => window.__game.health) <= 100, 'health starts at/below 100');
+
+// ---- mouse look: Pointer Lock (no button needed), Esc pauses, click resumes ----------------------------------
+ok(await page.evaluate(() => window.__game.lockSupported), 'Pointer Lock API available');
+ok(await page.evaluate(() => window.__game.lockRequests) >= 1, 'clicking Play asks the browser to capture the mouse');
+const real = await page.evaluate(() => window.__game.realLock);
+console.log(`info  real pointer lock after clicking Play: ${real ? 'granted (testing the real thing)' : 'not granted in this headless browser (testing with a mock + the click-drag fallback)'}`);
+ok(real || await page.evaluate(() => window.__game.lockFailed), 'lock either granted or cleanly fell back');
+const lockOff = async () => {          // Esc
+  if (real) { await page.evaluate(() => document.exitPointerLock()); await page.waitForFunction(() => window.__game.paused, { timeout: 5000 }); }
+  else await page.evaluate(() => window.__game.mockLock(false));
+};
+const lockOn = async () => {           // click on the overlay -> browser grants the lock
+  if (real) await page.waitForFunction(() => window.__game.realLock && !window.__game.paused, { timeout: 5000 });
+  else await page.evaluate(() => window.__game.mockLock(true));
+};
+await page.evaluate(() => { const G = window.__game; G.clearPredators(); G.setHealth(100); });
+if (!real) await page.evaluate(() => window.__game.mockLock(true));
+const look = await page.evaluate(() => {
+  const G = window.__game, g = G.game, i = g.input, sens = 0.0022;
+  const y0 = G.yaw;
+  G.mouseMove(100, 0);
+  const dy = G.yaw - y0;
+  G.mouseMove(0, 100000); const pMax = G.pitch;
+  G.mouseMove(0, -100000); const pMin = G.pitch;
+  i.pitch = 0.6; i.invertY = true; G.mouseMove(0, 50); const inv = G.pitch - 0.6; i.invertY = false;
+  const z0 = G.zoom; document.getElementById('game').dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true })); const zoomed = G.zoom - z0;
+  return { dy, expect: -100 * sens, pMax, pMin, inv, zoomed };
+});
+ok(Math.abs(look.dy - look.expect) < 1e-6, `moving the mouse while locked turns the camera with no button held (yaw ${look.dy.toFixed(3)} rad per 100 px)`);
+ok(look.pMax <= 1.351 && look.pMin >= 0.079, `pitch is clamped (${look.pMin.toFixed(2)}..${look.pMax.toFixed(2)})`);
+ok(look.inv < 0, 'invertY option flips vertical look');
+ok(look.zoomed > 0, 'mouse wheel zoom still works');
+await page.evaluate(() => window.__game.game.input.keys.add('KeyW'));
+await lockOff();
+const paused = await page.evaluate(async () => {
+  const G = window.__game;
+  const y0 = G.yaw; G.mouseMove(300, 0); const yawMoved = G.yaw !== y0;
+  const s0 = { rt: G.runTime, h: G.health, x: G.pos.x, z: G.pos.z, f: G.frame };
+  await new Promise((r) => setTimeout(r, 700));
+  const s1 = { rt: G.runTime, h: G.health, x: G.pos.x, z: G.pos.z, f: G.frame };
+  return { paused: G.paused, overlay: G.pauseVisible, text: document.getElementById('pause').innerText, yawMoved, still: s0.rt === s1.rt && s0.h === s1.h && s0.x === s1.x && s0.z === s1.z, rendering: s1.f > s0.f };
+});
+ok(paused.paused && paused.overlay && paused.text.trim() === 'Resume', `losing the lock pauses with a single Resume button ("${paused.text.trim()}")`);
+ok(paused.still && paused.rendering, 'paused: nothing dries or moves, but the scene keeps rendering');
+ok(!paused.yawMoved, 'paused: mouse movement does not turn the camera');
+const reqBefore = await page.evaluate(() => window.__game.lockRequests);
+await page.click('#resume');
+ok(await page.evaluate(() => window.__game.lockRequests) > reqBefore, 'clicking Resume re-requests the lock');
+await lockOn();
+await sleep(600);
+const resumed = await page.evaluate(() => { const G = window.__game; G.game.input.keys.delete('KeyW'); return { paused: G.paused, overlay: G.pauseVisible, rt: G.runTime }; });
+ok(!resumed.paused && !resumed.overlay && resumed.rt > 0, 'game resumes after the click');
+await page.evaluate(() => window.__game.mockLock(null));
+// fallback when the lock is unavailable: click-and-drag still works, plain mouse movement does not, and nothing pauses
+await page.evaluate(() => window.__game.forceFallback(true));
+await sleep(300);
+const noPause = await page.evaluate(() => window.__game.paused);
+const drag = await (async () => {
+  const y0 = await page.evaluate(() => window.__game.yaw);
+  await page.mouse.move(600, 300); await page.mouse.move(640, 300);
+  const y1 = await page.evaluate(() => window.__game.yaw);
+  await page.mouse.down(); await page.mouse.move(720, 300, { steps: 5 }); await page.mouse.up();
+  const y2 = await page.evaluate(() => window.__game.yaw);
+  return { hover: y1 - y0, drag: y2 - y1 };
+})();
+ok(!noPause && Math.abs(drag.hover) < 1e-9 && Math.abs(drag.drag) > 0.1, `fallback (no pointer lock): click-and-drag turns the camera, plain movement does not, no pause (${drag.drag.toFixed(2)} rad)`);
+await page.evaluate(() => window.__game.forceFallback(false));
 
 // ---- drying out ----------------------------------------------------------------
 await page.evaluate(() => { const G = window.__game; G.clearPredators(); G.teleport(G.pos.x + 40, G.pos.z + 40); });
@@ -208,7 +277,10 @@ const p2 = await page.evaluate(() => window.__game.pos);
 ok(Math.hypot(p1.x - p2.x, p1.z - p2.z) < 0.01, 'octopus stops moving when dead (even with W held)');
 ok(await page.evaluate(() => window.__game.restartVisible), 'Restart game button appears');
 await page.evaluate(() => window.__game.game.input.keys.clear());
+ok(!(await page.evaluate(() => window.__game.realLock)), 'death screen frees the mouse cursor (lock released)');
+const reqR = await page.evaluate(() => window.__game.lockRequests);
 await page.click('#restart');
+ok(await page.evaluate(() => window.__game.lockRequests) > reqR, 'Restart re-captures the mouse');
 await page.waitForFunction(() => window.__game.state === 'playing', { timeout: 30000 });
 const after = await page.evaluate(() => ({ h: window.__game.health, seed: window.__game.seed, vis: window.__game.restartVisible }));
 ok(after.h > 98 && !after.vis, 'restart resets health and hides the overlay');

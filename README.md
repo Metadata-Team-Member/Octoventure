@@ -39,13 +39,16 @@ npm run build:dist   # normal multi-file build into dist/ (for hosting on any st
 | Move (relative to the camera) | **W A S D** or **arrow keys** |
 | Sprint (dries you out 2× faster) | **Shift** |
 | Camouflage (hold) | **Space**, **C** or **E** |
-| Look around | **drag with the mouse** |
+| Look around | **just move the mouse** (click the game once to capture it) |
 | Zoom | **mouse wheel** |
+| Pause / release the mouse | **Esc** (click to resume) |
 | Mute / unmute | **M** |
 | Restart after the game ends | button, or **R** |
 
+Mouse-look uses the browser's Pointer Lock: click once and the cursor disappears and the camera follows the mouse like a normal PC game; **Esc** releases it and pauses (nothing dries or moves) and shows a single **Resume** button until you click again. The win / game-over screens release the mouse so you can click their buttons. If the browser refuses the lock (some embedded browsers), it falls back to click-and-drag. Sensitivity and invert-Y are in `src/config.js` (`camera.mouseSensitivity`, `camera.invertY`).
+
 Touch screens get an on-screen joystick, RUN and CAMO buttons (they only appear once you touch the screen; they stay hidden on desktop). Drag anywhere else to look.
-Start: click the title screen or press any key. URL options: `?seed=1234` (fixed first world), `?debug=1` (fps / position / distance-to-sea overlay for developers), `?shadows=0` (faster on weak GPUs), `?autostart=1` (skip the title screen).
+Start: click **Play** (or press any key). URL options: `?seed=1234` (fixed first world), `?debug=1` (fps / position / distance-to-sea overlay for developers), `?shadows=0` (faster on weak GPUs), `?autostart=1` (skip the title screen).
 
 ## How to play (a self-discovery game)
 There is **no HUD, timer, tutorial or hint text** on screen. Controls are listed here only; everything else you work out by playing.
