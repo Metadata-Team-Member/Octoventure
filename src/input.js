@@ -1,10 +1,13 @@
 // Keyboard, mouse-look (Pointer Lock, with click-and-drag fallback), wheel zoom and a simple touch joystick.
 import { clamp } from './util/rng.js';
 import { CONFIG } from './config.js';
+import { GamepadInput } from './gamepad.js';
 
 export class Input {
   constructor(canvas) {
     this.keys = new Set();
+    this.pressed = new Set();         // keys / buttons pressed since the last read() (edge triggers: ink, bite, pause ...)
+    this.pad = new GamepadInput();
     this.yaw = Math.random() * Math.PI * 2; this.pitch = 0.42; this.zoom = 0;
     this.touchMove = { x: 0, y: 0 }; this.touchCamo = false; this.touchSprint = false;
     this.listeners = [];
@@ -22,11 +25,13 @@ export class Input {
     on(window, 'keydown', (e) => {
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
+      if (!e.repeat) this.pressed.add(e.code);
       if (this.onKey) this.onKey(e);
     });
     on(window, 'keyup', (e) => this.keys.delete(e.code));
     on(window, 'blur', () => this.keys.clear());
     on(canvas, 'contextmenu', (e) => e.preventDefault());
+    on(canvas, 'mousedown', (e) => { if (e.button === 2) this.pressed.add('Mouse2'); });
     on(document, 'pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
       if (this.locked) { this.everLocked = true; this.lockFailed = false; this.dragging = false; }
@@ -97,7 +102,7 @@ export class Input {
   }
 
   /** returns {fx, fz (screen-space forward/right in -1..1), sprint, camo} */
-  read() {
+  read(dt = 0.016) {
     const k = this.keys;
     let f = 0, r = 0;
     if (k.has('KeyW') || k.has('ArrowUp')) f += 1;
@@ -105,11 +110,20 @@ export class Input {
     if (k.has('KeyD') || k.has('ArrowRight')) r += 1;
     if (k.has('KeyA') || k.has('ArrowLeft')) r -= 1;
     f -= this.touchMove.y; r += this.touchMove.x;
-    return {
-      f: clamp(f, -1, 1), r: clamp(r, -1, 1),
-      sprint: k.has('ShiftLeft') || k.has('ShiftRight') || this.touchSprint,
-      camo: k.has('Space') || k.has('KeyC') || k.has('KeyE') || this.touchCamo,
-    };
+    let sprint = k.has('ShiftLeft') || k.has('ShiftRight') || this.touchSprint;
+    let camo = k.has('Space') || k.has('KeyC') || k.has('KeyE') || this.touchCamo;
+    let climb = k.has('KeyR');
+    const pr = this.pressed;
+    let ink = pr.has('KeyF') || pr.has('KeyQ'), bite = pr.has('KeyB') || pr.has('Mouse2'), pause = false;
+    // gamepad: left stick moves, right stick looks, triggers sprint, A camo, B ink, X bite, Y climb, Start pause
+    const gp = this.pad.poll(dt);
+    if (gp) {
+      f += gp.f; r += gp.r; sprint = sprint || gp.sprint; camo = camo || gp.camo; climb = climb || gp.climb;
+      ink = ink || gp.ink; bite = bite || gp.bite; pause = gp.pause;
+      if (gp.lookX || gp.lookY) { this.yaw -= gp.lookX; this.pitch = clamp(this.pitch + gp.lookY, CONFIG.camera.minPitch, CONFIG.camera.maxPitch); }
+    }
+    pr.clear();
+    return { f: clamp(f, -1, 1), r: clamp(r, -1, 1), sprint, camo, climb, ink, bite, pause };
   }
   dispose() { for (const [el, ev, fn, o] of this.listeners) el.removeEventListener(ev, fn, o); }
 }

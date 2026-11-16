@@ -4,9 +4,12 @@
 //  is fully camouflaged (and not too close) -> confused -> leave.
 // =====================================================================
 import * as THREE from 'three';
-import { CONFIG } from '../config.js';
+import { CONFIG, diff } from '../config.js';
 import { clamp, damp, dampAngle, angleDiff, lerp } from '../util/rng.js';
 
+let RND = Math.random;
+/** the manager points this at world.rnd so a seed (or the daily seed) fully decides who is where and how they spawn */
+export function setPredatorRng(f) { RND = f; }
 const mat = (hex, extra = {}) => new THREE.MeshStandardMaterial({ color: hex, flatShading: true, roughness: 0.85, ...extra });
 const box = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
 const sph = (r, m, sx = 1, sy = 1, sz = 1, seg = 8) => { const o = new THREE.Mesh(new THREE.SphereGeometry(r, seg, Math.max(4, seg - 2)), m); o.scale.set(sx, sy, sz); return o; };
@@ -17,7 +20,7 @@ function pivot(child, x, y, z) { const g = new THREE.Group(); g.position.set(x, 
 // ---------------------------------------------------------------- species
 export const SPECIES = {
   gull: {
-    label: 'Seagull', speed: 8.5, walk: 2.4, notice: 26, attackRange: 1.6, damage: 12, cooldown: 1.0, flying: false, hop: true,
+    label: 'Seagull', caller: true, speed: 8.5, walk: 2.4, notice: 26, attackRange: 1.6, damage: 12, cooldown: 1.0, flying: false, hop: true,
     build() {
       const g = new THREE.Group(); const legs = [];
       const white = mat(0xf4f6f8), grey = mat(0x9aa3ad), orange = mat(0xf1a233), black = mat(0x222428);
@@ -36,7 +39,7 @@ export const SPECIES = {
     },
   },
   cat: {
-    label: 'Cat', speed: 9.5, walk: 2.6, notice: 24, attackRange: 2.0, damage: 15, cooldown: 1.1,
+    label: 'Cat', nocturnal: true, stalker: true, speed: 9.5, walk: 2.6, notice: 24, attackRange: 2.0, damage: 15, cooldown: 1.1,
     build() {
       const g = new THREE.Group(); const legs = [];
       const fur = mat(0xd98a43), dark = mat(0x8c4f21), light = mat(0xf4e6cf), pink = mat(0xe9a4a4), black = mat(0x1d1d1d);
@@ -60,7 +63,7 @@ export const SPECIES = {
     },
   },
   dog: {
-    label: 'Dog', speed: 10.5, walk: 2.8, notice: 30, attackRange: 2.4, damage: 18, cooldown: 1.2,
+    label: 'Dog', tracker: true, speed: 10.5, walk: 2.8, notice: 30, attackRange: 2.4, damage: 18, cooldown: 1.2,
     build() {
       const g = new THREE.Group(); const legs = [];
       const fur = mat(0x8a5a35), dark = mat(0x4a2d18), light = mat(0xe7d3b4), black = mat(0x151515);
@@ -81,7 +84,7 @@ export const SPECIES = {
     },
   },
   fox: {
-    label: 'Fox', speed: 10, walk: 2.7, notice: 32, attackRange: 2.1, damage: 20, cooldown: 1.1,
+    label: 'Fox', nocturnal: true, speed: 10, walk: 2.7, notice: 32, attackRange: 2.1, damage: 20, cooldown: 1.1,
     build() {
       const g = new THREE.Group(); const legs = [];
       const fur = mat(0xd9692b), white = mat(0xfaf3e6), black = mat(0x1e1a18);
@@ -146,8 +149,8 @@ export const SPECIES = {
     label: 'Person', speed: 6.2, walk: 2.2, notice: 22, attackRange: 3.0, damage: 24, cooldown: 1.6, human: true,
     build() {
       const g = new THREE.Group(); const legs = [], arms = [];
-      const shirt = mat([0xd04a4a, 0x3a78c9, 0x4aa86a, 0xe0b340, 0x8a55c4][Math.floor(Math.random() * 5)]);
-      const pants = mat(0x2f3f5e), skin = mat([0xf0c4a0, 0xc68e63, 0x8d5a3c][Math.floor(Math.random() * 3)]), hair = mat(0x2b1d14), shoe = mat(0xf0f0f0);
+      const shirt = mat([0xd04a4a, 0x3a78c9, 0x4aa86a, 0xe0b340, 0x8a55c4][Math.floor(RND() * 5)]);
+      const pants = mat(0x2f3f5e), skin = mat([0xf0c4a0, 0xc68e63, 0x8d5a3c][Math.floor(RND() * 3)]), hair = mat(0x2b1d14), shoe = mat(0xf0f0f0);
       const torso = box(1.1, 1.4, 0.65, shirt); torso.position.y = 2.55; g.add(torso);
       const head = new THREE.Group(); head.position.set(0, 3.7, 0.05);
       head.add(sph(0.42, skin)); const h = sph(0.44, hair, 1, 0.7, 1); h.position.set(0, 0.12, -0.05); head.add(h);
@@ -157,7 +160,46 @@ export const SPECIES = {
         const leg = pivot(box(0.42, 1.8, 0.45, pants), s * 0.28, 1.8, 0); leg.children[0].position.y = -0.9; const foot = box(0.44, 0.22, 0.75, shoe); foot.position.set(0, -1.75, 0.15); leg.add(foot); g.add(leg); legs.push(leg);
         const arm = pivot(box(0.3, 1.3, 0.32, shirt), s * 0.72, 3.1, 0); arm.children[0].position.y = -0.6; const hand = sph(0.17, skin); hand.position.y = -1.35; arm.add(hand); g.add(arm); arms.push(arm);
       }
-      return { g, legs, arms, head };
+      const bucket = new THREE.Group();
+      const bm = mat(0x2f86d9), rim = mat(0xcfe3f6);
+      const bc = cyl(0.33, 0.25, 0.5, bm, 8); bc.position.y = 0; const br = cyl(0.36, 0.36, 0.06, rim, 8); br.position.y = 0.26; bucket.add(bc, br);
+      bucket.position.set(0, -1.5, 0.28); arms[1].add(bucket); bucket.visible = false;
+      return { g, legs, arms, head, bucket };
+    },
+  },
+  magpie: {
+    label: 'Magpie', swoop: true, speed: 16, walk: 5, notice: 17, attackRange: 1.8, damage: 9, cooldown: 3.2, flying: true, call: 'magpie',
+    build() {
+      const g = new THREE.Group(); const black = mat(0x15171c), white = mat(0xf2f2f0), beak = mat(0x8d9aa5), eye = mat(0xb23a2a);
+      const body = sph(0.3, black, 0.8, 0.7, 1.3); g.add(body);
+      const back = sph(0.28, white, 0.85, 0.5, 1.0); back.position.set(0, 0.12, -0.05); g.add(back);
+      const head = new THREE.Group(); head.position.set(0, 0.12, 0.42); head.add(sph(0.17, black));
+      const bk = cone(0.06, 0.28, beak, 4); bk.rotation.x = Math.PI / 2; bk.position.z = 0.22; head.add(bk);
+      for (const sx of [-1, 1]) { const e = sph(0.03, eye); e.position.set(sx * 0.1, 0.04, 0.12); head.add(e); }
+      g.add(head);
+      const wings = [];
+      for (const sx of [-1, 1]) { const w = new THREE.Group(); w.position.set(sx * 0.22, 0.08, 0); const a = box(0.9, 0.05, 0.5, black); a.position.x = sx * 0.45; const b = box(0.5, 0.04, 0.3, white); b.position.set(sx * 0.4, 0.01, -0.05); w.add(a, b); g.add(w); wings.push(w); }
+      const tail = box(0.22, 0.04, 0.5, black); tail.position.set(0, 0.0, -0.62); g.add(tail);
+      g.scale.setScalar(1.35);
+      return { g, legs: [], head, wings };
+    },
+  },
+  kookaburra: {
+    label: 'Kookaburra', swoop: true, speed: 15, walk: 5, notice: 16, attackRange: 1.9, damage: 12, cooldown: 3.6, flying: true, call: 'kookaburra',
+    build() {
+      const g = new THREE.Group(); const brown = mat(0x7a5a3c), cream = mat(0xf0e6d2), dark = mat(0x3b2a1e), beak = mat(0x2a2522), blue = mat(0x4f8fb8);
+      const body = sph(0.34, cream, 0.85, 0.8, 1.25); g.add(body);
+      const back = sph(0.32, brown, 0.88, 0.55, 1.1); back.position.set(0, 0.14, -0.04); g.add(back);
+      const head = new THREE.Group(); head.position.set(0, 0.2, 0.45); head.add(sph(0.24, cream));
+      const cap = sph(0.25, brown, 1, 0.5, 1); cap.position.y = 0.1; head.add(cap);
+      const bk = box(0.14, 0.12, 0.5, beak); bk.position.z = 0.34; head.add(bk);
+      for (const sx of [-1, 1]) { const e = sph(0.035, dark); e.position.set(sx * 0.14, 0.05, 0.16); head.add(e); }
+      g.add(head);
+      const wings = [];
+      for (const sx of [-1, 1]) { const w = new THREE.Group(); w.position.set(sx * 0.26, 0.1, 0); const a = box(0.9, 0.06, 0.55, brown); a.position.x = sx * 0.45; const b = box(0.4, 0.05, 0.3, blue); b.position.set(sx * 0.35, 0.02, 0.0); w.add(a, b); g.add(w); wings.push(w); }
+      const tail = box(0.26, 0.05, 0.6, brown); tail.position.set(0, 0.0, -0.7); g.add(tail);
+      g.scale.setScalar(1.4);
+      return { g, legs: [], head, wings };
     },
   },
 };
@@ -173,12 +215,16 @@ export class Predator {
     scene.add(this.group);
     this.x = x; this.z = z; this.home = { x, z };
     this.y = world.heightAt(x, z);
-    this.heading = Math.random() * Math.PI * 2;
-    this.state = 'wander'; this.timer = Math.random() * 3; this.ignore = 0; this.cool = 0;
-    this.target = null; this.phase = Math.random() * 10; this.speed = 0;
+    this.heading = RND() * Math.PI * 2;
+    this.state = 'wander'; this.timer = RND() * 3; this.ignore = 0; this.cool = 0;
+    this.target = null; this.phase = RND() * 10; this.speed = 0;
     this.alt = this.spec.flying ? 24 : 0;
-    this.circleA = Math.random() * 6.28; this.circleC = { x, z }; this.diveFrom = null; this.diveT = 0; this.diveTo = null;
+    this.circleA = RND() * 6.28; this.circleC = { x, z }; this.diveFrom = null; this.diveT = 0; this.diveTo = null;
     this.lunge = 0; this.lungeHit = false; this.headTurn = 0; this.alertT = 0;
+    this.blind = 0; this.fleeT = 0; this.lastSeen = null; this.searchT = 0; this.lift = 0; this.crouch = 0; this.events = []; this.carrying = false;
+    this.hasBucket = kind === 'human' && RND() < 0.65; if (m.bucket) m.bucket.visible = this.hasBucket;
+    this.swoops = 0; this.perchAlt = 5.5 + RND() * 3; this.mgr = null; this.pounceT = 0; this.trackPt = null; this.act = 1;
+    if (this.spec.swoop) { this.state = 'perch'; this.alt = this.perchAlt; }
     this.scale = this.spec.scale ?? 1;
     this.mark = this.makeMark();
     this.group.add(this.mark);
@@ -230,8 +276,93 @@ export class Predator {
   }
 
   pickWanderTarget() {
-    const a = Math.random() * 6.28, r = 6 + Math.random() * 22;
+    const a = RND() * 6.28, r = 6 + RND() * 22;
     this.target = { x: this.home.x + Math.cos(a) * r, z: this.home.z + Math.sin(a) * r };
+  }
+
+  /** venom bite: scared off for a good while */
+  scare(sec) {
+    this.state = this.spec.flying ? 'climb' : 'flee'; this.fleeT = sec; this.timer = Math.min(sec, 4); this.ignore = sec + 6; this.lastSeen = null; this.alertT = 0;
+    this.blind = 0; if (this.carrying) this.release();
+    this.setMark('?', '#ffe14d');
+  }
+  release() { this.carrying = false; this.state = 'leave'; this.timer = 5; this.ignore = 10; this.target = null; }
+
+  /** magpies & kookaburras: wait in a tree, swoop at the octopus when it passes underneath, fly back up */
+  updateSwooper(dt, player, dist) {
+    const s = this.spec, w = this.world;
+    const alive = player.alive && !player.won, fooled = player.camoProtected;
+    const gy = w.heightAt(this.x, this.z);
+    const noticeR = s.notice * (player.moving ? 1 : 0.6) * this.act * (player.visibility ?? 1) * diff().notice;
+    let dmg = 0;
+    const flapSpeed = this.state === 'perch' ? 0 : 1;
+    this.speed = this.state === 'perch' ? 0 : this.speed;
+    switch (this.state) {
+      case 'perch': {
+        this.setMark('');
+        this.alt = damp(this.alt, this.perchAlt, 3, dt);
+        const face = dist < 45 ? Math.atan2(player.x - this.x, player.z - this.z) : this.heading;
+        this.heading = dampAngle(this.heading, face, 2, dt);
+        this.x = lerp(this.x, this.home.x, 1 - Math.exp(-3 * dt)); this.z = lerp(this.z, this.home.z, 1 - Math.exp(-3 * dt));
+        if (alive && !fooled && this.ignore <= 0 && this.cool <= 0 && dist < noticeR) {
+          this.state = 'alert'; this.alertT = 0.55; this.events.push({ type: 'call', kind: s.call, x: this.x, z: this.z });
+        }
+        break;
+      }
+      case 'alert': {
+        this.setMark('!', '#ff4d3d');
+        this.alertT -= dt;
+        this.heading = dampAngle(this.heading, Math.atan2(player.x - this.x, player.z - this.z), 8, dt);
+        if (fooled || !alive) { this.state = 'home'; this.ignore = 8; break; }
+        if (this.alertT <= 0) { this.state = 'swoop'; this.diveT = 0; this.diveFrom = { x: this.x, z: this.z, a: this.alt }; this.swoops++; this.hit = false; }
+        break;
+      }
+      case 'swoop': {
+        this.setMark('!', '#ff4d3d');
+        this.diveT += dt / clamp(dist / 24 + 0.3, 0.45, 1.0);
+        const f = Math.min(1, this.diveT);
+        this.x = lerp(this.diveFrom.x, player.x, f * f); this.z = lerp(this.diveFrom.z, player.z, f * f);
+        this.alt = lerp(this.diveFrom.a, 0.7, f * f);
+        this.heading = Math.atan2(player.x - this.x, player.z - this.z);
+        this.speed = 16;
+        if (fooled) { this.state = 'climb'; this.timer = 2; this.cool = 4; break; }
+        if (f >= 1) {
+          const d = Math.hypot(player.x - this.x, player.z - this.z);
+          if (alive && d < s.attackRange + 0.8 && !fooled) { dmg = s.damage; player.damage(s.damage, this.kind); }
+          this.cool = s.cooldown; this.state = 'climb'; this.timer = 2.2;
+        }
+        break;
+      }
+      case 'climb': {
+        this.setMark('');
+        this.timer -= dt;
+        this.alt = damp(this.alt, 11, 2.2, dt);
+        const away = Math.atan2(this.x - player.x, this.z - player.z);
+        this.heading = dampAngle(this.heading, away + 0.4, 4, dt);
+        this.speed = 11; this.x += Math.sin(this.heading) * this.speed * dt; this.z += Math.cos(this.heading) * this.speed * dt;
+        if (this.timer <= 0) { this.state = 'home'; if (this.swoops >= 3) { this.swoops = 0; this.ignore = 22; } }
+        break;
+      }
+      case 'home': {
+        this.setMark('');
+        const d = Math.hypot(this.home.x - this.x, this.home.z - this.z);
+        this.heading = dampAngle(this.heading, Math.atan2(this.home.x - this.x, this.home.z - this.z), 4, dt);
+        this.speed = Math.min(12, 3 + d * 0.5);
+        this.x += Math.sin(this.heading) * this.speed * dt; this.z += Math.cos(this.heading) * this.speed * dt;
+        this.alt = damp(this.alt, this.perchAlt, 1.5, dt);
+        if (d < 1.8) this.state = 'perch';
+        break;
+      }
+      case 'climbaway': break;
+    }
+    if (this.state === 'climb' && this.fleeT > 0) this.fleeT -= dt;
+    void flapSpeed;
+    const lim = w.half - 20;
+    this.x = clamp(this.x, -lim, lim); this.z = clamp(this.z, -lim, lim);
+    this.y = gy + this.alt;
+    this.groundY = gy;
+    this.sync(dt);
+    return dmg;
   }
 
   /** returns damage dealt this frame (0 if none) */
@@ -242,13 +373,22 @@ export class Predator {
     this.cool = Math.max(0, this.cool - dt); this.ignore = Math.max(0, this.ignore - dt);
     this.phase += dt * (1 + this.speed * 0.9);
     if (player.camoProtected && dist < s.notice * 1.5) this.ignore = Math.max(this.ignore, 7);   // once fooled, it stays uninterested for a while
+    // daily rhythm: foxes and cats prowl at night, everything else is sleepy in the dark
+    const night = world.night ?? 0;
+    this.act = s.nocturnal ? lerp(0.7, 1.45, night) : lerp(1, s.swoop ? 0.15 : 0.5, night);
+    // ink clouds blind whoever walks into them
+    for (const c of world.ink || []) if ((this.x - c.x) ** 2 + (this.z - c.z) ** 2 < (c.r * c.k) ** 2) { this.blind = Math.max(this.blind, 3.5); this.inkFrom = c; }
+    this.blind = Math.max(0, this.blind - dt);
+    if (s.swoop) return this.updateSwooper(dt, player, dist);
     if (s.flying) return this.updateEagle(dt, player, dist);
+    if (this.blind > 0 && this.state !== 'carry' && this.state !== 'blind') { this.state = 'blind'; this.lift = 0; if (this.carrying) this.release(); }
 
     const fooled = player.camoProtected;      // hidden: nobody can see, track or hurt you (no close-range exception)
     const alive = player.alive && !player.won;
     const sprintBoost = player.sprinting ? 1.25 : 1;
-    const noticeR = s.notice * (player.moving ? sprintBoost : 0.65);
+    const noticeR = s.notice * (player.moving ? sprintBoost : 0.65) * this.act * (player.visibility ?? 1) * diff().notice;
     let dmg = 0;
+    if (!fooled && alive && (this.state === 'alert' || this.state === 'chase' || this.state === 'stalk')) this.lastSeen = { x: player.x, z: player.z };
 
     switch (this.state) {
       case 'wander': {
@@ -256,12 +396,105 @@ export class Predator {
         this.timer -= dt;
         if (!this.target || this.pickTargetSoon || (this.timer <= 0)) {
           this.pickTargetSoon = false;
-          if (Math.random() < 0.4) { this.target = null; this.timer = 1.5 + Math.random() * 3; } else { this.pickWanderTarget(); this.timer = 4 + Math.random() * 5; }
+          if (RND() < 0.4) { this.target = null; this.timer = 1.5 + RND() * 3; } else { this.pickWanderTarget(); this.timer = 4 + RND() * 5; }
         }
         if (this.target) { if (this.walkToward(this.target.x, this.target.z, s.walk, dt) < 1.2) { this.target = null; } } else this.speed = damp(this.speed, 0, 6, dt);
         if (alive && this.ignore <= 0 && !fooled && dist < noticeR) {
           this.state = 'alert'; this.alertT = this.kind === 'cat' ? 0.9 : 0.55;
+        } else if (s.tracker && alive && !fooled && this.ignore <= 0) {
+          // dogs follow scent trails: pick up the freshest point of the trail that is close by
+          const sc = world.scent;
+          if (sc && sc.length > 3) {
+            let best = null, bd = 26 * this.act;
+            for (const q of sc) { const d = Math.hypot(q.x - this.x, q.z - this.z); if (d < bd) { bd = d; best = q; } }
+            if (best) { this.state = 'track'; this.trackPt = best; this.setMark('?', '#ffb347'); }
+          }
         }
+        break;
+      }
+      case 'track': {
+        const sc = world.scent || [];
+        this.setMark('?', '#ffb347');
+        if (!alive || fooled || !this.trackPt) { this.state = 'search'; this.searchT = 3; break; }
+        const pt = this.trackPt;
+        if (this.walkToward(pt.x, pt.z, s.walk * 2.4, dt) < 2.2) {
+          const i = sc.indexOf(pt);
+          const nxt = i >= 0 ? sc[Math.min(sc.length - 1, i + 3)] : null;
+          if (nxt && nxt !== pt) this.trackPt = nxt; else { this.lastSeen = { x: pt.x, z: pt.z }; this.state = 'search'; this.searchT = 4; }
+        }
+        if (this.ignore <= 0 && dist < noticeR) { this.state = 'alert'; this.alertT = 0.45; }
+        break;
+      }
+      case 'blind': {
+        this.setMark('?', '#ffe14d');
+        const c = this.inkFrom || { x: player.x, z: player.z };
+        this.headTurn = Math.sin(this.phase * 2.5) * 1.1;
+        this.walkToward(this.x + (this.x - c.x) * 4 + Math.sin(this.phase) * 6, this.z + (this.z - c.z) * 4 + Math.cos(this.phase) * 6, s.walk * 2, dt);
+        if (this.blind <= 0) { this.state = 'leave'; this.timer = 4; this.ignore = 10; this.headTurn = 0; this.lastSeen = null; }
+        break;
+      }
+      case 'flee': {
+        this.setMark('?', '#ffe14d');
+        this.fleeT -= dt;
+        const away = Math.atan2(this.x - player.x, this.z - player.z);
+        this.walkToward(this.x + Math.sin(away) * 25, this.z + Math.cos(away) * 25, s.speed * 0.9, dt);
+        if (this.fleeT <= 0) { this.state = 'leave'; this.timer = 4; this.ignore = 16; this.lastSeen = null; }
+        break;
+      }
+      case 'search': {
+        // lost the octopus: go back to where it was last seen and look around
+        this.setMark('?', '#ffe14d');
+        if (!this.lastSeen) { this.state = 'leave'; this.timer = 3; break; }
+        const d = this.walkToward(this.lastSeen.x, this.lastSeen.z, s.walk * 2.2, dt);
+        if (d < 2.6) { this.speed = damp(this.speed, 0, 8, dt); this.searchT -= dt; this.headTurn = Math.sin(this.phase * 1.3) * 1.2; }
+        if (alive && !fooled && this.ignore <= 0 && dist < noticeR * 0.8) { this.state = 'alert'; this.alertT = 0.45; this.headTurn = 0; break; }
+        if (this.searchT <= 0) { this.state = 'leave'; this.timer = 5; this.ignore = 6; this.headTurn = 0; this.lastSeen = null; }
+        break;
+      }
+      case 'circle': {
+        // gulls: take off, circle overhead and call the others in
+        this.setMark('!', '#ff4d3d');
+        this.timer -= dt; this.circleA += dt * 1.7;
+        const tx = player.x + Math.cos(this.circleA) * 8, tz = player.z + Math.sin(this.circleA) * 8;
+        this.heading = dampAngle(this.heading, Math.atan2(tx - this.x, tz - this.z), 6, dt);
+        this.speed = 10; this.x += Math.sin(this.heading) * this.speed * dt; this.z += Math.cos(this.heading) * this.speed * dt;
+        this.lift = damp(this.lift, 7, 3, dt);
+        if (fooled || !alive) { this.state = 'confused'; this.timer = 1.5; break; }
+        if (this.timer <= 0) { this.state = 'chase'; this.chaseT = 0; }
+        break;
+      }
+      case 'stalk': {
+        // cats: crouch low, creep closer, then pounce
+        this.setMark('');
+        this.crouch = damp(this.crouch, 1, 6, dt);
+        if (!alive) { this.state = 'wander'; break; }
+        if (fooled) { this.state = 'confused'; this.timer = 1.6; break; }
+        if (dist > s.notice * 1.9) { this.state = 'leave'; this.timer = 4; this.ignore = 6; break; }
+        this.walkToward(player.x, player.z, s.walk * 1.25, dt);
+        if (dist < 6.2 && this.cool <= 0) { this.state = 'pounce'; this.pounceT = 0; this.pounceDir = Math.atan2(dx, dz); this.pounceHit = false; }
+        break;
+      }
+      case 'pounce': {
+        this.setMark('!', '#ff4d3d');
+        this.pounceT += dt / 0.55;
+        const k = Math.min(1, this.pounceT);
+        this.heading = this.pounceDir;
+        this.speed = 17;
+        const nx = this.x + Math.sin(this.pounceDir) * 17 * dt, nz = this.z + Math.cos(this.pounceDir) * 17 * dt;
+        const r = world.resolve(nx, nz, 0.9); if (this.canWalk(r.x, r.z)) { this.x = r.x; this.z = r.z; }
+        this.lift = Math.sin(Math.PI * k) * 1.1;
+        this.lunge = k * 0.7;
+        if (fooled) { this.state = 'confused'; this.timer = 1.4; this.lift = 0; this.lunge = 0; this.cool = s.cooldown; break; }
+        if (!this.pounceHit && alive && dist < s.attackRange + 0.4) { this.pounceHit = true; dmg = s.damage * 1.3; player.damage(dmg, this.kind); }
+        if (k >= 1) { this.state = 'stalk'; this.cool = s.cooldown * 2.2; this.lift = 0; this.lunge = 0; this.crouch = 0.6; }
+        break;
+      }
+      case 'carry': {
+        // the person with the bucket walks off with the octopus for a few seconds
+        this.setMark('!', '#ff4d3d');
+        if (!player.carried || player.carried.by !== this) { this.state = 'leave'; this.timer = 5; this.ignore = 10; this.carrying = false; break; }
+        if (!this.target || this.pickTargetSoon) { this.pickWanderTarget(); this.pickTargetSoon = false; }
+        if (this.walkToward(this.target.x, this.target.z, s.walk * 1.6, dt) < 1.5) this.target = null;
         break;
       }
       case 'alert': {
@@ -271,7 +504,14 @@ export class Predator {
         this.alertT -= dt;
         if (fooled) { this.state = 'confused'; this.timer = 1.4; break; }
         if (this.alertT <= 0) {
-          if (fooled) { this.state = 'confused'; this.timer = 1.7; } else { this.state = 'chase'; this.chaseT = 0; }
+          if (fooled) { this.state = 'confused'; this.timer = 1.7; }
+          else if (s.stalker) { this.state = 'stalk'; this.crouch = 0; }
+          else if (s.caller && this.lift < 0.5 && !this.circled) {
+            this.state = 'circle'; this.timer = 3.2; this.circled = true; this.circleA = Math.atan2(this.z - player.z, this.x - player.x);
+            this.events.push({ type: 'call', kind: 'gull' });
+            if (this.mgr) for (const q of this.mgr.list) if (q !== this && q.kind === 'gull' && q.state === 'wander' && Math.hypot(q.x - this.x, q.z - this.z) < 85) { q.state = 'alert'; q.alertT = 0.4 + RND() * 0.9; q.circled = false; q.ignore = 0; }
+          }
+          else { this.state = 'chase'; this.chaseT = 0; }
         }
         if (!alive) this.state = 'wander';
         break;
@@ -282,6 +522,7 @@ export class Predator {
         if (!alive) { this.state = 'leave'; this.timer = 3; break; }
         if (fooled) { this.state = 'confused'; this.timer = 1.7; break; }
         if (dist > s.notice * 1.9 || this.chaseT > 14) { this.state = 'leave'; this.timer = 4; this.ignore = 6; break; }
+        this.lift = damp(this.lift, 0, 5, dt);
         this.walkToward(player.x, player.z, s.speed, dt);
         if (dist < s.attackRange && this.cool <= 0) { this.state = 'attack'; this.lunge = 0.0; this.lungeHit = false; }
         break;
@@ -294,7 +535,14 @@ export class Predator {
         this.lunge += dt / 0.4;
         if (this.lunge > 0.5 && !this.lungeHit) {
           this.lungeHit = true;
-          if (alive && dist < s.attackRange + 1.0 && !fooled) { dmg = s.damage; player.damage(s.damage, this.kind); }
+          if (alive && dist < s.attackRange + 1.0 && !fooled) {
+            if (this.hasBucket && !player.carried && !player.tunnel) {
+              // scooped up in the bucket: carried for a few seconds (health loss), then dropped
+              player.carried = { by: this, t: 0 }; this.carrying = true; this.state = 'carry'; this.lunge = 0; this.cool = s.cooldown;
+              this.events.push({ type: 'grab' }); player.shake = Math.max(player.shake, 0.5); break;
+            }
+            dmg = s.damage; player.damage(s.damage, this.kind);
+          }
         }
         if (this.lunge >= 1) {
           this.lunge = 0; this.cool = s.cooldown;
@@ -310,7 +558,11 @@ export class Predator {
         this.headTurn = Math.sin(this.timer * 6) * 0.9;
         // if the camo drops while it is still looking, it may spot you again
         if (!fooled && player.alive && dist < noticeR * 0.8) { this.state = 'alert'; this.alertT = 0.5; break; }
-        if (this.timer <= 0) { this.state = 'leave'; this.timer = 5 + Math.random() * 3; this.ignore = 8; this.headTurn = 0; }
+        if (this.timer <= 0) {
+          this.headTurn = 0;
+          if (this.lastSeen && s.tracker !== false && !s.crab) { this.state = 'search'; this.searchT = 4.5; this.ignore = 0; }
+          else { this.state = 'leave'; this.timer = 5 + RND() * 3; this.ignore = 8; }
+        }
         break;
       }
       case 'leave': {
@@ -318,6 +570,7 @@ export class Predator {
         this.timer -= dt;
         const away = Math.atan2(-dx, -dz) + Math.sin(this.phase * 0.2) * 0.4;
         this.walkToward(this.x + Math.sin(away) * 20, this.z + Math.cos(away) * 20, s.walk * 1.5, dt);
+        this.lift = damp(this.lift, 0, 4, dt); this.circled = false;
         if (this.timer <= 0 || dist > 40) { this.state = 'wander'; this.home = { x: this.x, z: this.z }; this.target = null; this.ignore = Math.max(this.ignore, 3); }
         break;
       }
@@ -343,7 +596,7 @@ export class Predator {
         this.speed = 9;
         this.x += Math.sin(this.heading) * this.speed * dt; this.z += Math.cos(this.heading) * this.speed * dt;
         this.alt = damp(this.alt, 24 + Math.sin(this.phase * 0.05) * 3, 1.5, dt);
-        const noticeR = s.notice * (player.moving ? (player.sprinting ? 1.2 : 1) : 0.45);
+        const noticeR = s.notice * (player.moving ? (player.sprinting ? 1.2 : 1) : 0.45) * this.act * (player.visibility ?? 1) * diff().notice;
         if (alive && this.ignore <= 0 && !fooled && this.cool <= 0 && dist < noticeR) { this.state = 'alert'; this.alertT = 0.7; }
         break;
       }
@@ -394,15 +647,16 @@ export class Predator {
 
   sync(dt = 0) {
     const s = this.spec, p = this.parts, t = this.phase;
-    this.group.position.set(this.x, this.y, this.z);
+    this.group.position.set(this.x, this.y + (this.lift || 0), this.z);
     const faceOffset = s.side ? Math.PI / 2 : 0;
     this.group.rotation.y = this.heading + faceOffset;
     const mv = clamp(this.speed / (s.speed * 0.6 + 0.001), 0, 1.4);
     const swing = Math.sin(t * 3.2) * 0.7 * mv;
     if (s.flying) {
       const flap = this.state === 'dive' ? 0.15 : Math.sin(t * 0.9) * 0.15;
-      p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'dive' ? 0.7 : flap + 0.08); });
-      this.group.rotation.z = Math.sin(t * 0.2) * 0.15; this.group.rotation.x = this.state === 'dive' ? 0.6 : this.state === 'climb' ? -0.35 : 0;
+      if (s.swoop) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'perch' ? -0.9 : this.state === 'swoop' ? 0.6 : Math.sin(this.phase * 16) * 0.7); });
+      else p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'dive' ? 0.7 : flap + 0.08); });
+      this.group.rotation.z = Math.sin(t * 0.2) * 0.15; this.group.rotation.x = this.state === 'dive' || this.state === 'swoop' ? 0.6 : this.state === 'climb' ? -0.35 : 0;
       if (this.shadowDisc) { this.shadowDisc.position.set(this.x, (this.groundY ?? this.y) + 0.08, this.z); const sc = clamp(1.6 - this.alt / 20, 0.6, 1.5); this.shadowDisc.scale.set(sc, sc, sc); }
       return;
     }
@@ -414,6 +668,8 @@ export class Predator {
     }
     if (p.tail) p.tail.rotation.y = Math.sin(t * 2.2) * 0.4;
     if (p.claws) p.claws.forEach((c, i) => { c.position.y = 0.7 + (this.state === 'attack' ? Math.sin(this.lunge * Math.PI) * 0.4 : Math.sin(t * 2 + i) * 0.04); });
+    if (this.crouch) { p.g.scale.y = 1 - 0.3 * this.crouch; if (this.state !== 'stalk' && this.state !== 'pounce') this.crouch = Math.max(0, this.crouch - dt * 3); } else if (p.g.scale.y !== 1) p.g.scale.y = 1;
+    if (p.wings && !s.flying) p.wings.forEach((w, i) => { w.rotation.z = this.lift > 0.4 ? (i ? -1 : 1) * Math.sin(this.phase * 14) * 0.7 : 0; });
     // body bob / lunge
     const lungeOff = this.state === 'attack' ? Math.sin(this.lunge * Math.PI) * 0.9 : 0;
     p.g.position.set(0, (s.hop ? Math.abs(Math.sin(t * 3.2)) * 0.18 * mv : Math.abs(Math.sin(t * 3.2)) * 0.06 * mv), lungeOff);
@@ -437,11 +693,15 @@ const HABITAT = {
   crab:  [{ b: ['beach', 'headland'], share: 0.5 }, { b: ['wetland', 'estuary'], share: 0.5 }],
   eagle: [{ b: ['bush', 'farm', 'riverbank', 'headland'], share: 1 }],
   human: [{ b: ['suburb', 'town'], share: 0.5 }, { b: ['beach', 'estuary'], share: 0.5 }],
+  magpie:     [{ b: ['suburb', 'farm', 'bush'], share: 1, tree: true }],
+  kookaburra: [{ b: ['bush', 'riverbank', 'farm'], share: 1, tree: true }],
 };
+const PERCH_TREES = new Set(['gum', 'oak', 'paperbark', 'willow']);
 
 export class PredatorManager {
   constructor(world, scene) {
-    this.world = world; this.scene = scene; this.list = [];
+    this.world = world; this.scene = scene; this.list = []; this.stormBirds = 0;
+    setPredatorRng(world.rnd);
     if (!CONFIG.predators.enabled) return;
     const K = world.areaScale;                // counts in the config are per 800x800 m
     for (const [kind, per] of Object.entries(CONFIG.predators.counts)) {
@@ -450,15 +710,51 @@ export class PredatorManager {
       for (let i = 0; i < count; i++) {
         let h = hab[0];
         if (hab.length > 1) { let r = world.rnd(), acc = 0; for (const q of hab) { acc += q.share; if (r <= acc) { h = q; break; } } }
-        const spot = world.habitatSpot(h.b, h.types, CONFIG.predators.safeRadiusAtStart);
-        if (spot) this.list.push(new Predator(kind, spot.x, spot.z, world, scene));
+        let spot = null;
+        if (h.tree) spot = this.treeSpot(h.b);
+        else spot = world.habitatSpot(h.b, h.types, CONFIG.predators.safeRadiusAtStart);
+        if (spot) this.add(new Predator(kind, spot.x, spot.z, world, scene));
       }
     }
   }
-  spawn(kind, x, z) { const p = new Predator(kind, x, z, this.world, this.scene); this.list.push(p); return p; }
+  add(p) { p.mgr = this; this.list.push(p); return p; }
+  /** a perch: a real tree (the bird sits in it) inside one of the biomes */
+  treeSpot(biomes) {
+    const w = this.world, trees = w.decor.trees;
+    for (let i = 0; i < 300; i++) {
+      const t = trees[Math.floor(w.rnd() * trees.length)];
+      if (!t || !PERCH_TREES.has(t.kind)) continue;
+      if (Math.hypot(t.x - w.start.x, t.z - w.start.z) < CONFIG.predators.safeRadiusAtStart + 10) continue;
+      if (!biomes.includes(w.biomeAt(t.x, t.z))) continue;
+      return { x: t.x, z: t.z };
+    }
+    return null;
+  }
+  spawn(kind, x, z) { return this.add(new Predator(kind, x, z, this.world, this.scene)); }
+  /** venom bite: scare off the closest predator within reach (returns it, or null) */
+  bite(player, range, sec) {
+    let best = null, bd = range;
+    for (const p of this.list) {
+      const d = Math.hypot(p.x - player.x, p.z - player.z) - (p.spec.flying ? 0 : 0);
+      if (d < bd && (!p.spec.flying || p.alt < 3)) { bd = d; best = p; }
+    }
+    if (best) best.scare(sec);
+    return best;
+  }
   update(dt, player) {
     let threat = 0; let hurt = 0; const R = CONFIG.predators.activeRadius;
     const events = [];
+    const w = this.world;
+    // storms bring more birds
+    if (w.weatherKind === 'storm' && this.list.filter((p) => p.storm).length < Math.round(4 * w.areaScale)) {
+      const a = w.rnd() * 6.28, d = 60 + w.rnd() * 40;
+      const x = clamp(player.x + Math.cos(a) * d, -w.half + 40, w.half - 40), z = clamp(player.z + Math.sin(a) * d, -w.half + 40, w.half - 40);
+      if (w.heightAt(x, z) > 0.4) { const g = this.spawn('gull', x, z); g.storm = true; }
+    }
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const p = this.list[i];
+      if (p.storm && w.weatherKind !== 'storm' && Math.hypot(p.x - player.x, p.z - player.z) > 60) { p.dispose(this.scene); this.list.splice(i, 1); continue; }
+    }
     for (const p of this.list) {
       const d = Math.hypot(p.x - player.x, p.z - player.z);
       const near = d < R;
@@ -466,12 +762,13 @@ export class PredatorManager {
       if (p.shadowDisc) p.shadowDisc.visible = p.group.visible;
       if (!near) continue;
       hurt += p.update(dt, player, this.world);
+      if (p.events.length) { for (const e of p.events) events.push({ ...e, x: p.x, z: p.z, y: p.y + (p.lift || 0) + (p.alt || 0) }); p.events.length = 0; }
       if (p.state !== p._prev) {
-        if (p.state === 'alert' && d < 70) events.push({ type: 'alert', who: p.spec.label });
+        if (p.state === 'alert' && d < 70) events.push({ type: 'alert', who: p.spec.label, kind: p.kind, x: p.x, z: p.z, y: p.y + 1.5 });
         if (p.state === 'confused') events.push({ type: 'fooled', who: p.spec.label });
         p._prev = p.state;
       }
-      if (p.state === 'chase' || p.state === 'attack' || p.state === 'dive' || p.state === 'alert') threat = Math.max(threat, 1 - clamp(d / 45, 0, 1));
+      if (p.state === 'chase' || p.state === 'attack' || p.state === 'dive' || p.state === 'alert' || p.state === 'swoop' || p.state === 'pounce' || p.state === 'stalk' || p.state === 'carry') threat = Math.max(threat, 1 - clamp(d / 45, 0, 1));
     }
     return { threat, hurt, events };
   }

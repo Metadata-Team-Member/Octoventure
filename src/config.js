@@ -73,7 +73,8 @@ export const CONFIG = {
   predators: {
     enabled: true,
     // counts per species (spawned in the habitat they like)
-    counts: { gull: 10, cat: 5, dog: 5, fox: 6, crab: 9, eagle: 3, human: 5 },
+    counts: { gull: 10, cat: 5, dog: 5, fox: 6, crab: 9, eagle: 3, human: 5, magpie: 6, kookaburra: 4 },
+    cars: 7,               // cars on the roads (per 800x800 m); they ignore camouflage, but you can hear them coming
     safeRadiusAtStart: 35, // nothing spawns this close to the start
     activeRadius: 130,     // predators further than this are paused (performance)
     damageMult: 1.0,       // global damage scale (set 0 for a peaceful stroll)
@@ -103,6 +104,17 @@ export const CONFIG = {
     mouseSensitivity: 0.0022, // radians per pixel of mouse movement
     invertY: false,          // true = push mouse up to raise the camera
     minPitch: 0.08, maxPitch: 1.35,
+  },
+
+  // ---- Abilities (all discovered by play; keys are only listed in the README) ----------------------
+  abilities: {
+    inkCooldown: 9, inkRadius: 6.5, inkLife: 7,          // F / Q (or gamepad B): only works in water
+    biteCooldown: 28, biteRange: 3.6, biteScare: 9,      // right-click / B (or gamepad X): last resort
+    climbPush: 0.55,                                     // seconds of pushing into a fence/wall before the octopus climbs by itself (R / gamepad Y: instantly)
+    hideNoticeMult: 0.22,                                // sight range multiplier while tucked into a shell / tin / under a rock
+    swimSpeedMult: 1.2,                                  // extra speed in deep sea water (on top of the wading boost)
+    tunnelSpeed: 9, tunnelWetGain: 14,                   // squeezing through pipes: speed (m/s), rehydration per second in wet tunnels
+    carryTime: 3.6, carryDamage: 18, carDamage: 38,      // bucket people / cars
   },
 
   // ---- Hidden collectibles (never shown on screen) -----------------------------------

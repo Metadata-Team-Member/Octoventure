@@ -13,9 +13,12 @@ import { GameAudio } from './audio.js';
 import { Progress } from './systems/progress.js';
 import { Environment } from './systems/environment.js';
 import { Atmosphere } from './systems/atmosphere.js';
+import { CarManager } from './entities/cars.js';
+import { Collectibles } from './systems/collect.js';
+import { Effects } from './systems/effects.js';
 import { clamp, damp, lerp } from './util/rng.js';
 
-const CAUSE = { dry: 'The octopus dried out', gull: 'Pecked by a seagull', cat: 'Caught by a cat', dog: 'Chased down by a dog', fox: 'Caught by a fox', crab: 'Pinched by a crab', eagle: 'Snatched by an eagle', human: 'Picked up by a person' };
+const CAUSE = { dry: 'The octopus dried out', gull: 'Pecked by a seagull', cat: 'Caught by a cat', dog: 'Chased down by a dog', fox: 'Caught by a fox', crab: 'Pinched by a crab', eagle: 'Snatched by an eagle', human: 'Picked up by a person', car: 'Hit by a car', magpie: 'Swooped by a magpie', kookaburra: 'Swooped by a kookaburra' };
 
 export class Game {
   constructor(canvas, params) {
@@ -103,7 +106,7 @@ void main(){
 
   // ------------------------------------------------------------------ worlds
   newWorld(seed) {
-    if (this.view) { this.view.dispose(); this.predators.dispose(); }
+    if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); }
     // ?seed= / CONFIG.seed only fix the FIRST world; every restart rolls a new world (and a new sea direction)
     const fixed = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
     const s = seed ?? (!this.hadWorld && fixed != null ? fixed : Math.floor(Math.random() * 1e9));
@@ -116,6 +119,11 @@ void main(){
     this.env = new Environment(this.world);
     this.atmo.attachGlow(this.octopus.group);
     this.predators = new PredatorManager(this.world, this.scene);
+    this.cars = new CarManager(this.world, this.scene);
+    this.fx = new Effects(this.world, this.scene);
+    this.progress.reset();
+    this.collect = new Collectibles(this.world, this.scene, this.progress, this.audio);
+    this.world.scent = []; this.lastScent = null;
     this.runTime = 0; this.deadShown = false; this.threat = 0;
     this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
     this.camInit = false;
@@ -159,14 +167,15 @@ void main(){
 
   // ------------------------------------------------------------------ update
   update(dt) {
-    const inp = this.input.read();
+    const inp = this.input.read(dt);
+    if (inp.pause && this.state === 'playing') { this.setPaused(true); return; }
     const o = this.octopus, world = this.world;
     const playing = this.state === 'playing';
 
     // camera-relative movement
     const yaw = this.input.yaw;
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
-    const control = { mx: fx * inp.f + rx * inp.r, mz: fz * inp.f + rz * inp.r, sprint: inp.sprint, camo: inp.camo };
+    const control = { mx: fx * inp.f + rx * inp.r, mz: fz * inp.f + rz * inp.r, sprint: inp.sprint, camo: inp.camo, climbKey: inp.climb, pitch: this.input.pitch };
     if (!playing) { control.mx = control.mz = 0; control.camo = false; control.sprint = false; }
 
     const wasCamo = o.camoWanted, wasLocked = o.camoLocked, wasHealth = o.health, wasWater = o.waterKind;
@@ -177,12 +186,25 @@ void main(){
       this.runTime += dt;
       this.env.update(dt);
       this.env.updatePuddles(dt, o);
+      // abilities: ink (water only) and the venom bite (last resort)
+      if (o.alive) { if (inp.ink) this.tryInk(); if (inp.bite) this.tryBite(); }
+      this.leaveScent(o);
       const ev = this.predators.update(dt, o);
+      const carInfo = this.cars.update(dt, o);
+      this.carInfo = carInfo;
+      if (o.hitByCar) { o.hitByCar = false; this.audio.carHit(); }
+      this.fx.update(dt, o, { step: (wet, spd) => this.audio.step(wet, spd) });
+      this.collect.update(dt, o, this.runTime);
+      if (o.tunnelEvent) { o.tunnelEvent = null; this.audio.squeeze(); }
+      if (o.climbEvent) { o.climbEvent = null; this.audio.climb(); }
+      if (o.hideEvent) o.hideEvent = null;
       this.threat = damp(this.threat ?? 0, ev.threat, 4, dt);
       // warning display: the blue rings flash while a predator is on to us
       if (!this.forceAlarm) o.alarm = damp(o.alarm, this.threat > 0.04 ? 1 : 0, 9, dt);
       for (const e of ev.events) {
-        if (e.type === 'alert') this.audio.alert();
+        if (e.type === 'alert') this.audio.creature(e.kind, e.x, e.y ?? 1.5, e.z);
+        else if (e.type === 'call') this.audio.creature(e.kind, e.x, e.y ?? 2, e.z);
+        else if (e.type === 'grab') this.audio.grab();
       }
       if (o.health < wasHealth - 4 && wasHealth - o.health > dt * 30) this.audio.hurt();
       if (o.camoWanted && !wasCamo) { this.audio.camo(true); }
@@ -206,10 +228,46 @@ void main(){
     this.updateAtmosphere(dt);
     this.hud.update(o);
     const coast = clamp(1 + world.distToSea(o.x, o.z) / 420, 0, 1);
-    this.audio.update(dt, coast, o.sprinting);
+    this.audio.update(dt, {
+      coast, ambient: this.atmo.ambient, cam: this.camera, health: o.health, moving: o.moving, swim: o.swim, night: world.night,
+      car: this.carInfo ? { dist: this.carInfo.dist, x: this.carInfo.x, y: world.heightAt(this.carInfo.x, this.carInfo.z) + 1, z: this.carInfo.z, horn: this.carInfo.horn, speed: this.carInfo.speed } : null,
+    });
     if (this.params.get('debug') === '1') {
       this.hud.setDebug(`fps ${this.fps.toFixed(0)}  state ${this.state}\npos ${o.x.toFixed(0)},${o.z.toFixed(0)}  h ${o.y.toFixed(1)}\nseed ${world.seed}  sea-dir ${(world.angle * 57.3).toFixed(0)}°  to-sea ${(-world.distToSea(o.x, o.z)).toFixed(0)}m\nterrain ${o.terrain}  water ${o.waterKind}\npredators ${this.predators.list.length}`);
     }
+  }
+
+  // ------------------------------------------------------------------ abilities
+  /** ink cloud: only works in water. Blinds anything that walks into it. */
+  tryInk() {
+    const o = this.octopus, w = this.world, A = CONFIG.abilities;
+    if (o.inkCool > 0 || o.tunnel || o.carried || !(o.waterKind || w.isShallow(o.x, o.z))) return false;
+    o.inkCool = A.inkCooldown;
+    this.fx.ink(o.x, o.y + 0.3, o.z);
+    this.audio.ink();
+    return true;
+  }
+  /** venom bite: scares off an adjacent predator; long cooldown, so it really is a last resort */
+  tryBite() {
+    const o = this.octopus, A = CONFIG.abilities;
+    if (o.biteCool > 0 || o.tunnel || o.carried) return false;
+    const p = this.predators.bite(o, A.biteRange, A.biteScare);
+    if (!p) return false;
+    o.biteCool = A.biteCooldown; o.biteFlash = 1; o.shake = Math.max(o.shake, 0.55);
+    this.fx.venom(o.x, o.y, o.z, p.x - o.x, p.z - o.z);
+    this.audio.bite();
+    return true;
+  }
+  /** the dogs' trail: a breadcrumb of scent points that fade after half a minute (water washes it away) */
+  leaveScent(o) {
+    const w = this.world, sc = w.scent;
+    w.scentNow = this.runTime;
+    if (o.moving && !o.waterKind && !o.tunnel && !o.swim && (!this.lastScent || Math.hypot(o.x - this.lastScent.x, o.z - this.lastScent.z) > 1.6)) {
+      sc.push({ x: o.x, z: o.z, t: this.runTime }); this.lastScent = { x: o.x, z: o.z };
+    }
+    if (o.waterKind) sc.length = 0;
+    while (sc.length && this.runTime - sc[0].t > 32) sc.shift();
+    if (sc.length > 80) sc.shift();
   }
 
   onDeath() {
@@ -249,12 +307,15 @@ void main(){
     const yaw = this.input.yaw + (this.panYaw || 0), pitch = this.input.pitch;
     const tx = o.x, ty = o.y + 0.9, tz = o.z;
     const off = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(dist);
-    const want = new THREE.Vector3(tx + off.x, ty + C.height * 0.4 + off.y, tz + off.z);
+    // swimming at depth: the camera drops down beside the octopus so the water is visible around it
+    const dv = o.dive || 0;
+    const want = new THREE.Vector3(tx + off.x, ty + C.height * 0.4 + off.y * (1 - dv * 0.8) - dv * 0.5, tz + off.z);
     const gy = this.world.heightAt(want.x, want.z);
     if (want.y < gy + 0.9) want.y = gy + 0.9;
     if (!this.camInit || snap) { this.camPos.copy(want); this.camInit = true; }
     else this.camPos.lerp(want, 1 - Math.exp(-14 * dt));
     this.camera.position.copy(this.camPos);
+    if (o.shake > 0.01) { const sk = o.shake * o.shake * 0.5; this.camera.position.x += (Math.random() - 0.5) * sk; this.camera.position.y += (Math.random() - 0.5) * sk; this.camera.position.z += (Math.random() - 0.5) * sk; }
     this.camera.lookAt(tx, ty + 0.2, tz);
     this.sky.position.copy(this.camera.position);
     // sun & shadow follow the octopus
@@ -275,6 +336,7 @@ void main(){
     const dt = Math.min(0.05, this.clock.getDelta());
     this.fps = lerp(this.fps, 1 / Math.max(dt, 1e-4), 0.05);
     if (!this.paused) this.update(dt);
+    else { const gp = this.input.pad.poll(dt); if (gp?.pause && this.state === 'playing') this.setPaused(false); }
     this.render();
     this.frame++;
     this.raf = requestAnimationFrame(this.tick);

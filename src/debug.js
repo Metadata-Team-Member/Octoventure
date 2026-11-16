@@ -85,6 +85,48 @@ export function installDebugHooks(game) {
     freezeTime(on = true) { game.env.frozen = on; },
     setWeather(kind) { game.env.target = kind; game.env.timer = 1e9; },
     setTide(v) { game.env.tideOverride = v; game.env.apply(); },
+    // ---- hidden mechanics (for tests): never reachable from the UI
+    get armor() { return game.octopus.armor; },
+    get shellsCollected() { return game.progress.shells; },
+    get babiesFound() { return game.progress.babies; },
+    get shellTotal() { return game.world.shells.length; },
+    get babyTotal() { return game.world.babies.length; },
+    get dom() { return document.body.innerText.trim(); },
+    inkNow() { return game.tryInk(); },
+    biteNow() { return game.tryBite(); },
+    get inkClouds() { return game.world.ink.length; },
+    get inkCool() { return game.octopus.inkCool; },
+    get biteCool() { return game.octopus.biteCool; },
+    get hiddenIn() { return game.octopus.hiddenIn?.kind ?? null; },
+    get inTunnel() { return !!game.octopus.tunnel; },
+    get climbing() { return !!game.octopus.climb; },
+    get carried() { return !!game.octopus.carried; },
+    get night() { return game.world.night; },
+    get gamepad() { return game.input.pad; },
+    pressKey(code, ms = 0) { game.input.keys.add(code); game.input.pressed.add(code); if (ms) setTimeout(() => game.input.keys.delete(code), ms); },
+    releaseKey(code) { game.input.keys.delete(code); },
+    mockPad(p) { game.input.pad.mock = p; },
+    teleportToShell(i = 0) { const s = game.world.shells.filter((q) => !q.got && q.kind !== 'sea')[i]; if (!s) return null; this.teleport(s.x - 3, s.z); return s; },
+    teleportToBaby(i = 0) { const b = game.world.babies[i]; if (!b) return null; this.teleport(b.x - 4, b.z); return b; },
+    teleportToTunnel(kind) { const t = game.world.tunnels.find((q) => !kind || q.kind === kind); if (!t) return null; const dx = t.b.x - t.a.x, dz = t.b.z - t.a.z, l = Math.hypot(dx, dz) || 1; this.teleport(t.a.x - dx / l * 2.5, t.a.z - dz / l * 2.5); game.octopus.heading = Math.atan2(dx, dz); return t; },
+    teleportToHide(kind) { const h = game.world.hides.find((q) => !kind || q.kind === kind); if (!h) return null; this.teleport(h.x - 2.5, h.z); return h; },
+    /** stand 2.5 m in front of a climbable collider that has free ground on the far side, facing it; returns {c, dx, dz} */
+    teleportToClimbable(kind) {
+      const w = game.world;
+      for (const c of w.colliders) {
+        if (!c.climb || (kind && c.kind !== kind)) continue;
+        let dx = 0, dz = 1, depth, near;
+        if (c.r !== undefined) { dx = 1; dz = 0; depth = c.r; } else if (c.hw >= c.hd) { depth = c.hd; } else { dx = 1; dz = 0; depth = c.hw; }
+        const sx = c.x - dx * (depth + 2.5), sz = c.z - dz * (depth + 2.5), ex = c.x + dx * (depth + 2.5), ez = c.z + dz * (depth + 2.5);
+        if (w.resolve(sx, sz, 0.8).hit || w.resolve(ex, ez, 0.8).hit || w.heightAt(sx, sz) < 0.5 || w.heightAt(ex, ez) < 0.5) continue;
+        this.teleport(sx, sz); game.octopus.heading = Math.atan2(dx, dz); game.input.yaw = Math.atan2(-dx, -dz);
+        return { c, dx, dz, depth, kind: c.kind };
+      }
+      return null;
+    },
+    teleportToRoad() { const w = game.world; for (let i = 0; i < 4000; i++) { const s = w.findBiomeSpot('town', 60, 1); if (s && w.isRoad(s.x, s.z)) { this.teleport(s.x, s.z); return s; } } return null; },
+    get cars() { return game.cars.cars; },
+    get scent() { return game.world.scent.length; },
     terrainTypes: Object.keys(TERRAIN),
     game,
   };

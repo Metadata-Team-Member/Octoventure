@@ -1,9 +1,14 @@
-// Tiny procedural WebAudio sound-scape (no audio files). Starts on first user input.
+// Procedural WebAudio sound-scape (no audio files). Starts on first user input.
+//  - per-biome ambient layers (hum, wind, cicadas, creek babble, surf ...) driven by Atmosphere.ambient
+//  - positional (3D) creature sounds: gulls, magpie warble, kookaburra laugh, barks, car engine & horn
+//  - squelchy wet footsteps, heartbeat when nearly dry, ink / bite / chime effects
 import { CONFIG } from './config.js';
-import { clamp } from './util/rng.js';
+import { clamp, lerp } from './util/rng.js';
+
+const R = () => Math.random();      // audio-only randomness: never affects the world
 
 export class GameAudio {
-  constructor() { this.ctx = null; this.muted = false; this.nextGull = 3; this.t = 0; }
+  constructor() { this.ctx = null; this.muted = false; this.nextGull = 3; this.t = 0; this.timers = {}; this.log = []; this.last = {}; }
 
   start() {
     if (this.ctx || !CONFIG.audio.enabled) return;
@@ -13,10 +18,9 @@ export class GameAudio {
       this.ctx = new AC();
       const c = this.ctx;
       this.master = c.createGain(); this.master.gain.value = CONFIG.audio.volume; this.master.connect(c.destination);
-      // noise buffer
       const len = c.sampleRate * 2, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
       let last = 0;
-      for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; last = (last + 0.04 * w) / 1.04; d[i] = last * 6; }
+      for (let i = 0; i < len; i++) { const w = R() * 2 - 1; last = (last + 0.04 * w) / 1.04; d[i] = last * 6; }
       this.noiseBuf = buf;
       const mk = (freq, q, type) => {
         const src = c.createBufferSource(); src.buffer = buf; src.loop = true;
@@ -27,45 +31,144 @@ export class GameAudio {
       };
       this.wind = mk(420, 0.7, 'lowpass');
       this.surf = mk(700, 0.4, 'lowpass');
+      this.hum = mk(150, 1.2, 'lowpass');
+      this.cicada = mk(5200, 6, 'bandpass');
+      this.babble = mk(1250, 2.2, 'bandpass');
+      // cicadas pulse
+      this.cicadaLfo = c.createOscillator(); this.cicadaLfo.frequency.value = 17; const lg = c.createGain(); lg.gain.value = 0.5; this.cicadaLfo.connect(lg); lg.connect(this.cicada.g.gain); this.cicadaLfo.start();
+      // car engine (positional)
+      this.engine = { o: c.createOscillator(), f: c.createBiquadFilter(), g: c.createGain(), p: this.panner(0, 0, 0) };
+      this.engine.o.type = 'sawtooth'; this.engine.o.frequency.value = 62; this.engine.f.type = 'lowpass'; this.engine.f.frequency.value = 420; this.engine.g.gain.value = 0;
+      this.engine.o.connect(this.engine.f); this.engine.f.connect(this.engine.g); this.engine.g.connect(this.engine.p); this.engine.o.start();
     } catch (e) { this.ctx = null; }
   }
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
   toggleMute() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : CONFIG.audio.volume; return this.muted; }
 
-  /** coast: 0 (far inland) .. 1 (at the shore) */
-  update(dt, coast, sprint) {
-    if (!this.ctx) return;
-    this.t += dt;
-    const c = this.ctx, now = c.currentTime;
-    const gate = CONFIG.hints.gullSounds ? 1 : 0;
-    this.wind.g.gain.setTargetAtTime(0.05 + 0.05 * Math.sin(this.t * 0.3) ** 2, now, 0.3);
-    this.surf.g.gain.setTargetAtTime(gate * (0.02 + 0.22 * coast * coast * (0.7 + 0.3 * Math.sin(this.t * 0.7))), now, 0.4);
-    this.nextGull -= dt;
-    if (this.nextGull <= 0) {
-      const near = clamp(coast, 0, 1);
-      this.nextGull = (3 + Math.random() * 9) * (1.8 - near * 1.3);
-      if (gate && Math.random() < 0.25 + near * 0.75) this.gull(0.04 + 0.2 * near * near + 0.02);
-    }
+  /** a 3D panner at a world position, wired to the master bus */
+  panner(x, y, z) {
+    const c = this.ctx, p = c.createPanner();
+    p.panningModel = 'equalpower'; p.distanceModel = 'inverse'; p.refDistance = 9; p.rolloffFactor = 1.35; p.maxDistance = 400;
+    this.setPos(p, x, y, z); p.connect(this.master);
+    return p;
+  }
+  setPos(p, x, y, z) {
+    if (p.positionX) { p.positionX.value = x; p.positionY.value = y; p.positionZ.value = z; } else p.setPosition(x, y, z);
+  }
+  /** keep the WebAudio listener on the camera so sounds pan and fade with distance */
+  setListener(cam) {
+    const L = this.ctx.listener, p = cam.position, f = cam.getWorldDirection(this._f ??= cam.position.clone());
+    const t = this.ctx.currentTime;
+    if (L.positionX) {
+      L.positionX.setValueAtTime(p.x, t); L.positionY.setValueAtTime(p.y, t); L.positionZ.setValueAtTime(p.z, t);
+      L.forwardX.setValueAtTime(f.x, t); L.forwardY.setValueAtTime(f.y, t); L.forwardZ.setValueAtTime(f.z, t);
+      L.upX.setValueAtTime(0, t); L.upY.setValueAtTime(1, t); L.upZ.setValueAtTime(0, t);
+    } else { L.setPosition(p.x, p.y, p.z); L.setOrientation(f.x, f.y, f.z, 0, 1, 0); }
   }
 
-  tone(freq, dur, type = 'sine', vol = 0.2, slide = 0, delay = 0) {
+  /**
+   * ctx: { coast 0..1, ambient {hum,birds,wind,cows,cicada,babble,frogs,surf,gulls}, cam (THREE camera), health, moving, swim, night,
+   *        car {dist,x,y,z,horn,speed}|null, sprint }
+   */
+  update(dt, k) {
+    if (!this.ctx) return;
+    this.t += dt;
+    const c = this.ctx, now = c.currentTime, A = k.ambient || {};
+    if (k.cam) this.setListener(k.cam);
+    const gate = CONFIG.hints.gullSounds ? 1 : 0;
+    const under = k.swim > 0.5 ? 0.45 : 1;                  // muffled under water
+    const coast = k.coast ?? 0;
+    this.wind.g.gain.setTargetAtTime((0.035 + 0.05 * Math.sin(this.t * 0.3) ** 2 + 0.08 * (A.wind || 0)) * under, now, 0.4);
+    // surf: loud near the coast, also a bed in the coastal biomes
+    this.surf.g.gain.setTargetAtTime(gate * (0.02 + 0.22 * coast * coast * (0.7 + 0.3 * Math.sin(this.t * 0.7)) + 0.05 * (A.surf || 0)) * (k.swim > 0.5 ? 1.4 : 1), now, 0.4);
+    this.surf.f.frequency.setTargetAtTime(k.swim > 0.5 ? 380 : 700, now, 0.3);
+    this.hum.g.gain.setTargetAtTime(0.035 * (A.hum || 0) * under, now, 0.6);
+    this.cicada.g.gain.setTargetAtTime(0.012 * (A.cicada || 0) * (1 - (k.night || 0) * 0.7) * under, now, 0.6);
+    this.babble.g.gain.setTargetAtTime(0.045 * (A.babble || 0) * (0.8 + 0.2 * Math.sin(this.t * 3.1)) * under, now, 0.4);
+    // scheduled one-shots: gulls, birds, cows, frogs
+    const due = (name, every) => { this.timers[name] = (this.timers[name] ?? R() * every) - dt; if (this.timers[name] <= 0) { this.timers[name] = every * (0.6 + R() * 0.9); return true; } return false; };
+    if (gate && due('gull', (3 + R() * 9) * (1.8 - clamp(coast, 0, 1) * 1.3)) && R() < 0.25 + Math.max(coast, A.gulls || 0) * 0.75) this.gull(0.05 + 0.2 * coast * coast + 0.05 * (A.gulls || 0));
+    if ((A.birds || 0) > 0.1 && (k.night || 0) < 0.6 && due('bird', 5 / (0.3 + A.birds))) this.chirp(0.05 * A.birds);
+    if ((A.cows || 0) > 0.2 && due('cow', 16)) this.moo(0.07 * A.cows);
+    if ((A.frogs || 0) > 0.2 && due('frog', 1.6 / (0.4 + A.frogs + (k.night || 0)))) this.croak(0.05 * A.frogs);
+    // heartbeat when nearly dry
+    const hp = clamp((k.health ?? 100) / 100, 0, 1);
+    if (hp < 0.25 && hp > 0) {
+      this.timers.heart = (this.timers.heart ?? 0) - dt;
+      if (this.timers.heart <= 0) { this.timers.heart = lerp(0.45, 1.05, hp / 0.25); this.heartbeat(0.2 + 0.25 * (1 - hp / 0.25)); }
+    }
+    // car engine + horn (positional)
+    const car = k.car, e = this.engine;
+    if (car) {
+      this.setPos(e.p, car.x, car.y ?? 0, car.z);
+      e.g.gain.setTargetAtTime(0.5 * clamp(1 - car.dist / 90, 0, 1), now, 0.15);
+      e.o.frequency.setTargetAtTime(48 + (car.speed || 10) * 3.2, now, 0.3);
+      if (car.horn && due('horn', 1.4)) this.horn(car.x, car.y ?? 0, car.z);
+    } else e.g.gain.setTargetAtTime(0, now, 0.2);
+  }
+
+  // ------------------------------------------------------------ primitives
+  tone(freq, dur, type = 'sine', vol = 0.2, slide = 0, delay = 0, dest = null) {
     if (!this.ctx || this.muted) return;
+    this.note('tone');
     const c = this.ctx, t0 = c.currentTime + delay;
     const o = c.createOscillator(), g = c.createGain();
     o.type = type; o.frequency.setValueAtTime(freq, t0);
     if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t0 + dur);
-    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    o.connect(g); g.connect(this.master); o.start(t0); o.stop(t0 + dur + 0.05);
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t0 + Math.min(0.02, dur / 3)); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(dest || this.master); o.start(t0); o.stop(t0 + dur + 0.05);
   }
-  noise(dur, freq, vol = 0.2) {
+  noise(dur, freq, vol = 0.2, dest = null, q = 0.8, delay = 0) {
     if (!this.ctx || this.muted) return;
-    const c = this.ctx, t0 = c.currentTime;
+    this.note('noise');
+    const c = this.ctx, t0 = c.currentTime + delay;
     const s = c.createBufferSource(); s.buffer = this.noiseBuf;
-    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.8;
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
     const g = c.createGain(); g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    s.connect(f); f.connect(g); g.connect(this.master); s.start(t0, Math.random()); s.stop(t0 + dur);
+    s.connect(f); f.connect(g); g.connect(dest || this.master); s.start(t0, R()); s.stop(t0 + dur);
   }
-  gull(v = 0.1) { for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) this.tone(1500 + Math.random() * 300, 0.32, 'sawtooth', v, -700, i * 0.34); }
+  note(kind) { this.count = (this.count || 0) + 1; }
+  at(x, y, z) { const p = this.panner(x, y, z); setTimeout(() => { try { p.disconnect(); } catch (e) { /* gone */ } }, 4000); return p; }
+
+  // ------------------------------------------------------------ ambient one-shots
+  gull(v = 0.1, pos = null) { const d = pos ? this.at(pos.x, pos.y, pos.z) : null; for (let i = 0; i < 2 + Math.floor(R() * 2); i++) this.tone(1500 + R() * 300, 0.32, 'sawtooth', v, -700, i * 0.34, d); }
+  chirp(v = 0.05) { const d = this.at(this.listenerNear(35).x, 6, this.listenerNear(35).z); const f = 2200 + R() * 1400; for (let i = 0; i < 3; i++) this.tone(f + i * 150, 0.09, 'sine', v, 500, i * 0.11, d); }
+  moo(v = 0.07) { const p = this.listenerNear(60); const d = this.at(p.x, 1, p.z); this.tone(150, 1.4, 'sawtooth', v * 0.6, -45, 0, d); this.tone(160, 1.3, 'triangle', v, -40, 0.05, d); }
+  croak(v = 0.05) { const p = this.listenerNear(30); const d = this.at(p.x, 0.5, p.z); for (let i = 0; i < 3; i++) this.tone(260 + R() * 60, 0.08, 'square', v, -90, i * 0.1, d); }
+  listenerNear(r) { const l = this.ctx.listener, x = l.positionX ? l.positionX.value : 0, z = l.positionZ ? l.positionZ.value : 0, a = R() * 6.28; return { x: x + Math.cos(a) * r, z: z + Math.sin(a) * r }; }
+
+  // ------------------------------------------------------------ creatures (positional)
+  magpie(x, y, z) { const d = this.at(x, y, z); [0, 0.14, 0.3, 0.42, 0.6].forEach((t, i) => this.tone(1250 + (i % 2) * 380 + i * 40, 0.16, 'sine', 0.13, i % 2 ? -250 : 280, t, d)); }
+  kookaburra(x, y, z) { const d = this.at(x, y, z); [0, 0.2, 0.4].forEach((t) => this.tone(760, 0.17, 'triangle', 0.14, 120, t, d)); for (let i = 0; i < 6; i++) this.tone(900 - i * 45, 0.11, 'sawtooth', 0.09, -260, 0.75 + i * 0.13, d); }
+  creature(kind, x, y, z) {
+    if (!this.ctx) return;
+    const d = this.at(x, y, z);
+    switch (kind) {
+      case 'dog': this.noise(0.16, 520, 0.4, d); this.tone(200, 0.2, 'sawtooth', 0.14, -70, 0, d); this.noise(0.16, 520, 0.4, d, 0.8, 0.28); this.tone(190, 0.2, 'sawtooth', 0.14, -70, 0.28, d); break;
+      case 'cat': this.noise(0.55, 5200, 0.3, d, 1.4); this.tone(420, 0.4, 'sawtooth', 0.05, 200, 0.05, d); break;
+      case 'fox': this.tone(950, 0.18, 'sawtooth', 0.12, -380, 0, d); this.tone(900, 0.2, 'sawtooth', 0.1, -350, 0.25, d); break;
+      case 'human': this.tone(210, 0.4, 'sawtooth', 0.12, 80, 0, d); this.noise(0.3, 900, 0.1, d); break;
+      case 'eagle': this.tone(2300, 0.7, 'sawtooth', 0.13, -1300, 0, d); break;
+      case 'crab': for (let i = 0; i < 3; i++) this.noise(0.04, 2600, 0.25, d, 3, i * 0.07); break;
+      case 'gull': this.gull(0.16, { x, y, z }); break;
+      case 'magpie': this.magpie(x, y, z); break;
+      case 'kookaburra': this.kookaburra(x, y, z); break;
+      default: this.tone(520, 0.12, 'square', 0.08, 0, 0, d); this.tone(780, 0.16, 'square', 0.08, 0, 0.1, d);
+    }
+  }
+  horn(x, y, z) { const d = this.at(x, y, z); this.tone(440, 0.55, 'square', 0.16, 0, 0, d); this.tone(349, 0.55, 'square', 0.14, 0, 0, d); }
+  carHit() { this.noise(0.4, 140, 0.5); this.tone(90, 0.5, 'sawtooth', 0.3, -50); }
+
+  // ------------------------------------------------------------ the octopus
+  step(wet = 0.5, speed = 5) { const v = 0.04 + 0.1 * clamp(wet, 0, 1); this.noise(0.08, 300 + R() * 220, v, null, 0.9); if (wet > 0.35) this.tone(150 + R() * 70, 0.07, 'sine', v * 0.6, -70); }
+  heartbeat(v = 0.25) { this.tone(62, 0.13, 'sine', v); this.tone(52, 0.16, 'sine', v * 0.8, 0, 0.17); }
+  ink() { this.noise(0.6, 800, 0.22); this.tone(210, 0.4, 'sine', 0.12, -120); this.tone(330, 0.2, 'sine', 0.08, -150, 0.05); }
+  bite() { this.noise(0.35, 3000, 0.28, null, 1.2); this.tone(340, 0.3, 'sawtooth', 0.12, 240); }
+  climb() { this.noise(0.5, 1800, 0.1, null, 1.5); }
+  squeeze() { this.noise(0.5, 500, 0.18); this.tone(120, 0.4, 'sine', 0.1, 60); }
+  grab() { this.noise(0.25, 260, 0.35); this.tone(130, 0.3, 'sawtooth', 0.14, -60); }
+  /** the quiet reward when a baby octopus is found */
+  chime(x, y, z) { const d = x != null ? this.at(x, y, z) : null; [1047, 1319, 1568, 2093].forEach((f, i) => this.tone(f, 1.1, 'sine', 0.085, 0, i * 0.13, d)); this.tone(523, 1.6, 'sine', 0.05, 0, 0, d); }
   splash() { this.noise(0.35, 1400, 0.25); }
   alert() { this.tone(520, 0.12, 'square', 0.08); this.tone(780, 0.16, 'square', 0.08, 0, 0.1); }
   camo(on) { this.tone(on ? 260 : 420, 0.3, 'sine', 0.1, on ? 220 : -200); }

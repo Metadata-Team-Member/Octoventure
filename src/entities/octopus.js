@@ -156,18 +156,27 @@ export class Octopus {
     this.tmpN = { x: 0, y: 1, z: 0 };
     this.wetness = 0.5;
     this.splashT = 0;
+    this.inkCool = 0; this.biteCool = 0; this.biteReady = 1; this.hiddenIn = null; this.hideBlend = 0;
+    this.tunnel = null; this.climb = null; this.pushT = 0; this.carried = null; this.swim = 0; this.dive = 0; this.invuln = 0;
+    this.shake = 0; this.group.visible = true; this.pendingBabyGlow = 0;
     this.armor = 0;                // hidden: fraction of damage absorbed (set by the game from collected shells)
   }
 
   greyOf(c) { const l = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; return new THREE.Color(l * 0.95 + 0.06, l * 0.95 + 0.06, l * 0.95 + 0.06); }
   get camoActive() { return this.camoBlend > 0.85; }     // fully blended
   /** hidden: predators can't hurt or track you. Immediate while the key is held (and energy lasts), brief grace while fading out. */
-  get camoProtected() { return this.alive && (this.camoWanted || this.camoBlend > 0.5); }
+  get camoProtected() { return this.alive && (this.camoWanted || this.camoBlend > 0.5 || !!this.tunnel || this.invuln > 0); }
+  /** how easily predators spot us (1 = normal): tucked inside a shell / tin / under a rock hides us even without camo */
+  get visibility() { return 1 - this.hideBlend * (1 - CONFIG.abilities.hideNoticeMult); }
+  get inWater() { return !!this.waterKind; }
   get hiding() { return this.camoWanted && this.alive; }
 
-  damage(amount, cause) {
+  /** opts.ignoreCamo: cars are the one hazard that doesn't care that we're camouflaged (they can't "see" us anyway) */
+  damage(amount, cause, opts = {}) {
     if (!this.alive || this.won) return;
-    if (this.camoProtected) return;            // camouflaged = untouchable
+    if (this.camoProtected && !opts.ignoreCamo) return;            // camouflaged = untouchable
+    if (this.tunnel && !opts.ignoreCamo) return;
+    this.shake = Math.min(1, this.shake + amount / 28);
     this.health = Math.max(0, this.health - amount * CONFIG.predators.damageMult * diff().damage * (1 - this.armor));
     this.lastDamage = cause;
     this.hurtFlash = 1;
@@ -182,13 +191,18 @@ export class Octopus {
     if (!water && this.alive && !this.won && world.isShallow(this.x, this.z)) water = { kind: 'sea' };
     this.waterKind = water ? water.kind : null;
 
-    if (this.alive && !this.won) {
+    this.inkCool = Math.max(0, this.inkCool - dt); this.biteCool = Math.max(0, this.biteCool - dt); this.invuln = Math.max(0, this.invuln - dt);
+    this.shake = Math.max(0, this.shake - dt * 2.2);
+    if (this.alive && !this.won && (this.tunnel || this.climb || this.carried)) {
+      this.updateSpecial(dt, input, world, water);
+    } else if (this.alive && !this.won) {
       // ---- camouflage energy -------------------------------------------------
       if (this.camoLocked && this.energy >= C.minToStart) this.camoLocked = false;
       const wantCamo = input.camo && !this.camoLocked && this.energy > 0.5;
       this.camoWanted = wantCamo;
       if (wantCamo) {
-        this.energy = Math.max(0, this.energy - C.drainPerSec * diff().camoDrain * dt);
+        // tucked into a shell, tin or log, camouflage costs nothing
+        if (!this.hiddenIn) this.energy = Math.max(0, this.energy - C.drainPerSec * diff().camoDrain * dt);
         if (this.energy <= 0.01) { this.camoLocked = true; this.camoWanted = false; }
       } else {
         this.energy = Math.min(C.maxEnergy, this.energy + C.regenPerSec * dt);
@@ -201,7 +215,7 @@ export class Octopus {
       if (mag > 1) { mx /= mag; mz /= mag; }
       const canMove = !this.camoWanted || C.moveSpeedMult > 0;
       const sprint = input.sprint && mag > 0.1 && canMove;
-      const base = (sprint ? O.sprintSpeed : O.walkSpeed) * (water ? O.waterSpeedMult : T.speed) * (this.camoWanted ? C.moveSpeedMult : 1);
+      const base = (sprint ? O.sprintSpeed : O.walkSpeed) * (water ? O.waterSpeedMult * (this.swim > 0.3 ? CONFIG.abilities.swimSpeedMult : 1) : T.speed) * (this.camoWanted ? C.moveSpeedMult : 1) * (this.hiddenIn ? 0.6 : 1);
       const targetSpeed = canMove ? Math.min(1, mag) * base : 0;
       this.speed = damp(this.speed, targetSpeed, 12, dt);
       this.moving = this.speed > 0.5;
@@ -213,10 +227,16 @@ export class Octopus {
         let nx = this.x + dx, nz = this.z + dz;
         const r = world.resolve(nx, nz, 0.7);
         nx = r.x; nz = r.z;
+        // pushing into a fence / wall / bale: climb over it (instantly with the climb key, otherwise after a short push)
+        if (r.hit && r.col?.climb && mag > 0.1) {
+          this.pushT += dt;
+          if (input.climbKey || this.pushT > CONFIG.abilities.climbPush) this.startClimb(r.col, world);
+        } else this.pushT = 0;
         this.distance += Math.hypot(nx - this.x, nz - this.z);
         this.x = nx; this.z = nz;
       }
 
+      this.updateHideAndTunnels(dt, mag, world);
       // ---- drying / water -----------------------------------------------------------
       if (water) {
         const gain = CONFIG.water[water.kind] ?? 20;
@@ -236,10 +256,125 @@ export class Octopus {
       this.camoBlend = clamp(this.camoBlend - dt * 2, 0, 1);
     }
 
-    this.y = world.heightAt(this.x, this.z);
+    this.updateVertical(dt, input, world);
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 2.5);
     if (!this.alive) this.deadT += dt;
     this.animate(dt);
+  }
+
+  // ------------------------------------------------------------ abilities
+  /** hiding places (tins, shells, logs, under slabs) and tunnel mouths (pipes, culverts, fence holes, drains) */
+  updateHideAndTunnels(dt, mag, world) {
+    // hide: walk into the middle of a hiding place; leave by walking out
+    if (this.hiddenIn) {
+      const h = this.hiddenIn;
+      if (Math.hypot(this.x - h.x, this.z - h.z) > h.r + 0.5) this.hiddenIn = null;
+    } else {
+      for (const h of world.hides) {
+        const dx = h.x - this.x, dz = h.z - this.z;
+        if (Math.abs(dx) < 1 && Math.abs(dz) < 1 && dx * dx + dz * dz < 0.75 * 0.75) { this.hiddenIn = h; this.hideEvent = h; break; }
+      }
+    }
+    this.hideBlend = damp(this.hideBlend, this.hiddenIn ? 1 : 0, 7, dt);
+    // tunnels: walking into a mouth squeezes through to the other end
+    if (!this.tunnel && mag > 0.1) {
+      const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+      for (const t of world.tunnels) {
+        for (let e = 0; e < 2; e++) {
+          const m = e ? t.b : t.a, o = e ? t.a : t.b;
+          const dx = m.x - this.x, dz = m.z - this.z;
+          if (dx * dx + dz * dz > 1.5 * 1.5) continue;
+          const ex = o.x - m.x, ez = o.z - m.z, el = Math.hypot(ex, ez) || 1;
+          if ((fx * ex + fz * ez) / el < -0.2) continue;             // must be heading into the mouth, not away from it
+          this.tunnel = { t, from: m, to: o, k: 0, len: el, wet: t.wet };
+          this.tunnelEvent = t; this.hiddenIn = null;
+          return;
+        }
+      }
+    }
+  }
+  startClimb(col, world) {
+    const dx = Math.sin(this.heading), dz = Math.cos(this.heading);
+    let ex = this.x, ez = this.z, ok = false;
+    for (let d = 0.6; d < 14; d += 0.5) {
+      const x = this.x + dx * d, z = this.z + dz * d;
+      let inside;
+      if (col.r !== undefined) inside = Math.hypot(x - col.x, z - col.z) < col.r + 0.1;
+      else inside = Math.abs(x - col.x) < col.hw + 0.1 && Math.abs(z - col.z) < col.hd + 0.1;
+      if (!inside) { ex = x + dx * 0.9; ez = z + dz * 0.9; ok = true; break; }
+    }
+    if (!ok) { this.pushT = 0; return; }
+    const r = world.resolve(ex, ez, 0.7);
+    if (r.hit) { this.pushT = -0.8; return; }                   // something solid on the far side: not a way across
+    const h = col.h || 1.2;
+    this.climb = { from: { x: this.x, z: this.z }, to: { x: ex, z: ez }, k: 0, dur: 0.8 + h * 0.35, h };
+    this.climbEvent = col; this.pushT = 0;
+  }
+  updateSpecial(dt, input, world, water) {
+    const A = CONFIG.abilities;
+    this.speed = damp(this.speed, 0, 10, dt);
+    if (this.carried) {
+      const c = this.carried, by = c.by;
+      c.t += dt;
+      this.x = by.x + Math.sin(by.heading) * 0.7; this.z = by.z + Math.cos(by.heading) * 0.7;
+      this.carryY = by.y + 2.5;
+      this.health = Math.max(0, this.health - (A.carryDamage / A.carryTime) * diff().damage * (1 - this.armor) * dt);
+      this.lastDamage = 'human';
+      this.hurtFlash = Math.max(this.hurtFlash, 0.4);
+      this.camoWanted = !!input.camo && this.energy > 0.5;
+      if (c.t >= A.carryTime || this.camoWanted || by.dead) {
+        // dropped a few metres away
+        const a = Math.random() * 6.28;
+        const r = world.resolve(this.x + Math.cos(a) * 7, this.z + Math.sin(a) * 7, 0.7);
+        this.x = r.x; this.z = r.z; this.carried = null; this.invuln = 1.6; this.carryY = null; this.shake = 0.6;
+        if (by.release) by.release();
+      }
+    } else if (this.tunnel) {
+      const T = this.tunnel;
+      T.k += (A.tunnelSpeed * (T.wet ? 1.2 : 1) * dt) / Math.max(1, T.len);
+      const k = Math.min(1, T.k);
+      this.x = lerp(T.from.x, T.to.x, k); this.z = lerp(T.from.z, T.to.z, k);
+      this.heading = dampAngle(this.heading, Math.atan2(T.to.x - T.from.x, T.to.z - T.from.z), 14, dt);
+      if (T.wet) this.health = Math.min(CONFIG.octopus.maxHealth, this.health + A.tunnelWetGain * dt);
+      else this.health = Math.max(0, this.health - CONFIG.octopus.baseDryRate * 0.5 * dt);
+      this.wetness = T.wet ? 1 : this.wetness;
+      if (T.k >= 1) {
+        this.tunnel = null; this.invuln = 0.6;
+        const dx = T.to.x - T.from.x, dz = T.to.z - T.from.z, l = Math.hypot(dx, dz) || 1;
+        this.x = T.to.x + dx / l * 1.4; this.z = T.to.z + dz / l * 1.4;
+      }
+    } else if (this.climb) {
+      const C = this.climb;
+      C.k += dt / C.dur;
+      const k = Math.min(1, C.k), e = k * k * (3 - 2 * k);
+      this.x = lerp(C.from.x, C.to.x, e); this.z = lerp(C.from.z, C.to.z, e);
+      this.climbLift = Math.sin(Math.PI * k) * (C.h + 0.7);
+      if (C.k >= 1) { this.climb = null; this.climbLift = 0; }
+    }
+    // dry out slowly while being handled / climbing (tunnels handled above)
+    if (!this.tunnel && !this.carried) this.health = Math.max(0, this.health - CONFIG.octopus.baseDryRate * (world.dryMult ?? 1) * diff().dry * dt);
+    if (this.health <= 0) { this.alive = false; this.camoWanted = false; this.tunnel = null; this.climb = null; this.carried = null; this.speed = 0; }
+    this.camoBlend = clamp(this.camoBlend + (this.camoWanted ? dt / CONFIG.camo.fadeTime : -dt / (CONFIG.camo.fadeTime * 0.6)), 0, 1);
+    this.moving = false; this.sprinting = false;
+  }
+  /** height: ground, or free swimming (depth follows the camera pitch) in deep sea water; lifted while climbing / carried */
+  updateVertical(dt, input, world) {
+    const floor = world.heightAt(this.x, this.z);
+    const depth = world.seaLevel - floor;
+    const sea = this.alive && world.isSea(this.x, this.z) && depth > 0.9;
+    this.swim = damp(this.swim, sea ? 1 : 0, 6, dt);
+    let target = floor;
+    if (sea) {
+      const dive = clamp(((input.pitch ?? 0.42) - 0.4) / 0.6, 0, 1);
+      const surfaceY = world.seaLevel - 0.35;
+      const deepY = Math.max(floor + 0.35, world.seaLevel - Math.min(depth - 0.3, 6));
+      this.dive = damp(this.dive, dive, 3, dt);
+      target = lerp(surfaceY, deepY, this.dive);
+    } else this.dive = damp(this.dive, 0, 5, dt);
+    if (this.carryY != null && this.carried) target = this.carryY;
+    this.y = this.swim > 0.02 || this.carried ? damp(this.y, target, this.carried ? 20 : 5, dt) : target;
+    if (this.climb) this.y = floor + (this.climbLift || 0);
+    if (this.tunnel) this.y = floor - 0.2;
   }
 
   animate(dt) {
@@ -281,6 +416,13 @@ export class Octopus {
     ringColor.lerp(PALE, warn);
     this.ringBlue.emissive.lerp(PALE, warn);
     this.ringBlue.emissiveIntensity += warn * 0.9;
+    // the venom bite is ready (and something is after us): the rings pulse; a flash when it comes back; a bright bloom when a baby is found
+    const ready = this.biteCool <= 0 && this.alive;
+    if (ready && this.wasCooling) this.readyFlash = 1;
+    this.wasCooling = this.biteCool > 0;
+    this.readyFlash = Math.max(0, (this.readyFlash || 0) - dt * 1.2); this.biteFlash = Math.max(0, (this.biteFlash || 0) - dt * 2.5); this.glowBoost = Math.max(0, (this.glowBoost || 0) - dt * 0.35);
+    const readyPulse = ready && this.alarm > 0.25 ? 0.55 * (0.5 + 0.5 * Math.sin(this.flashT * 3.4)) * (1 - camo) : 0;
+    this.ringBlue.emissiveIntensity += (readyPulse + this.readyFlash * 0.8 + this.biteFlash * 1.2 + this.glowBoost * 1.4) * (1 - died);
     this.ringBlack.color.lerp(PALE_EDGE, warn);
     this.ringBlue.color.multiplyScalar(0.45).lerp(DEAD, died * 0.8);
     this.mat.transparent = false;
@@ -319,8 +461,14 @@ export class Octopus {
       }
     }
 
+    // tucked away: shrink down into the shell / tin / under the rock; invisible inside a pipe
+    const hb = this.hideBlend;
+    this.group.visible = !this.tunnel;
+    this.body.scale.multiplyScalar(1 - 0.35 * hb);
+    this.body.position.y -= 0.12 * hb;
     // tilt to terrain
     world.normalAt(this.x, this.z, this.tmpN);
+    if (this.swim > 0.3 || this.carried) { this.tmpN.x = 0; this.tmpN.y = 1; this.tmpN.z = 0; }
     const n = this.tmpN;
     const tiltX = Math.atan2(n.z, n.y) * 0.0, tiltZ = 0;
     this.group.position.set(this.x, this.y + 0.02, this.z);

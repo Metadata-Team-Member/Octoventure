@@ -9,6 +9,8 @@
     "preview": "vite preview --outDir play",
     "unit": "node scripts/unit.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "features": "node scripts/features.mjs",
+    "biomes": "node scripts/biomes.mjs",
     "test": "npm run unit && npm run build && npm run smoke"
   },
   "type": "module",
