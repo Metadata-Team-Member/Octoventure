@@ -1,3 +1,4 @@
+import { SPECIES } from './entities/predators.js';
 import { dailySeed } from './util/daily.js';
 // window.__game: handy hooks for tests and for tinkering from the browser console.
 import { TERRAIN, CONFIG } from './config.js';
@@ -80,6 +81,7 @@ export function installDebugHooks(game) {
       const c = w.cCoast - dist;
       this.teleport(w.dir.x * c, w.dir.z * c);
     },
+    get speciesList() { return Object.keys(SPECIES); },
     spawnPredator(kind, dx = 8, dz = 0) { const o = game.octopus; return game.predators.spawn(kind, o.x + dx, o.z + dz); },
     clearPredators() { game.predators.dispose(); },
     advance(sec) { game.advance(sec); },

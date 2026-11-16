@@ -6,19 +6,13 @@
 // =====================================================================
 import * as THREE from 'three';
 import { tint, merge, at } from '../world/models.js';
+import { shellGeometry } from '../world/geoLib.js';
+import { seat, instanceSpec, geoHeight, shellScale, fitDisc } from '../world/placement.js';
 import { dotTexture } from '../world/worldView.js';
 import { CONFIG } from '../config.js';
 import { clamp, lerp, smoothstep as ss } from '../util/rng.js';
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color();
-
-function shellGeometry() {
-  // a little scallop: fan of ribs on a flat dome
-  const parts = [at(tint(new THREE.SphereGeometry(0.2, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2), 0xffffff), 0, 0, 0, 0, 0, 0, 1.2, 0.55, 1)];
-  for (let i = -2; i <= 2; i++) parts.push(at(tint(new THREE.BoxGeometry(0.035, 0.1, 0.4), 0xdcdcdc), i * 0.09, 0.06 - Math.abs(i) * 0.012, 0.0, 0, 0, i * -0.2));
-  parts.push(at(tint(new THREE.CylinderGeometry(0.06, 0.08, 0.05, 5), 0xf6e9dd), 0, 0.02, -0.2));
-  return merge(parts);
-}
 
 function babyGeometry() {
   // a tiny blue-ringed octopus: ochre body, stubby arms, glowing blue rings
@@ -44,7 +38,7 @@ export class Collectibles {
     this.mesh.count = list.length;
     const pal = [0xf6e3d8, 0xf1c9b8, 0xfff5e6, 0xe8cdb0, 0xd9b8d9, 0xf4d9a3];
     list.forEach((sh, i) => {
-      sh.i = i; sh.s = 0.85 + ((i * 37) % 10) / 14;
+      sh.i = i; sh.s = shellScale(i);
       this.setShell(i, sh, sh.s);
       this.mesh.setColorAt(i, _c.set(pal[i % pal.length]));
     });
@@ -61,8 +55,8 @@ export class Collectibles {
     this.hearts = 0;
   }
   setShell(i, sh, s) {
-    _v.set(sh.x, sh.y + 0.03, sh.z); _q.setFromEuler(_e.set(0, sh.rot, 0)); _s.setScalar(s);
-    _m.compose(_v, _q, _s); this.mesh.setMatrixAt(i, _m);
+    seat(this.world, this.geo, instanceSpec('shell', 'c', { x: sh.x, z: sh.z, rot: sh.rot, s }, geoHeight(this.geo)), _m);   // lies on the ground, tilted to the slope
+    this.mesh.setMatrixAt(i, _m);
   }
 
   update(dt, o, runTime, ctx = {}) {
@@ -129,7 +123,8 @@ class BabyRescue {
     // the puddle it dissolves into
     const pg = new THREE.CircleGeometry(1, 24); pg.rotateX(-Math.PI / 2);
     this.puddle = new THREE.Mesh(pg, new THREE.MeshStandardMaterial({ color: 0x59b4ea, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
-    this.puddle.position.set(b.x, b.y + 0.04, b.z); this.puddle.scale.setScalar(0.01);
+    const fit = fitDisc(col.world, b.x, b.z, 1.9);          // the puddle lies on the slope, not flat in the air
+    this.puddle.position.set(b.x, fit.y0 + 0.02, b.z); this.puddle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-fit.gx, 1, -fit.gz).normalize()); this.puddle.scale.setScalar(0.01);
     col.scene.add(this.puddle);
     this.madePuddle = false;
   }

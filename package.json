@@ -10,8 +10,9 @@
     "unit": "node scripts/unit.mjs",
     "smoke": "node scripts/smoke.mjs",
     "features": "node scripts/features.mjs",
+    "placement": "node scripts/placement.mjs",
     "biomes": "node scripts/biomes.mjs",
-    "test": "npm run unit && npm run build && npm run smoke"
+    "test": "npm run unit && npm run placement && npm run build && npm run smoke && npm run features"
   },
   "type": "module",
   "dependencies": {

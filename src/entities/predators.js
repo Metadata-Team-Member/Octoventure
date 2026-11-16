@@ -226,29 +226,15 @@ export class Predator {
     this.swoops = 0; this.perchAlt = 5.5 + RND() * 3; this.mgr = null; this.pounceT = 0; this.trackPt = null; this.act = 1;
     if (this.spec.swoop) { this.state = 'perch'; this.alt = this.perchAlt; }
     this.scale = this.spec.scale ?? 1;
-    this.mark = this.makeMark();
-    this.group.add(this.mark);
-    this.mark.position.y = kind === 'human' ? 5.2 : kind === 'eagle' ? 2.2 : kind === 'dog' ? 3.0 : 2.4;
-    this.mark.visible = false;
+    this.aware = 0; this.awareV = 0; this.toPlayer = this.heading;     // body-language level: 0 calm, ~0.45 wary / searching, 1 has noticed you
     if (kind === 'eagle') { this.shadowDisc = new THREE.Mesh(new THREE.CircleGeometry(2.2, 14), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false })); this.shadowDisc.rotation.x = -Math.PI / 2; scene.add(this.shadowDisc); }
     this.sync();
   }
-  makeMark() {
-    const cv = document.createElement('canvas'); cv.width = cv.height = 64;
-    this.markCtx = cv.getContext('2d'); this.markTex = new THREE.CanvasTexture(cv);
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.markTex, depthTest: false, transparent: true, fog: false }));
-    sp.scale.set(1.5, 1.5, 1); sp.renderOrder = 10; this.markShown = '';
-    return sp;
-  }
-  setMark(ch, color) {
-    if (this.markShown === ch) return;
-    this.markShown = ch;
-    if (!ch) { this.mark.visible = false; return; }
-    const c = this.markCtx; c.clearRect(0, 0, 64, 64);
-    c.font = 'bold 54px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.lineWidth = 7; c.strokeStyle = 'rgba(0,0,0,0.8)'; c.strokeText(ch, 32, 34); c.fillStyle = color; c.fillText(ch, 32, 34);
-    this.markTex.needsUpdate = true; this.mark.visible = true;
-  }
+  /**
+   * Awareness is shown ONLY through the animal's body (no icons, sprites or text above heads): the head turns to look at the
+   * octopus, the body freezes / crouches, ears and wings come up, the pace quickens (see sync()).
+   */
+  cue(level) { this.aware = level; }
 
   canWalk(nx, nz) {
     const h = this.world.heightAt(nx, nz);
@@ -284,7 +270,7 @@ export class Predator {
   scare(sec) {
     this.state = this.spec.flying ? 'climb' : 'flee'; this.fleeT = sec; this.timer = Math.min(sec, 4); this.ignore = sec + 6; this.lastSeen = null; this.alertT = 0;
     this.blind = 0; if (this.carrying) this.release();
-    this.setMark('?', '#ffe14d');
+    this.cue(0.45);
   }
   release() { this.carrying = false; this.state = 'leave'; this.timer = 5; this.ignore = 10; this.target = null; }
 
@@ -299,7 +285,7 @@ export class Predator {
     this.speed = this.state === 'perch' ? 0 : this.speed;
     switch (this.state) {
       case 'perch': {
-        this.setMark('');
+        this.cue(0);
         this.alt = damp(this.alt, this.perchAlt, 3, dt);
         const face = dist < 45 ? Math.atan2(player.x - this.x, player.z - this.z) : this.heading;
         this.heading = dampAngle(this.heading, face, 2, dt);
@@ -310,7 +296,7 @@ export class Predator {
         break;
       }
       case 'alert': {
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         this.alertT -= dt;
         this.heading = dampAngle(this.heading, Math.atan2(player.x - this.x, player.z - this.z), 8, dt);
         if (fooled || !alive) { this.state = 'home'; this.ignore = 8; break; }
@@ -318,7 +304,7 @@ export class Predator {
         break;
       }
       case 'swoop': {
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         this.diveT += dt / clamp(dist / 24 + 0.3, 0.45, 1.0);
         const f = Math.min(1, this.diveT);
         this.x = lerp(this.diveFrom.x, player.x, f * f); this.z = lerp(this.diveFrom.z, player.z, f * f);
@@ -334,7 +320,7 @@ export class Predator {
         break;
       }
       case 'climb': {
-        this.setMark('');
+        this.cue(0);
         this.timer -= dt;
         this.alt = damp(this.alt, 11, 2.2, dt);
         const away = Math.atan2(this.x - player.x, this.z - player.z);
@@ -344,7 +330,7 @@ export class Predator {
         break;
       }
       case 'home': {
-        this.setMark('');
+        this.cue(0);
         const d = Math.hypot(this.home.x - this.x, this.home.z - this.z);
         this.heading = dampAngle(this.heading, Math.atan2(this.home.x - this.x, this.home.z - this.z), 4, dt);
         this.speed = Math.min(12, 3 + d * 0.5);
@@ -372,6 +358,7 @@ export class Predator {
     const dist = Math.hypot(dx, dz);
     this.cool = Math.max(0, this.cool - dt); this.ignore = Math.max(0, this.ignore - dt);
     this.phase += dt * (1 + this.speed * 0.9);
+    this.toPlayer = Math.atan2(dx, dz);
     if (player.camoProtected && dist < s.notice * 1.5) this.ignore = Math.max(this.ignore, 7);   // once fooled, it stays uninterested for a while
     // daily rhythm: foxes and cats prowl at night, everything else is sleepy in the dark
     const night = world.night ?? 0;
@@ -392,7 +379,7 @@ export class Predator {
 
     switch (this.state) {
       case 'wander': {
-        this.setMark('');
+        this.cue(0);
         this.timer -= dt;
         if (!this.target || this.pickTargetSoon || (this.timer <= 0)) {
           this.pickTargetSoon = false;
@@ -407,14 +394,14 @@ export class Predator {
           if (sc && sc.length > 3) {
             let best = null, bd = 26 * this.act;
             for (const q of sc) { const d = Math.hypot(q.x - this.x, q.z - this.z); if (d < bd) { bd = d; best = q; } }
-            if (best) { this.state = 'track'; this.trackPt = best; this.setMark('?', '#ffb347'); }
+            if (best) { this.state = 'track'; this.trackPt = best; this.cue(0.45); }
           }
         }
         break;
       }
       case 'track': {
         const sc = world.scent || [];
-        this.setMark('?', '#ffb347');
+        this.cue(0.45);
         if (!alive || fooled || !this.trackPt) { this.state = 'search'; this.searchT = 3; break; }
         const pt = this.trackPt;
         if (this.walkToward(pt.x, pt.z, s.walk * 2.4, dt) < 2.2) {
@@ -426,7 +413,7 @@ export class Predator {
         break;
       }
       case 'blind': {
-        this.setMark('?', '#ffe14d');
+        this.cue(0.45);
         const c = this.inkFrom || { x: player.x, z: player.z };
         this.headTurn = Math.sin(this.phase * 2.5) * 1.1;
         this.walkToward(this.x + (this.x - c.x) * 4 + Math.sin(this.phase) * 6, this.z + (this.z - c.z) * 4 + Math.cos(this.phase) * 6, s.walk * 2, dt);
@@ -434,7 +421,7 @@ export class Predator {
         break;
       }
       case 'flee': {
-        this.setMark('?', '#ffe14d');
+        this.cue(0.45);
         this.fleeT -= dt;
         const away = Math.atan2(this.x - player.x, this.z - player.z);
         this.walkToward(this.x + Math.sin(away) * 25, this.z + Math.cos(away) * 25, s.speed * 0.9, dt);
@@ -443,7 +430,7 @@ export class Predator {
       }
       case 'search': {
         // lost the octopus: go back to where it was last seen and look around
-        this.setMark('?', '#ffe14d');
+        this.cue(0.45);
         if (!this.lastSeen) { this.state = 'leave'; this.timer = 3; break; }
         const d = this.walkToward(this.lastSeen.x, this.lastSeen.z, s.walk * 2.2, dt);
         if (d < 2.6) { this.speed = damp(this.speed, 0, 8, dt); this.searchT -= dt; this.headTurn = Math.sin(this.phase * 1.3) * 1.2; }
@@ -453,7 +440,7 @@ export class Predator {
       }
       case 'circle': {
         // gulls: take off, circle overhead and call the others in
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         this.timer -= dt; this.circleA += dt * 1.7;
         const tx = player.x + Math.cos(this.circleA) * 8, tz = player.z + Math.sin(this.circleA) * 8;
         this.heading = dampAngle(this.heading, Math.atan2(tx - this.x, tz - this.z), 6, dt);
@@ -465,7 +452,7 @@ export class Predator {
       }
       case 'stalk': {
         // cats: crouch low, creep closer, then pounce
-        this.setMark('');
+        this.cue(0);
         this.crouch = damp(this.crouch, 1, 6, dt);
         if (!alive) { this.state = 'wander'; break; }
         if (fooled) { this.state = 'confused'; this.timer = 1.6; break; }
@@ -475,7 +462,7 @@ export class Predator {
         break;
       }
       case 'pounce': {
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         this.pounceT += dt / 0.55;
         const k = Math.min(1, this.pounceT);
         this.heading = this.pounceDir;
@@ -491,14 +478,14 @@ export class Predator {
       }
       case 'carry': {
         // the person with the bucket walks off with the octopus for a few seconds
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         if (!player.carried || player.carried.by !== this) { this.state = 'leave'; this.timer = 5; this.ignore = 10; this.carrying = false; break; }
         if (!this.target || this.pickTargetSoon) { this.pickWanderTarget(); this.pickTargetSoon = false; }
         if (this.walkToward(this.target.x, this.target.z, s.walk * 1.6, dt) < 1.5) this.target = null;
         break;
       }
       case 'alert': {
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         this.speed = damp(this.speed, 0, 10, dt);
         this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 9, dt);
         this.alertT -= dt;
@@ -517,7 +504,7 @@ export class Predator {
         break;
       }
       case 'chase': {
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         this.chaseT = (this.chaseT || 0) + dt;
         if (!alive) { this.state = 'leave'; this.timer = 3; break; }
         if (fooled) { this.state = 'confused'; this.timer = 1.7; break; }
@@ -528,7 +515,7 @@ export class Predator {
         break;
       }
       case 'attack': {
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         this.speed = damp(this.speed, 0, 10, dt);
         this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 12, dt);
         if (fooled) { this.lunge = 0; this.state = 'confused'; this.timer = 1.4; this.cool = s.cooldown; break; }
@@ -552,7 +539,7 @@ export class Predator {
         break;
       }
       case 'confused': {
-        this.setMark('?', '#ffe14d');
+        this.cue(0.45);
         this.speed = damp(this.speed, 0, 8, dt);
         this.timer -= dt;
         this.headTurn = Math.sin(this.timer * 6) * 0.9;
@@ -566,7 +553,7 @@ export class Predator {
         break;
       }
       case 'leave': {
-        this.setMark('');
+        this.cue(0);
         this.timer -= dt;
         const away = Math.atan2(-dx, -dz) + Math.sin(this.phase * 0.2) * 0.4;
         this.walkToward(this.x + Math.sin(away) * 20, this.z + Math.cos(away) * 20, s.walk * 1.5, dt);
@@ -588,7 +575,7 @@ export class Predator {
     const gy = w.heightAt(this.x, this.z);
     switch (this.state) {
       case 'wander': {          // soar in big circles
-        this.setMark('');
+        this.cue(0);
         this.circleA += dt * 0.28;
         const R = 38;
         const tx = this.circleC.x + Math.cos(this.circleA) * R, tz = this.circleC.z + Math.sin(this.circleA) * R;
@@ -601,16 +588,16 @@ export class Predator {
         break;
       }
       case 'alert': {
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         this.alertT -= dt;
         this.heading = dampAngle(this.heading, Math.atan2(player.x - this.x, player.z - this.z), 5, dt);
         this.x += Math.sin(this.heading) * 7 * dt; this.z += Math.cos(this.heading) * 7 * dt;
-        if (fooled || !alive) { this.state = 'climb'; this.timer = 3; this.setMark('?', '#ffe14d'); break; }
+        if (fooled || !alive) { this.state = 'climb'; this.timer = 3; this.cue(0.45); break; }
         if (this.alertT <= 0) { this.state = 'dive'; this.diveT = 0; this.diveFrom = { x: this.x, z: this.z, a: this.alt }; this.hit = false; }
         break;
       }
       case 'dive': {
-        this.setMark('!', '#ff4d3d');
+        this.cue(1);
         this.diveT += dt / Math.max(0.6, Math.min(1.5, dist / 30 + 0.55));
         const f = Math.min(1, this.diveT);
         const px = player.x, pz = player.z;                         // keeps tracking the player
@@ -618,7 +605,7 @@ export class Predator {
         this.alt = lerp(this.diveFrom.a, 0.7, f * f);
         this.heading = Math.atan2(px - this.x, pz - this.z);
         this.speed = 24;
-        if (fooled) { this.state = 'climb'; this.timer = 3.5; this.setMark('?', '#ffe14d'); this.cool = 7; break; }
+        if (fooled) { this.state = 'climb'; this.timer = 3.5; this.cue(0.45); this.cool = 7; break; }
         if (f >= 1) {
           const d = Math.hypot(player.x - this.x, player.z - this.z);
           if (alive && d < s.attackRange + 0.6 && !fooled) { dmg = s.damage; player.damage(s.damage, 'eagle'); }
@@ -633,7 +620,7 @@ export class Predator {
         this.heading = dampAngle(this.heading, away + 0.3, 2.5, dt);
         this.speed = 14;
         this.x += Math.sin(this.heading) * this.speed * dt; this.z += Math.cos(this.heading) * this.speed * dt;
-        if (this.timer <= 0) { this.state = 'wander'; this.circleC = { x: this.x + Math.cos(this.heading + 1.5) * 38, z: this.z + Math.sin(this.heading + 1.5) * 38 }; this.circleA = this.heading + Math.PI; this.ignore = 6; this.setMark(''); }
+        if (this.timer <= 0) { this.state = 'wander'; this.circleC = { x: this.x + Math.cos(this.heading + 1.5) * 38, z: this.z + Math.sin(this.heading + 1.5) * 38 }; this.circleA = this.heading + Math.PI; this.ignore = 6; this.cue(0); }
         break;
       }
     }
@@ -653,6 +640,8 @@ export class Predator {
     const mv = clamp(this.speed / (s.speed * 0.6 + 0.001), 0, 1.4);
     const swing = Math.sin(t * 3.2) * 0.7 * mv;
     if (s.flying) {
+      this.awareV = damp(this.awareV, this.aware, 6, dt || 0.016);
+      if (p.head) p.head.rotation.y = clamp(angleDiff(this.toPlayer, this.heading), -1.1, 1.1) * Math.min(1, this.awareV * 1.4);   // looks down at you before it commits
       const flap = this.state === 'dive' ? 0.15 : Math.sin(t * 0.9) * 0.15;
       if (s.swoop) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'perch' ? -0.9 : this.state === 'swoop' ? 0.6 : Math.sin(this.phase * 16) * 0.7); });
       else p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'dive' ? 0.7 : flap + 0.08); });
@@ -662,14 +651,22 @@ export class Predator {
     }
     if (p.legs) p.legs.forEach((l, i) => { l.rotation.x = s.side ? 0 : swing * (i % 2 ? 1 : -1) * (this.kind === 'human' ? 0.9 : 1); if (s.side) l.rotation.z = (i % 2 ? 1 : -1) * Math.sin(t * 6 + i) * 0.25 * mv - (i < 3 ? -0.3 : 0.3) * 0; });
     if (p.arms) p.arms.forEach((a, i) => { a.rotation.x = -swing * (i ? 1 : -1) * 0.8 + (this.state === 'attack' ? -1.6 * Math.sin(this.lunge * Math.PI) : 0); });
+    // ---- body language: awareness is read from the animal itself (no markers above heads)
+    this.awareV = damp(this.awareV, this.state === 'blind' || this.state === 'leave' || this.state === 'home' ? 0 : this.aware, 6, dt || 0.016);
+    const av = this.awareV;
     if (p.head) {
-      p.head.rotation.y = this.headTurn;
+      // the head swings round to look at the octopus (more the more it has noticed), then tracks it
+      const look = clamp(angleDiff(this.toPlayer, this.heading), -1.1, 1.1);
+      p.head.rotation.y = lerp(this.headTurn, look, Math.min(1, av * 1.4) * (Math.abs(this.headTurn) < 0.05 ? 1 : 0.3));
+      p.head.userData.y0 ??= p.head.position.y;
+      p.head.position.y = p.head.userData.y0 + 0.1 * av;           // head up: ears up, eyes on you
       if (s.hop) p.head.position.z = 0.55 + Math.sin(t * 6.4) * 0.12 * mv;
     }
-    if (p.tail) p.tail.rotation.y = Math.sin(t * 2.2) * 0.4;
+    if (p.tail) p.tail.rotation.y = Math.sin(t * 2.2) * 0.4 * (1 - 0.7 * av);        // tail goes stiff when it has seen you
     if (p.claws) p.claws.forEach((c, i) => { c.position.y = 0.7 + (this.state === 'attack' ? Math.sin(this.lunge * Math.PI) * 0.4 : Math.sin(t * 2 + i) * 0.04); });
-    if (this.crouch) { p.g.scale.y = 1 - 0.3 * this.crouch; if (this.state !== 'stalk' && this.state !== 'pounce') this.crouch = Math.max(0, this.crouch - dt * 3); } else if (p.g.scale.y !== 1) p.g.scale.y = 1;
-    if (p.wings && !s.flying) p.wings.forEach((w, i) => { w.rotation.z = this.lift > 0.4 ? (i ? -1 : 1) * Math.sin(this.phase * 14) * 0.7 : 0; });
+    const lowSlung = this.kind === 'cat' || this.kind === 'fox' || this.kind === 'dog';
+    if (this.crouch) { p.g.scale.y = 1 - 0.3 * this.crouch; if (this.state !== 'stalk' && this.state !== 'pounce') this.crouch = Math.max(0, this.crouch - dt * 3); } else p.g.scale.y = lowSlung ? 1 - 0.1 * av : 1;     // a quick crouch before they commit
+    if (p.wings && !s.flying) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.lift > 0.4 ? Math.sin(this.phase * 14) * 0.7 : 0.55 * av); });     // wings half-raised when alarmed
     // body bob / lunge
     const lungeOff = this.state === 'attack' ? Math.sin(this.lunge * Math.PI) * 0.9 : 0;
     p.g.position.set(0, (s.hop ? Math.abs(Math.sin(t * 3.2)) * 0.18 * mv : Math.abs(Math.sin(t * 3.2)) * 0.06 * mv), lungeOff);
@@ -679,7 +676,7 @@ export class Predator {
   dispose(scene) {
     scene.remove(this.group);
     if (this.shadowDisc) { scene.remove(this.shadowDisc); this.shadowDisc.geometry.dispose(); this.shadowDisc.material.dispose(); }
-    this.group.traverse((o) => { if (o.isMesh || o.isSprite) { o.geometry?.dispose?.(); const m = o.material; if (m) { m.map?.dispose?.(); m.dispose(); } } });
+    this.group.traverse((o) => { if (o.isMesh) { o.geometry?.dispose?.(); const m = o.material; if (m) { m.map?.dispose?.(); m.dispose(); } } });
   }
 }
 

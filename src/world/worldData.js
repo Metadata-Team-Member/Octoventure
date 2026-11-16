@@ -77,6 +77,7 @@ export class WorldData {
     this.biomes = new BiomeField(this);
     this._placeStart();
     this._placeWater();
+    this.freezeTerrain();                 // everything below is placed on the exact terrain mesh
     placeAreas(this);
   }
 
@@ -204,8 +205,59 @@ export class WorldData {
     h = lerp(-9, h, ss(-2, 12, e));
     return h;
   }
-  /** terrain height including carved puddles, streams etc. */
+  /**
+   * THE ground height. Before freezeTerrain() it is the analytic terrain (+ carved puddles / streams); after, it is the
+   * height of the terrain MESH that is drawn: the same 2.5 m grid, interpolated over the same triangles as
+   * WorldView._terrainChunk (diagonal b-d), so nothing placed with it can hover above (or sink under) what the player sees.
+   */
   heightAt(x, z) {
+    const g = this._grid;
+    if (!g) return this.rawHeightAt(x, z);
+    const n = this._gn, cell = this._cell;
+    let fx = (x + this.half) / cell, fz = (z + this.half) / cell;
+    fx = fx < 0 ? 0 : fx > n - 1e-6 ? n - 1e-6 : fx; fz = fz < 0 ? 0 : fz > n - 1e-6 ? n - 1e-6 : fz;
+    const ix = Math.floor(fx), iz = Math.floor(fz), u = fx - ix, v = fz - iz;
+    const a = this.gridH(ix, iz), b = this.gridH(ix + 1, iz), d = this.gridH(ix, iz + 1);
+    if (u + v <= 1) return a + u * (b - a) + v * (d - a);
+    const e = this.gridH(ix + 1, iz + 1);
+    return e + (1 - u) * (d - e) + (1 - v) * (b - e);
+  }
+  /** lock the terrain: from now on heights come from the cached mesh grid (call after the last carve, before placing anything) */
+  freezeTerrain() {
+    this._cell = this.cfg.terrainCell; this._gn = Math.round(this.cfg.worldSize / this._cell);
+    this._grid = new Float32Array((this._gn + 1) * (this._gn + 1)).fill(NaN);
+  }
+  /** height of one mesh vertex (ix, iz = grid indices from the world's -x/-z corner), computed once */
+  gridH(ix, iz) {
+    const n = this._gn;
+    ix = ix < 0 ? 0 : ix > n ? n : ix; iz = iz < 0 ? 0 : iz > n ? n : iz;
+    const k = iz * (n + 1) + ix; let v = this._grid[k];
+    if (v !== v) v = this._grid[k] = this.rawHeightAt(-this.half + ix * this._cell, -this.half + iz * this._cell);
+    return v;
+  }
+  _dirtyGrid(x, z, reach) {
+    const n = this._gn, c = this._cell;
+    const i0 = Math.max(0, Math.floor((x - reach + this.half) / c) - 1), i1 = Math.min(n, Math.ceil((x + reach + this.half) / c) + 1);
+    const j0 = Math.max(0, Math.floor((z - reach + this.half) / c) - 1), j1 = Math.min(n, Math.ceil((z + reach + this.half) / c) + 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) this._grid[j * (n + 1) + i] = NaN;
+  }
+  /** unit normal of the drawn triangle under (x, z) */
+  faceNormal(x, z, out = { x: 0, y: 1, z: 0 }) {
+    if (!this._grid) return this.normalAt(x, z, out);
+    const n = this._gn, cell = this._cell;
+    let fx = (x + this.half) / cell, fz = (z + this.half) / cell;
+    fx = fx < 0 ? 0 : fx > n - 1e-6 ? n - 1e-6 : fx; fz = fz < 0 ? 0 : fz > n - 1e-6 ? n - 1e-6 : fz;
+    const ix = Math.floor(fx), iz = Math.floor(fz), u = fx - ix, v = fz - iz;
+    const a = this.gridH(ix, iz), b = this.gridH(ix + 1, iz), d = this.gridH(ix, iz + 1);
+    let hx, hz;
+    if (u + v <= 1) { hx = (b - a) / cell; hz = (d - a) / cell; }
+    else { const e = this.gridH(ix + 1, iz + 1); hx = (e - d) / cell; hz = (e - b) / cell; }
+    const l = Math.hypot(hx, 1, hz);
+    out.x = -hx / l; out.y = 1 / l; out.z = -hz / l;
+    return out;
+  }
+  /** terrain height including carved puddles, streams etc. (analytic; the mesh samples this at its vertices) */
+  rawHeightAt(x, z) {
     const base = this.baseHeight(x, z);
     const list = this.carveHash.at(x, z);
     if (list.length === 0) return base;
@@ -365,7 +417,10 @@ export class WorldData {
     this.waters.push(w);
     this.waterHash.add(x, z, r, w);
     this.centreHash.add(x, z, 0, w);
-    if (w.carve) this.carveHash.add(x, z, r * 1.7, w);
+    if (w.carve) {
+      this.carveHash.add(x, z, r * 1.7, w);
+      if (this._grid) this._dirtyGrid(x, z, r * 1.7);     // a late carve: forget the cached mesh heights it changes
+    }
     return w;
   }
   _slope(x, z, r) {

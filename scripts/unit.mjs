@@ -168,4 +168,7 @@ ok(dailySeed(new Date('2026-11-16T12:00:00+08:00')) !== dailySeed(new Date('2026
 ok(perthDate(new Date('2026-11-16T17:00:00Z')) === '2026-11-17', 'Perth date rolls over at 16:00 UTC');
 { const a = new WorldData(dailySeed(new Date('2026-11-16T12:00:00+08:00'))), b = new WorldData(dailySeed(new Date('2026-11-16T20:00:00+08:00')));
   ok(a.angle === b.angle && a.waters.length === b.waters.length && a.shells.length === b.shells.length, 'daily seed reproduces the same world'); }
+// predators show awareness through body language only: no sprite / text marker code may exist in the predator module
+{ const { readFileSync } = await import('node:fs'); const src = readFileSync(new URL('../src/entities/predators.js', import.meta.url), 'utf8');
+  ok(!/Sprite|setMark|makeMark|CanvasTexture|fillText/.test(src), 'predators.js has no sprite / canvas-text markers above heads'); }
 console.log(`unit checks passed (${checks} assertions).`);

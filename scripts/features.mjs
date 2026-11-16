@@ -401,6 +401,36 @@ const uiBefore = await E(() => document.body.innerText.trim());
   await E(() => { const G = window.__game; G.clearPredators(); G.freezeTime(true); G.setTime(0.45); G.setWeather('clear'); });
 }
 
+// ================================================================ no markers over predators' heads; awareness is body language
+{
+  const r = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus; G.clearPredators(); o.health = 100;
+    const out = { sprites: 0, canvases: 0, marks: 0, kinds: [], lookDeg: null, hugeLook: 0 };
+    for (const kind of G.speciesList) {
+      const p = G.spawnPredator(kind, 14, 0);
+      for (const st of (p.spec.flying ? ['alert', 'alert', 'alert'] : ['wander', 'alert', 'chase', 'attack'])) { p.state = st; p.alertT = 0.4; g.advance(0.15); }
+      let sp = 0; p.group.traverse((n) => { if (n.isSprite || n.isPoints || n.isLine) sp++; if (n.material?.map?.isCanvasTexture) out.canvases++; });
+      out.sprites += sp; if (p.mark !== undefined || p.markTex || p.setMark) out.marks++;
+      out.kinds.push(kind); G.clearPredators();
+    }
+    // a dog that has noticed you turns its head toward you while its body is still pointing elsewhere
+    const d = G.spawnPredator('dog', 12, 0); d.heading = Math.PI; d.state = 'alert'; d.alertT = 5; d.speed = 0;
+    g.advance(0.05); d.aware = 1; d.awareV = 1; d.headTurn = 0; d.heading = Math.PI; d.toPlayer = -Math.PI / 2; d.sync(0.016);   // body still pointing away
+    out.lookDeg = Math.abs(d.parts.head.rotation.y) * 57.3; out.aware = d.awareV;
+    G.clearPredators();
+    const c = G.spawnPredator('cat', 12, 0); g.advance(0.2); const calm = c.parts.head.rotation.y;
+    out.calmLook = Math.abs(calm) * 57.3;
+    // scene-wide: no sprite is parented to any predator
+    let anySprite = 0; g.scene.traverse((n) => { if (n.isSprite && n.parent && n.parent !== g.scene && n.parent.parent !== g.scene) anySprite++; });
+    out.anySprite = anySprite;
+    return out;
+  });
+  ok(r.kinds.length >= 9, `checked every species (${r.kinds.join(', ')})`);
+  ok(r.sprites === 0 && r.canvases === 0 && r.marks === 0, `no exclamation / question markers or floating sprites on predators (sprites ${r.sprites}, canvas textures ${r.canvases})`);
+  ok(r.lookDeg > 25 && r.aware > 0.8, `an alerted dog turns its head toward you (${r.lookDeg.toFixed(0)} deg, awareness ${r.aware.toFixed(2)})`);
+  ok(r.calmLook < 5, `a calm cat does not stare (${r.calmLook.toFixed(1)} deg)`);
+}
+
 // ================================================================ the screen stays clean
 {
   await E(() => { const G = window.__game; if (G.paused) G.game.setPaused(false); });

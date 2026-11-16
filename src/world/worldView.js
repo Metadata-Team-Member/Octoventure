@@ -12,7 +12,9 @@ import * as THREE from 'three';
 import { CONFIG, TERRAIN } from '../config.js';
 import { smoothstep as ss, lerp, clamp } from '../util/rng.js';
 import { tint, merge, at, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
-import { PROP_GEO, HUE_KINDS, LANDMARK_KINDS } from './props.js';
+import { HUE_KINDS, LANDMARK_KINDS } from './props.js';
+import { buildGeoLib } from './geoLib.js';
+import { seat, instanceSpec, geoFor, geoHeight, waterDisc, discMatrix, fitDisc, ringMin } from './placement.js';
 
 export const FOG_COLOR = 0xcfe6f2;
 export const CHUNK = 100;
@@ -36,6 +38,22 @@ function instanced(geo, mat, list, place, color) {
     place(o, _v, _e, _s);
     _q.setFromEuler(_e);
     _m.compose(_v, _q, _s);
+    mesh.setMatrixAt(i, _m);
+    if (color) { color(o, _c); mesh.setColorAt(i, _c); }
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.computeBoundingSphere();
+  return mesh;
+}
+
+/** like instanced(), but every instance is seated on the terrain by placement.js (base on the ground, tilted/sunk as the category needs) */
+function instancedSeat(world, geo, mat, list, cat, sub, color) {
+  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, list.length));
+  mesh.count = list.length;
+  const gh = geoHeight(geo);
+  list.forEach((o, i) => {
+    seat(world, geo, instanceSpec(cat, sub, o, gh), _m);
     mesh.setMatrixAt(i, _m);
     if (color) { color(o, _c); mesh.setColorAt(i, _c); }
   });
@@ -116,15 +134,15 @@ export class WorldView {
     this.grassMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1, side: THREE.DoubleSide }));
     this.terrainMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 }));
     this.waterMat = this.track(new THREE.MeshStandardMaterial({ color: 0x4aa8dc, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-    const tg = treeGeometries();
+    this.lib = buildGeoLib();                       // the same geometry the placement audit uses
+    const L = this.lib;
     this.geo = {
-      tree: Object.fromEntries(Object.entries(tg).map(([k, g]) => [k, this.track(g)])),
-      rock: this.track(rockGeometry(0)), grass: this.track(grassGeometry()), reed: this.track(reedGeometry()),
-      flower: this.track(new THREE.IcosahedronGeometry(0.14, 0)),
-      shell: this.track(new THREE.ConeGeometry(0.16, 0.14, 6)), weed: this.track(new THREE.IcosahedronGeometry(0.3, 0)), wood: this.track(new THREE.BoxGeometry(1.6, 0.18, 0.2)),
-      seagrass: this.track(seagrassGeometry()), coral: this.track(coralGeometry()),
+      tree: Object.fromEntries(Object.entries(L.tree).map(([k, g]) => [k, this.track(g)])),
+      rock: this.track(L.rock), grass: this.track(L.grass), reed: this.track(L.reed), flower: this.track(L.flower),
+      shell: this.track(L.shell), weed: this.track(L.weed), wood: this.track(L.wood),
+      seagrass: this.track(L.seagrass), coral: this.track(L.coral),
       water: this.track(new THREE.CircleGeometry(1, 22)),
-      prop: {},
+      prop: L.propCache,
     };
     this.geo.water.rotateX(-Math.PI / 2);
     this.tcol = {};
@@ -139,7 +157,7 @@ export class WorldView {
     return iz * this.nch + ix;
   }
   _propGeo(kind) {
-    return (this.geo.prop[kind] ??= this.track(PROP_GEO[kind]()));
+    const had = kind in this.lib.propCache; const g = this.lib.propGeo(kind); if (!had) this.track(g); return g;
   }
 
   /** build every not-yet-built chunk whose centre is within r metres (synchronous: used at start and on teleports) */
@@ -166,45 +184,42 @@ export class WorldView {
     const b = this.buckets.get(key) || {};
     const sh = this.shadows;
     if (b.tree) for (const kind in b.tree) {
-      const m = instanced(this.geo.tree[kind], this.vcMat, b.tree[kind], (o, p, e, s) => { p.set(o.x, o.y - 0.12, o.z); e.set(0, o.rot, 0); s.setScalar(o.scale); }, (o, c) => c.setScalar(o.tint));
+      const m = instancedSeat(this.world, this.geo.tree[kind], this.vcMat, b.tree[kind], 'tree', kind, (o, c) => c.setScalar(o.tint));
       m.castShadow = sh && kind !== 'bush'; add(m);
     }
     if (b.rock) {
-      const m = instanced(this.geo.rock, this.whiteMat, b.rock.r, (o, p, e, s) => { p.set(o.x, o.y + o.size * o.sy * 0.15, o.z); e.set(0, o.rot, 0); s.set(o.size, o.size * o.sy, o.size); },
-        (o, c) => c.set(o.dark ? 0x56595f : 0x8f8d88).multiplyScalar(o.tint));
+      const m = instancedSeat(this.world, this.geo.rock, this.whiteMat, b.rock.r, 'rock', 'r', (o, c) => c.set(o.dark ? 0x56595f : 0x8f8d88).multiplyScalar(o.tint));
       m.castShadow = sh; m.receiveShadow = sh; add(m);
     }
-    if (b.grass) add(instanced(this.geo.grass, this.grassMat, b.grass.g, (o, p, e, s) => { p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.set(o.s, o.s, o.s); },
+    if (b.grass) add(instancedSeat(this.world, this.geo.grass, this.grassMat, b.grass.g, 'grass', 'g',
       (o, c) => (o.wet ? c.set(0x4f8a3a) : o.dry ? c.set(0xb8a45a) : c.set(0x6fa83c)).multiplyScalar(o.tint)), FAR.grass);
-    if (b.flower) add(instanced(this.geo.flower, this.whiteMat, b.flower.f, (o, p, e, s) => { p.set(o.x, o.y + 0.38 * o.s, o.z); e.set(0, 0, 0); s.setScalar(o.s); }, (o, c) => c.set(o.color)), FAR.flower);
-    if (b.reed) add(instanced(this.geo.reed, this.vcMat, b.reed.r, (o, p, e, s) => { p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.setScalar(o.s); }), FAR.reed);
+    if (b.flower) add(instancedSeat(this.world, this.geo.flower, this.vcMat, b.flower.f, 'flower', 'f', (o, c) => c.set(o.color)), FAR.flower);
+    if (b.reed) add(instancedSeat(this.world, this.geo.reed, this.vcMat, b.reed.r, 'reed', 'r'), FAR.reed);
     if (b.beach) {
-      const sp = {
-        shell: [this.geo.shell, (o, p, e, s) => { p.set(o.x, o.y + 0.04, o.z); e.set(0.3, o.rot, 0); s.setScalar(o.s); }, 0xf3d9cf],
-        weed: [this.geo.weed, (o, p, e, s) => { p.set(o.x, o.y + 0.02, o.z); e.set(0, o.rot, 0); s.set(o.s * 1.4, o.s * 0.3, o.s); }, 0x3f5a2c],
-        wood: [this.geo.wood, (o, p, e, s) => { p.set(o.x, o.y + 0.06, o.z); e.set(0, o.rot, 0.1); s.setScalar(o.s * 1.3); }, 0x7a5d44],
-      };
-      for (const kind in b.beach) { const [g, f, col] = sp[kind]; add(instanced(g, this.whiteMat, b.beach[kind], f, (o, c) => c.set(col)), FAR.beach); }
+      const col = { shell: 0xf3d9cf, weed: 0x3f5a2c, wood: 0x7a5d44 };
+      for (const kind in b.beach) add(instancedSeat(this.world, this.geo[kind], this.whiteMat, b.beach[kind], 'beach', kind, (o, c) => c.set(col[kind])), FAR.beach);
     }
-    if (b.seagrass) add(instanced(this.geo.seagrass, this.vcMat, b.seagrass.s, (o, p, e, s) => { p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.setScalar(o.s); },
-      (o, c) => c.setHSL(0.27 + (o.rot % 1) * 0.07, 0.55, 0.3)), FAR.seagrass);
+    if (b.seagrass) add(instancedSeat(this.world, this.geo.seagrass, this.vcMat, b.seagrass.s, 'seagrass', 's', (o, c) => c.setHSL(0.27 + (o.rot % 1) * 0.07, 0.55, 0.3)), FAR.seagrass);
     if (b.reef) {
-      if (b.reef.coral) add(instanced(this.geo.coral, this.vcMat, b.reef.coral, (o, p, e, s) => { p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.setScalar(o.s); }, coralColor), FAR.reef);
-      if (b.reef.rock) add(instanced(this.geo.rock, this.whiteMat, b.reef.rock, (o, p, e, s) => { p.set(o.x, o.y + o.s * 0.2, o.z); e.set(0, o.rot, 0); s.set(o.s, o.s * 0.7, o.s); }, (o, c) => c.set(0x62807c)), FAR.reef);
+      if (b.reef.coral) add(instancedSeat(this.world, this.geo.coral, this.vcMat, b.reef.coral, 'reef', 'coral', coralColor), FAR.reef);
+      if (b.reef.rock) add(instancedSeat(this.world, this.geo.rock, this.whiteMat, b.reef.rock, 'reef', 'rock', (o, c) => c.set(0x62807c)), FAR.reef);
     }
     if (b.prop) for (const kind in b.prop) {
       const hue = HUE_KINDS.has(kind);
-      const m = instanced(this._propGeo(kind), this.vcMat, b.prop[kind], (o, p, e, s) => { p.set(o.x, o.y, o.z); e.set(0, o.rot, 0); s.setScalar(o.s); },
-        (o, c) => (hue ? hueColor(o, c) : c.setScalar(o.tint)));
+      const m = instancedSeat(this.world, this._propGeo(kind), this.vcMat, b.prop[kind], 'prop', kind, (o, c) => (hue ? hueColor(o, c) : c.setScalar(o.tint)));
       m.castShadow = sh && this.shadowKinds.has(kind); m.receiveShadow = sh && (kind.startsWith('house') || kind === 'barn'); add(m);
     }
     if (b.water) {
       const colors = { puddle: 0x4aa8dc, pond: 0x2f8fc8, tidepool: 0x57c2d6, stream: 0x5ab6e6, drip: 0x58b0e0, trough: 0x5aa6c8, dam: 0x3d86a8, estuary: 0x4fa3c0, birdbath: 0x6cc0ea, bowl: 0x6cc0ea, aircon: 0x58b0e0, hose: 0x58b0e0, swamp: 0x3f7f78, creek: 0x4ea6d6 };
-      const m = instanced(this.geo.water, this.waterMat, b.water.w, (o, p, e, s) => {
-        p.set(o.x, o.H - 0.02, o.z); e.set(0, (o.x * 7.1 + o.z) % 6.28, 0);
-        const r = o.kind === 'drip' ? o.r * 0.7 : o.kind === 'stream' ? o.r * 1.15 : o.r * 0.96;
-        s.set(r, 1, r * (o.kind === 'puddle' ? 0.82 + ((o.x * 3.3) % 0.2) : 1));
-      }, (o, c) => c.set(colors[o.kind] ?? 0x4aa8dc));
+      const list = b.water.w;
+      const m = new THREE.InstancedMesh(this.geo.water, this.waterMat, Math.max(1, list.length));
+      m.count = list.length;
+      list.forEach((o, i) => {
+        const d = waterDisc(this.world, o);
+        discMatrix(d, o.x, o.z, d.r, d.r * (o.kind === 'puddle' ? 0.82 + ((o.x * 3.3) % 0.2) : 1), (o.x * 7.1 + o.z) % 6.28, _m);
+        m.setMatrixAt(i, _m); m.setColorAt(i, _c.set(colors[o.kind] ?? 0x4aa8dc));
+      });
+      m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; m.computeBoundingSphere();
       m.renderOrder = 2; add(m);
     }
     for (const m of grp.userData.items) m.userData.cull = true;
@@ -225,7 +240,7 @@ export class WorldView {
     for (let iz = 0; iz <= n; iz++) {
       for (let ix = 0; ix <= n; ix++) {
         const x = x0 + ix * cell, z = z0 + iz * cell;
-        const hh = w.heightAt(x, z);
+        const hh = w.gridH(Math.round((x + half) / cell), Math.round((z + half) / cell));
         const i = iz * stride + ix;
         pos[i * 3] = x; pos[i * 3 + 1] = hh; pos[i * 3 + 2] = z;
         const type = w.typeAt(x, z);
@@ -350,12 +365,13 @@ export class WorldView {
     const g = new THREE.Group();
     const trees = this.landTrees;
     if (trees.length) {
-      const m = instanced(this.track(this.geo.tree.norfolk), this.landMat, trees, (o, p, e, s) => { p.set(o.x, o.y - 0.12, o.z); e.set(0, o.rot, 0); s.setScalar(o.scale); }, (o, c) => c.setScalar(o.tint));
+      const m = instancedSeat(this.world, this.geo.tree.norfolk, this.landMat, trees, 'tree', 'norfolk', (o, c) => c.setScalar(o.tint));
       m.castShadow = this.shadows; g.add(m);
     }
     for (const p of this.landProps) {
       const mesh = new THREE.Mesh(this._propGeo(p.kind), this.landMat);
-      mesh.position.set(p.x, p.y, p.z); mesh.rotation.y = p.rot; mesh.scale.setScalar(p.s); mesh.castShadow = this.shadows;
+      const pg = this._propGeo(p.kind);
+      seat(this.world, pg, instanceSpec('prop', p.kind, p, geoHeight(pg)), _m); mesh.matrixAutoUpdate = false; mesh.matrix.copy(_m); mesh.castShadow = this.shadows;
       g.add(mesh);
     }
     this.landmarkGroup = g;
@@ -413,7 +429,7 @@ export class WorldView {
     const cylG = (r1, r2, h, hex, seg = 8) => tint(new THREE.CylinderGeometry(r1, r2, h, seg), hex);
     const boxG = (a, b, c, hex) => tint(new THREE.BoxGeometry(a, b, c), hex);
     for (const t of w.taps) {
-      const y = w.heightAt(t.x, t.z);
+      const y = ringMin(w, t.x, t.z, 0.9, 8);          // lowest ground under the fixture: the base never floats
       if (t.type === 'tap') {
         P(cylG(0.12, 0.14, 2.0, 0x8a949c), t.x - 0.35, y + 0.95, t.z);
         P(cylG(0.09, 0.09, 0.8, 0x8a949c), t.x, y + 2.0, t.z, 0, 0, Math.PI / 2);
@@ -442,7 +458,7 @@ export class WorldView {
     // sprinkler posts
     this.sprays = [];
     for (const sp of w.sprinklers) {
-      const y = w.heightAt(sp.x, sp.z);
+      const y = ringMin(w, sp.x, sp.z, 0.3, 8);
       P(cylG(0.16, 0.2, 0.5, 0x8a949c), sp.x, y + 0.2, sp.z);
       P(cylG(0.07, 0.07, 0.4, 0xe0b020, 6), sp.x, y + 0.6, sp.z);
       this.sprays.push({ x: sp.x, y: y + 0.7, z: sp.z, reach: sp.r * 0.95, phase: Math.random() });
@@ -563,8 +579,8 @@ export class WorldView {
     this.tempMesh.count = T.length;
     for (let i = 0; i < T.length; i++) {
       const q = T[i], r = Math.max(0.001, q.r * q.grow);
-      _v.set(q.x, q.H - 0.0 + 0.02, q.z); _s.set(r, 1, r * 0.85); _q.setFromEuler(_e.set(0, q.x * 3.1, 0));
-      M.compose(_v, _q, _s); this.tempMesh.setMatrixAt(i, M);
+      q._fit ??= fitDisc(w, q.x, q.z, q.r);
+      discMatrix(q._fit, q.x, q.z, r, r * 0.85, q.x * 3.1, M); this.tempMesh.setMatrixAt(i, M);
     }
     this.tempMesh.instanceMatrix.needsUpdate = true;
     // dew / bin lids: fade in and out with their gate
@@ -577,8 +593,10 @@ export class WorldView {
         const q = G[i], on = clamp(w.gates[q.gate] * 2.2 - 0.3, 0, 1);
         any = Math.max(any, on);
         const r = Math.max(0.001, q.r * (q.gate === 'dew' ? 1 : 0.55) * on);
-        _v.set(q.x, (q.y ?? w.heightAt(q.x, q.z)) + (q.lift ?? 0.03), q.z); _s.set(r, 1, r); _q.identity();
-        M.compose(_v, _q, _s); this.gatedMesh.setMatrixAt(i, M);
+        q._fit ??= fitDisc(w, q.x, q.z, q.r * (q.gate === 'dew' ? 1 : 0.55));
+        discMatrix(q._fit, q.x, q.z, r, r, 0, M);
+        if (q.lift) M.elements[13] += q.lift - 0.03;            // bin lids: the lid is above the ground
+        this.gatedMesh.setMatrixAt(i, M);
       }
       this.gatedMesh.instanceMatrix.needsUpdate = true;
       this.gatedMat.opacity = 0.55 * (any > 0 ? 1 : 0);
