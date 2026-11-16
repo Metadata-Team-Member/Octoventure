@@ -47,7 +47,7 @@ npm run build:dist   # normal multi-file build into dist/ (for hosting on any st
 | Venom bite (last resort, long recharge) | **B** or right-click | X |
 | Climb a fence / wall at once | **R** (or just keep pushing into it) | Y (hold) |
 | Zoom | mouse wheel | |
-| Pause / release the mouse | **Esc** (pause menu: Resume, difficulty, Daily, New world) | Start |
+| Pause / release the mouse | **Esc** (pause menu: Resume, difficulty, Daily, New world, and a quiet list of these controls) | Start |
 | Mute | **M** | |
 | Restart after dying | button, or **R** | |
 
@@ -67,9 +67,9 @@ There is **no HUD, timer, tutorial, markers or hint text**. Everything is read f
 * The world has 11 biomes: suburb, town, farm, bush, riverbank, wetland, dunes, beach, headland, estuary and the sea.
 
 ## Features
-* Seeded open world, 1600 x 1600 m, streamed in 100 m chunks of instanced geometry; mesh-exact ground heights, everything seated on the terrain (an automated audit checks every object over 5 worlds).
+* Seeded open world that starts inside a 1600 x 1600 m map with 11 biomes and simply never ends: beyond it the land (and the coast) keep going, generated on demand and streamed in 100 m chunks of instanced geometry; mesh-exact ground heights, everything seated on the terrain (an automated audit checks every object over 5 worlds).
 * Day/night cycle, weather (clear, heatwave, rain, storm), tides, wind and dew; per-biome lighting.
-* Spatial WebAudio (surf, wind, gulls, magpies, kookaburras, engines, horns, ground thumps, squelching footsteps, heartbeat when nearly dry), droplets, wet footprints, camera shake on lunges and heavy footsteps.
+* Spatial WebAudio (surf, wind, gulls, magpies, kookaburras, engines, horns, ground thumps, squelching footsteps, heartbeat when nearly dry), droplets, wet tentacle trails with sucker dots, camera shake on lunges and heavy footsteps.
 * Difficulty (gentle / normal / harsh) and the daily world are chosen from the pause menu only.
 * Gamepad support (standard mapping).
 

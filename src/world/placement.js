@@ -171,11 +171,16 @@ export function waterDisc(world, q) {
   }
   return (q._disc = { q, r, ...fitDisc(world, q.x, q.z, r) });
 }
-export const waterDiscs = (world) => world.waters.filter((q) => q.kind !== 'sprinkler' && q.kind !== 'rain' && q.kind !== 'sea').map((q) => waterDisc(world, q));
+export const waterDiscs = (world, region) => {
+  const far = new Set(); for (const r of world.regions.list) for (const q of r.waters) far.add(q);
+  return (region ? region.waters : world.waters.filter((q) => !far.has(q))).filter((q) => q.kind !== 'sprinkler' && q.kind !== 'rain' && q.kind !== 'sea').map((q) => waterDisc(world, q));
+};
 
 /** every drawn object of a world as {cat, sub, geo, m} with its final instance matrix (used by the audit) */
-export function placedItems(world, lib) {
-  const d = world.decor, out = [];
+export function placedItems(world, lib, opts = {}) {
+  // default: the original map. { region } : only that generated far region (see regions.js)
+  const reg = opts.region;
+  const d = reg ? reg.decor : world.decor, out = [];
   const add = (cat, sub, o) => {
     const geo = geoFor(lib, cat, sub);
     const m = new THREE.Matrix4();
@@ -190,8 +195,11 @@ export function placedItems(world, lib) {
   for (const b of d.beach) add('beach', b.kind, b);
   for (const s of d.seagrass) add('seagrass', 's', s);
   for (const r of d.reef) add('reef', r.kind, r);
-  for (const p of world.props) add('prop', p.kind, p);
-  world.shells.forEach((sh, i) => add('shell', shellKind(i), { x: sh.x, z: sh.z, rot: sh.rot, s: shellScale(i) }));
+  const farP = new Set(), farS = new Set();
+  for (const r of world.regions.list) { for (const p of r.props) farP.add(p); for (const sh of r.shells) farS.add(sh); }
+  for (const p of reg ? reg.props : world.props) if (reg || !farP.has(p)) add('prop', p.kind, p);
+  if (reg) for (const sh of reg.shells) add('shell', sh.k, { x: sh.x, z: sh.z, rot: sh.rot, s: sh.s });
+  else world.shells.forEach((sh, i) => { if (!farS.has(sh)) add('shell', shellKind(i), { x: sh.x, z: sh.z, rot: sh.rot, s: shellScale(i) }); });
   return out;
 }
 /** which model a collectible shell uses: scallop 'c', turban 't' or cowrie 'k' (by index, so the audit and the renderer agree) */

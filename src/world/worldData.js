@@ -4,6 +4,7 @@
 //  Everything is derived from a seed so a world can be reproduced exactly (daily seed!).
 //  Biome logic lives in biomes.js, the placement of each biome's props in areas.js.
 // =====================================================================
+import { Regions } from './regions.js';
 import { CONFIG } from '../config.js';
 import { makeNoise } from '../util/noise.js';
 import { mulberry32, clamp, lerp, smoothstep } from '../util/rng.js';
@@ -74,6 +75,7 @@ export class WorldData {
     this.creek = [];         // creek centre-line nodes (every ~2.4 m)
     this.coast = null;
 
+    this.regions = new Regions(this);
     this._makeCoast();
     this._makeCreek();
     this.biomes = new BiomeField(this);
@@ -102,6 +104,12 @@ export class WorldData {
   shorePoint(u, tt = 1) {
     const c = this.cStart + tt * this.span;
     return { x: this.dir.x * c + this.perp.x * u, z: this.dir.z * c + this.perp.z * u };
+  }
+
+  /** 0 on the original map, rising to 1 far inland (away from the ocean): the land gets drier and harsher, silently */
+  harshAt(x, z) {
+    const s = x * this.dir.x + z * this.dir.z;                    // distance along the sea direction from the map centre
+    return ss(-this.half * 0.9, -this.half * 3, s);
   }
 
   // ---------------- coast stretches & the creek (decided first: no heights needed) -----------------
@@ -203,9 +211,7 @@ export class WorldData {
     }
     if (tw > 0.97 && tw < 1.02) h += 0.1 * n.noise2(x * 0.2, z * 0.2);        // tidal-flat ripples
     if (h < -7) h = -7;
-    const e = this.half - Math.max(Math.abs(x), Math.abs(z));                  // fade into the mist at the world edge
-    h = lerp(-9, h, ss(-2, 12, e));
-    return h;
+    return h;                                                                  // no world edge: the land (and sea) simply go on
   }
   /**
    * THE ground height. Before freezeTerrain() it is the analytic terrain (+ carved puddles / streams); after, it is the
@@ -213,42 +219,49 @@ export class WorldData {
    * WorldView._terrainChunk (diagonal b-d), so nothing placed with it can hover above (or sink under) what the player sees.
    */
   heightAt(x, z) {
-    const g = this._grid;
-    if (!g) return this.rawHeightAt(x, z);
-    const n = this._gn, cell = this._cell;
-    let fx = (x + this.half) / cell, fz = (z + this.half) / cell;
-    fx = fx < 0 ? 0 : fx > n - 1e-6 ? n - 1e-6 : fx; fz = fz < 0 ? 0 : fz > n - 1e-6 ? n - 1e-6 : fz;
+    if (!this._grid) return this.rawHeightAt(x, z);
+    const cell = this._cell;
+    const fx = (x + this.half) / cell, fz = (z + this.half) / cell;
     const ix = Math.floor(fx), iz = Math.floor(fz), u = fx - ix, v = fz - iz;
     const a = this.gridH(ix, iz), b = this.gridH(ix + 1, iz), d = this.gridH(ix, iz + 1);
     if (u + v <= 1) return a + u * (b - a) + v * (d - a);
     const e = this.gridH(ix + 1, iz + 1);
     return e + (1 - u) * (d - e) + (1 - v) * (b - e);
   }
-  /** lock the terrain: from now on heights come from the cached mesh grid (call after the last carve, before placing anything) */
+  /** lock the terrain: from now on heights come from the cached mesh grid (call after the last carve, before placing anything).
+   *  The grid is unbounded: 64 x 64 vertex tiles are created on demand, so the land can go on forever. */
   freezeTerrain() {
-    this._cell = this.cfg.terrainCell; this._gn = Math.round(this.cfg.worldSize / this._cell);
-    this._grid = new Float32Array((this._gn + 1) * (this._gn + 1)).fill(NaN);
+    this._cell = this.cfg.terrainCell;
+    this._grid = new Map(); this._tk = NaN; this._tt = null;
   }
-  /** height of one mesh vertex (ix, iz = grid indices from the world's -x/-z corner), computed once */
+  /** height of one mesh vertex (ix, iz = grid indices from the original map's -x/-z corner; may be negative), computed once */
   gridH(ix, iz) {
-    const n = this._gn;
-    ix = ix < 0 ? 0 : ix > n ? n : ix; iz = iz < 0 ? 0 : iz > n ? n : iz;
-    const k = iz * (n + 1) + ix; let v = this._grid[k];
-    if (v !== v) v = this._grid[k] = this.rawHeightAt(-this.half + ix * this._cell, -this.half + iz * this._cell);
+    const tx = ix >> 6, tz = iz >> 6, key = tz * 100003 + tx;
+    let t;
+    if (key === this._tk) t = this._tt;
+    else {
+      t = this._grid.get(key);
+      if (!t) { t = new Float32Array(64 * 64).fill(NaN); this._grid.set(key, t); }
+      this._tk = key; this._tt = t;
+    }
+    const k = (iz & 63) * 64 + (ix & 63);
+    let v = t[k];
+    if (v !== v) { t[k] = this.rawHeightAt(-this.half + ix * this._cell, -this.half + iz * this._cell); v = t[k]; }   // read back the float32: the first and later reads agree exactly
     return v;
   }
   _dirtyGrid(x, z, reach) {
-    const n = this._gn, c = this._cell;
-    const i0 = Math.max(0, Math.floor((x - reach + this.half) / c) - 1), i1 = Math.min(n, Math.ceil((x + reach + this.half) / c) + 1);
-    const j0 = Math.max(0, Math.floor((z - reach + this.half) / c) - 1), j1 = Math.min(n, Math.ceil((z + reach + this.half) / c) + 1);
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) this._grid[j * (n + 1) + i] = NaN;
+    const c = this._cell;
+    const i0 = Math.floor((x - reach + this.half) / c) - 1, i1 = Math.ceil((x + reach + this.half) / c) + 1;
+    const j0 = Math.floor((z - reach + this.half) / c) - 1, j1 = Math.ceil((z + reach + this.half) / c) + 1;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const t = this._grid.get((j >> 6) * 100003 + (i >> 6)); if (t) t[(j & 63) * 64 + (i & 63)] = NaN;
+    }
   }
   /** unit normal of the drawn triangle under (x, z) */
   faceNormal(x, z, out = { x: 0, y: 1, z: 0 }) {
     if (!this._grid) return this.normalAt(x, z, out);
-    const n = this._gn, cell = this._cell;
-    let fx = (x + this.half) / cell, fz = (z + this.half) / cell;
-    fx = fx < 0 ? 0 : fx > n - 1e-6 ? n - 1e-6 : fx; fz = fz < 0 ? 0 : fz > n - 1e-6 ? n - 1e-6 : fz;
+    const cell = this._cell;
+    const fx = (x + this.half) / cell, fz = (z + this.half) / cell;
     const ix = Math.floor(fx), iz = Math.floor(fz), u = fx - ix, v = fz - iz;
     const a = this.gridH(ix, iz), b = this.gridH(ix + 1, iz), d = this.gridH(ix, iz + 1);
     let hx, hz;
@@ -404,12 +417,15 @@ export class WorldData {
     for (const c of this.rain) if (Math.hypot(x - c.x, z - c.z) < c.r) return c;
     return null;
   }
-  update(dt) {
-    const lim = this.half - 30;
+  update(dt, anchor) {
+    // rain clouds drift freely. With no map edge they are kept around the octopus: one that wanders too far away is
+    // re-seeded on the far side of it (and fewer clouds form far inland, where the land is drier).
     for (const c of this.rain) {
       c.x += c.vx * dt; c.z += c.vz * dt;
-      if (Math.abs(c.x) > lim) { c.vx *= -1; c.x = clamp(c.x, -lim, lim); }
-      if (Math.abs(c.z) > lim) { c.vz *= -1; c.z = clamp(c.z, -lim, lim); }
+      if (anchor && Math.hypot(c.x - anchor.x, c.z - anchor.z) > 900) {
+        const a = Math.atan2(c.z - anchor.z, c.x - anchor.x) + Math.PI + (Math.random() - 0.5) * 1.2, d = 700 + Math.random() * 150;
+        c.x = anchor.x + Math.cos(a) * d; c.z = anchor.z + Math.sin(a) * d;
+      }
     }
   }
 
@@ -453,11 +469,11 @@ export class WorldData {
     return true;
   }
   /** a random land spot inside one of the named biomes (dominant weight > minW); null after too many failures */
-  _spotB(names, { minW = 0.55, maxSlope = 0.2, slopeR = 3, minH = 1.0, notRoad = true, tries = 120, edge = 40, rnd = this.rnd } = {}) {
+  _spotB(names, { minW = 0.55, maxSlope = 0.2, slopeR = 3, minH = 1.0, notRoad = true, tries = 120, edge = 40, rnd = this.rnd, rect = null } = {}) {
     const ids = names.map((nm) => B[nm]);
     for (let i = 0; i < tries; i++) {
-      const x = rnd.range(-this.half + edge, this.half - edge);
-      const z = rnd.range(-this.half + edge, this.half - edge);
+      const x = rect ? rnd.range(rect.x0, rect.x1) : rnd.range(-this.half + edge, this.half - edge);
+      const z = rect ? rnd.range(rect.z0, rect.z1) : rnd.range(-this.half + edge, this.half - edge);
       const w = this.biomes.weights(x, z);
       let ok = false;
       for (const id of ids) if (w[id] > minW) { ok = true; break; }
@@ -612,7 +628,10 @@ export class WorldData {
         let sum = 0, c = 0;
         for (let j = -4; j <= 4; j++) { sum += hs[clamp(i + j, 0, pts.length - 1)]; c++; }
         let H = Math.min(sum / c, last); last = H;
-        this._addWater('stream', pts[i].x, pts[i].z, 1.7, { H, depth: 0.1 });
+        // a stream never runs through a still pool (its carve would warp the pool's rim): leave a gap there
+        let hit = false;
+        for (const q of this.carveHash.at(pts[i].x, pts[i].z)) if (STILL.has(q.kind) && Math.hypot(q.x - pts[i].x, q.z - pts[i].z) < q.r * 1.7 + 3.2) { hit = true; break; }
+        if (!hit) this._addWater('stream', pts[i].x, pts[i].z, 1.7, { H, depth: 0.1 });
       }
     }
     // rain clouds drifting around
@@ -678,9 +697,7 @@ export class WorldData {
         }
       }
     }
-    const lim = this.half - 14;
-    out.x = clamp(out.x, -lim, lim); out.z = clamp(out.z, -lim, lim);
-    return out;
+    return out;                      // no invisible walls: nothing clamps the octopus to the original map
   }
 
 

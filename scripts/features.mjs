@@ -557,10 +557,10 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const G = window.__game, g = G.game, o = g.octopus, w = g.world, out = {};
     const b = w.babies.find((q) => !q.found);
     G.teleport(b.x - 6, b.z); g.collect.tells(0.1, o);
-    const bi = w.babies.indexOf(b), pm = () => g.collect.peek.instanceMatrix.array[bi * 16];
-    out.peekNear = pm() !== 0;
-    G.teleport(b.x - 120, b.z); g.collect.tells(0.1, o);
-    out.peekFar = pm() === 0;
+    out.peekNear = g.collect.peek.count >= 1;
+    G.teleport(b.x - 400, b.z); g.collect.tells(0.1, o);
+    const within = w.babies.filter((q) => !q.found && Math.hypot(q.x - o.x, q.z - o.z) <= 40).length;
+    out.peekFar = g.collect.peek.count === Math.min(24, within);       // only the babies close by get a live slot
     // squelch: walk wet for 20 s and count step sounds
     let n = 0; const orig = g.audio.step; g.audio.step = () => { n++; };
     G.teleport(w.start.x, w.start.z); G.advance(0.2); G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig;
@@ -568,6 +568,57 @@ const uiBefore = await E(() => document.body.innerText.trim());
   });
   ok(r.peekNear && r.peekFar, 'a hidden baby wriggles into view only when the octopus is near');
   ok(r.steps <= 10 && r.steps >= 2, `the wet squelch is occasional (${r.steps} in 20 s walking, not 5-8 per second)`);
+}
+
+// ================================================================ the endless land: no edge, nothing breaks far from the start
+{
+  const r = await E(async () => {
+    const G = window.__game, g = G.game, o = g.octopus, w = g.world, out = {};
+    const settle = (n) => { for (let i = 0; i < n; i++) G.advance(0.05); };
+    const loss = () => { G.teleport(o.x, o.z); o.health = 100; o.wetness = 0; const h0 = o.health; settle(60); return h0 - o.health; };
+    G.teleport(w.start.x, w.start.z); settle(10); out.lossStart = loss();
+    // 3 km inland (away from the sea), and then keep walking: the old map ended at 800 u
+    const ix = -w.dir.x, iz = -w.dir.z;
+    const tele = (d) => { G.teleport(w.start.x + ix * d, w.start.z + iz * d); settle(40); };
+    tele(1400); out.regions1 = w.regions.list.length; out.chunks1 = g.view.chunks.size;
+    tele(3000); out.harsh = w.harshAt(o.x, o.z); out.lossFar = loss();
+    out.farFlowers = w.regions.list.reduce((n, q) => n + q.decor.flowers.length, 0);
+    G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.health = 100; G.advance(0.05); } G.releaseKey('KeyW');
+    out.moved = Math.hypot(o.x - (w.start.x + ix * 3000), o.z - (w.start.z + iz * 3000));
+    out.alive = o.alive; out.finite = Number.isFinite(o.x) && Number.isFinite(o.y) && Math.abs(o.y) < 400;
+    out.chunks2 = g.view.chunks.size; out.visible = g.view.stats.chunksVisible;
+    // a long walk streams chunks in and frees them behind: memory stays flat
+    const geos0 = g.renderer.info.memory.geometries;
+    for (const d of [3200, 3600, 4000, 4400, 4800, 5200, 5600, 6000]) tele(d);
+    out.chunks3 = g.view.chunks.size; out.freed = g.view.stats.chunksFreed ?? 0; out.geos = g.renderer.info.memory.geometries - geos0; out.regions3 = w.regions.list.length;
+    out.predFar = g.predators.list.filter((p) => p.far).length; out.eagles = g.predators.list.filter((p) => p.far && p.kind === 'eagle').length;
+    // the sea plane follows: still under the player's lateral position when we are 5 km along the shore
+    G.teleport(w.start.x + w.perp.x * 5000, w.start.z + w.perp.z * 5000); settle(20);
+    const sp = g.view.sea.position; out.seaLat = Math.abs(w.lateral(sp.x, sp.z) - w.lateral(o.x, o.z));
+    out.shoreChunks = g.view.chunks.size;
+    G.teleport(w.start.x + w.dir.x * 7000, w.start.z + w.dir.z * 7000); settle(20);        // 7 km out to sea
+    const sp2 = g.view.sea.position, dc = (p) => p.x * w.dir.x + p.z * w.dir.z;
+    out.seaOut = Math.abs(dc(sp2) - dc(o)); out.seaHalf = g.view.sea.userData.size / 2;
+    // flowers and shells out there still work: touch one, and pick up a shell
+    const farF = w.regions.list.filter((q) => Math.abs(q.rx - 1.5) > 3 || Math.abs(q.rz - 1.5) > 3).flatMap((q) => q.decor.flowers);
+    const f = farF[Math.floor(farF.length / 2)];
+    G.teleport(f.x + 2, f.z); settle(10);
+    out.farFlowerInst = !!f.inst && f.inst.mesh.parent !== null;
+    const farS = w.shells.filter((q) => q.reg);
+    const sh = farS[Math.floor(farS.length / 2)];
+    G.teleport(sh.x + 3, sh.z); settle(20);
+    out.farShellSlot = sh.slot >= 0 && g.collect.meshes[sh.k].count > 0;
+    G.teleport(sh.x, sh.z); settle(4); out.farShellGot = sh.got;
+    return out;
+  });
+  ok(r.lossFar > r.lossStart * 1.3, `far inland dries the octopus faster (${r.lossStart.toFixed(2)} -> ${r.lossFar.toFixed(2)} per 3 s)`);
+  ok(r.harsh > 0.95 && r.regions1 > 3 && r.chunks1 > 10, `3 km inland the land exists and is harsh (harshness ${r.harsh.toFixed(2)}, ${r.regions1} regions generated, ${r.chunks1} chunks)`);
+  ok(r.moved > 20 && r.alive && r.finite, `walking on beyond 3 km: moved ${r.moved.toFixed(0)} u, alive, finite coordinates`);
+  ok(r.chunks3 < 90 && r.freed > 50 && r.geos < 250, `memory stays flat over a 6 km trek (${r.chunks3} chunks resident, ${r.freed} freed, ${r.geos} extra geometries)`);
+  ok(r.predFar >= 1 && r.eagles >= 1, `eagles circle far inland (${r.eagles} of ${r.predFar} wanderers)`);
+  ok(r.seaOut < r.seaHalf - 600, `the sea has no far edge either: 7 km out the plane still extends ${(r.seaHalf - r.seaOut).toFixed(0)} u beyond the player`);
+  ok(r.seaLat < 30, `the sea plane follows along the shore (${r.seaLat.toFixed(0)} u off)`);
+  ok(r.farFlowerInst && r.farShellSlot && r.farShellGot, 'flowers and shells out in the far land are drawn, and a far shell can be picked up');
 }
 
 // ================================================================ the screen stays clean

@@ -105,9 +105,8 @@ export class WorldView {
   // ------------------------------------------------------------ chunk bookkeeping
   _initChunks() {
     const w = this.world;
-    this.nch = Math.ceil(CONFIG.worldSize / CHUNK);
-    this.chunks = new Array(this.nch * this.nch).fill(null);
-    this.stats.chunksTotal = this.nch * this.nch;
+    this.chunks = new Map();                      // chunk key -> THREE.Group (the land is endless: chunks stream in and out around the player)
+    this.stats.chunksTotal = 0;
     this.buckets = new Map();
     const d = w.decor;
     const put = (x, z, cat, sub, item) => {
@@ -116,6 +115,7 @@ export class WorldView {
       const c = (b[cat] ??= {});
       (c[sub] ??= []).push(item);
     };
+    this._put = put;
     this.landTrees = [];
     for (const t of d.trees) { if (t.kind === 'norfolk') this.landTrees.push(t); else put(t.x, t.z, 'tree', t.kind, t); }
     for (const r of d.rocks) put(r.x, r.z, 'rock', 'r', r);
@@ -128,6 +128,8 @@ export class WorldView {
     this.landProps = [];
     for (const p of w.props) { if (LANDMARK_KINDS.has(p.kind)) this.landProps.push(p); else put(p.x, p.z, 'prop', p.kind, p); }
     for (const q of w.waters) { if (q.kind !== 'sprinkler' && q.kind !== 'rain' && q.kind !== 'sea') put(q.x, q.z, 'water', 'w', q); }
+    // far (generated) regions feed the same buckets as they appear
+    w.regions.onGenerate((reg) => this._ingest(reg));
     // shared geometry & materials
     const sh = this.shadows;
     this.vcMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }));
@@ -153,10 +155,35 @@ export class WorldView {
     this._queue = [];
     this._lastCC = '';
   }
-  _key(x, z) {
-    const h = this.world.half;
-    const ix = clamp(Math.floor((x + h) / CHUNK), 0, this.nch - 1), iz = clamp(Math.floor((z + h) / CHUNK), 0, this.nch - 1);
-    return iz * this.nch + ix;
+  _ck(ix, iz) { return iz * 1000003 + ix; }
+  _key(x, z) { const h = this.world.half; return this._ck(Math.floor((x + h) / CHUNK), Math.floor((z + h) / CHUNK)); }
+  _ingest(reg) {
+    const put = this._put, d = reg.decor;
+    for (const t of d.trees) put(t.x, t.z, 'tree', t.kind, t);
+    for (const r of d.rocks) put(r.x, r.z, 'rock', 'r', r);
+    for (const g of d.grass) put(g.x, g.z, 'grass', 'g', g);
+    for (const f of d.flowers) put(f.x, f.z, 'flower', 'f', f);
+    for (const r of d.reeds) put(r.x, r.z, 'reed', 'r', r);
+    for (const b of d.beach) put(b.x, b.z, 'beach', b.kind, b);
+    for (const s of d.seagrass) put(s.x, s.z, 'seagrass', 's', s);
+    for (const r of d.reef) put(r.x, r.z, 'reef', r.kind, r);
+    for (const p of reg.props) put(p.x, p.z, 'prop', p.kind, p);
+    for (const q of reg.waters) put(q.x, q.z, 'water', 'w', q);
+    reg.shells.forEach((sh, i) => put(sh.x, sh.z, 'shell', sh.k, sh));
+  }
+  /** far regions this chunk needs (its own, plus any whose 30 m skirt reaches it): generated before the chunk is built */
+  _needRegions(ix, iz) {
+    const R = this.world.regions, h = this.world.half, S = 30;
+    const x0 = -h + ix * CHUNK - S, x1 = -h + (ix + 1) * CHUNK + S, z0 = -h + iz * CHUNK - S, z1 = -h + (iz + 1) * CHUNK + S;
+    const [ax, az] = R.tileOf(x0, z0), [bx, bz] = R.tileOf(x1, z1);
+    for (let rz = az; rz <= bz; rz++) for (let rx = ax; rx <= bx; rx++) if (!R.isOriginal(rx, rz)) R.generate(rx, rz);
+  }
+  _disposeChunk(key) {
+    const grp = this.chunks.get(key); if (!grp) return;
+    this.root.remove(grp);
+    for (const o of grp.children) { if (o.isInstancedMesh) { o.dispose(); if (o.userData.ownGeo) o.geometry.dispose(); } else if (o.geometry) o.geometry.dispose(); }
+    this.chunks.delete(key);
+    this.stats.chunksFreed = (this.stats.chunksFreed ?? 0) + 1;
   }
   _propGeo(kind) {
     const had = kind in this.lib.propCache; const g = this.lib.propGeo(kind); if (!had) this.track(g); return g;
@@ -164,11 +191,11 @@ export class WorldView {
 
   /** build every not-yet-built chunk whose centre is within r metres (synchronous: used at start and on teleports) */
   flushAround(x, z, r) {
-    const h = this.world.half;
-    for (let k = 0; k < this.chunks.length; k++) {
-      if (this.chunks[k]) continue;
-      const ix = k % this.nch, iz = Math.floor(k / this.nch);
-      const cx = -h + (ix + 0.5) * CHUNK, cz = -h + (iz + 0.5) * CHUNK;
+    const h = this.world.half, rr = Math.ceil(r / CHUNK) + 1;
+    const px = Math.floor((x + h) / CHUNK), pz = Math.floor((z + h) / CHUNK);
+    for (let iz = pz - rr; iz <= pz + rr; iz++) for (let ix = px - rr; ix <= px + rr; ix++) {
+      if (this.chunks.has(this._ck(ix, iz))) continue;
+      const [cx, cz] = this._chunkCentre(ix, iz);
       if (Math.hypot(cx - x, cz - z) < r) this._buildChunk(ix, iz);
     }
   }
@@ -176,7 +203,8 @@ export class WorldView {
 
   _buildChunk(ix, iz) {
     const t0 = performance.now();
-    const key = iz * this.nch + ix, h = this.world.half;
+    const key = this._ck(ix, iz), h = this.world.half;
+    this._needRegions(ix, iz);
     const grp = new THREE.Group();
     const x0 = -h + ix * CHUNK, z0 = -h + iz * CHUNK;
     const [cx, cz] = this._chunkCentre(ix, iz);
@@ -230,8 +258,8 @@ export class WorldView {
     }
     for (const m of grp.userData.items) m.userData.cull = true;
     this.root.add(grp);
-    this.chunks[key] = grp;
-    this.stats.chunksBuilt++;
+    this.chunks.set(key, grp);
+    this.stats.chunksBuilt++; this.stats.chunksTotal = this.chunks.size;
     this.stats.buildMs += performance.now() - t0;
     return grp;
   }
@@ -260,8 +288,6 @@ export class WorldView {
           const f = 1 - Math.abs(hh + 0.08) / 0.2;
           if (f > 0) c.lerp(foam, f * 0.55);
         }
-        const e = half - Math.max(Math.abs(x), Math.abs(z));
-        if (e < 18) c.lerp(fog, 1 - ss(0, 18, e));
         col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
       }
     }
@@ -285,29 +311,34 @@ export class WorldView {
 
   /** stream chunks near the player (budgeted) and cull what is out of range */
   _streamAndCull(dt, px, pz, force) {
-    const h = this.world.half, R = this.visRadius, nch = this.nch;
-    const pix = clamp(Math.floor((px + h) / CHUNK), 0, nch - 1), piz = clamp(Math.floor((pz + h) / CHUNK), 0, nch - 1);
+    const h = this.world.half, R = this.visRadius;
+    this.world.regions.ensure(px, pz, R + 80, 1);           // far tiles are made ahead of the player, one per frame at most (no hitch when a chunk needs one)
+    const pix = Math.floor((px + h) / CHUNK), piz = Math.floor((pz + h) / CHUNK);
     // never leave the chunk under/around the player unbuilt
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const ix = pix + dx, iz = piz + dz;
-      if (ix >= 0 && iz >= 0 && ix < nch && iz < nch && !this.chunks[iz * nch + ix]) this._buildChunk(ix, iz);
+      if (!this.chunks.has(this._ck(ix, iz))) this._buildChunk(ix, iz);
     }
     const cc = pix + ',' + piz;
     if (cc !== this._lastCC) {
       this._lastCC = cc;
       this._queue = [];
       const rr = Math.ceil((R + 60) / CHUNK);
-      for (let iz = Math.max(0, piz - rr); iz <= Math.min(nch - 1, piz + rr); iz++) for (let ix = Math.max(0, pix - rr); ix <= Math.min(nch - 1, pix + rr); ix++) {
-        if (this.chunks[iz * nch + ix]) continue;
+      for (let iz = piz - rr; iz <= piz + rr; iz++) for (let ix = pix - rr; ix <= pix + rr; ix++) {
+        if (this.chunks.has(this._ck(ix, iz))) continue;
         const [cx, cz] = this._chunkCentre(ix, iz); const d = Math.hypot(cx - px, cz - pz);
         if (d < R + 30) this._queue.push({ ix, iz, d });
       }
       this._queue.sort((a, b) => b.d - a.d);     // pop() takes the nearest
+      // let go of chunks well behind the player so memory stays flat however far they roam
+      const keepD = R + 150;
+      for (const [k, grp] of [...this.chunks]) if (Math.hypot(grp.userData.cx - px, grp.userData.cz - pz) > keepD) this._disposeChunk(k);
+      this.stats.chunksTotal = this.chunks.size;
     }
     const t0 = performance.now();
     while (this._queue.length && performance.now() - t0 < 6) {
       const q = this._queue.pop();
-      if (!this.chunks[q.iz * nch + q.ix]) this._buildChunk(q.ix, q.iz);
+      if (!this.chunks.has(this._ck(q.ix, q.iz))) this._buildChunk(q.ix, q.iz);
     }
     // culling pass (cheap, ~10 Hz)
     this._cullT -= dt;
@@ -315,8 +346,7 @@ export class WorldView {
     this._cullT = 0.1;
     const R2 = R * R;
     let vis = 0;
-    for (const grp of this.chunks) {
-      if (!grp) continue;
+    for (const grp of this.chunks.values()) {
       const u = grp.userData, dx = u.cx - px, dz = u.cz - pz, d2 = dx * dx + dz * dz;
       const on = d2 < R2;
       grp.visible = on;
@@ -361,6 +391,7 @@ export class WorldView {
     sea.position.set(w.dir.x * centre, 0, w.dir.z * centre);
     sea.rotation.y = -w.angle;           // local +x now points along the sea direction
     sea.receiveShadow = false;
+    sea.userData.size = size;
     this.sea = sea;
     this.root.add(sea);
   }
@@ -614,10 +645,15 @@ export class WorldView {
   update(dt, playerPos, camera) {
     this.time += dt;
     const t = this.time, w = this.world;
-    w.update(dt);
+    w.update(dt, playerPos);
     this.seaTex.offset.set(t * 0.012, t * 0.007);
     this.sea.material.opacity = 0.72;
     this.sea.position.y = w.seaLevel;
+    if (playerPos) {                                   // the sea is endless: the plane follows the player along the shore and out to sea (snapped so the ripples don't slide)
+      const lat = Math.round(w.lateral(playerPos.x, playerPos.z) / 28) * 28;
+      const along = Math.round((playerPos.x * w.dir.x + playerPos.z * w.dir.z) / 28) * 28, c = Math.max(w.cCoast - 120 + this.sea.userData.size / 2, along);
+      this.sea.position.x = w.dir.x * c + w.perp.x * lat; this.sea.position.z = w.dir.z * c + w.perp.z * lat;
+    }
     this._updateTransient();
     if (playerPos) {
       this._streamAndCull(dt, playerPos.x, playerPos.z);

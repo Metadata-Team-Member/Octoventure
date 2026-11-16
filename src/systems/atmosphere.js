@@ -20,6 +20,7 @@ const SUN_DAY = C(0xfff1d6), SUN_LOW = C(0xff9a55), MOON = C(0x8fa8ff);
 const HEMI_SKY_DAY = C(0xcfe8ff), HEMI_SKY_NIGHT = C(0x3a4a86), HEMI_GR_DAY = C(0x8d8466), HEMI_GR_NIGHT = C(0x1a2030);
 const UNDER = C(0x1b6f8f), UNDER_DEEP = C(0x0b3550);
 
+const HAZE = new THREE.Color(0xd9ad7c);
 export class Atmosphere {
   constructor(game) {
     this.g = game;
@@ -97,6 +98,7 @@ export class Atmosphere {
       for (const k in info.amb) amb[k] = (amb[k] || 0) + info.amb[k] * wt;
     }
     const k = 1 - Math.exp(-1.2 * dt);
+    this.harsh = (this.harsh ?? 0) + (w.harshAt(o.x, o.z) - (this.harsh ?? 0)) * (1 - Math.exp(-0.5 * dt));   // far inland: a dry, warm haze
     this.bTint.lerp(want, k); this.bFog += (fog - this.bFog) * k;
     for (const key of ['hum', 'birds', 'wind', 'cows', 'babble', 'frogs', 'surf', 'gulls']) this.ambient[key] = (this.ambient[key] || 0) + ((amb[key] || 0) - (this.ambient[key] || 0)) * k;
   }
@@ -127,11 +129,12 @@ export class Atmosphere {
     const fogCol = this.hor.clone();
     if (u > 0.01) fogCol.lerp(UNDER.clone().lerp(UNDER_DEEP, clamp(-(camera.position.y - w.seaLevel) / 8 + 0.2, 0, 0.8)).multiplyScalar(0.4 + 0.6 * day), u);
     fogCol.lerp(this.bTint, 0.07 * day);
+    if (this.harsh > 0.01 && u < 0.5) fogCol.lerp(HAZE, 0.3 * this.harsh * day * (1 - u));
     g.scene.fog.color.copy(fogCol);
     g.skyMat.uniforms.top.value.copy(this.top).lerp(fogCol, u);
     g.skyMat.uniforms.mid.value.copy(this.mid).lerp(fogCol, u);
     g.skyMat.uniforms.horizon.value.copy(fogCol);
-    const far = lerp(CONFIG.graphics.fogFar, 150, env.dark) * lerp(1, 0.75, night) * lerp(1, 0.9, env.heat) * this.bFog;
+    const far = lerp(CONFIG.graphics.fogFar, 150, env.dark) * lerp(1, 0.75, night) * lerp(1, 0.9, env.heat) * this.bFog * (1 - 0.12 * (this.harsh ?? 0));
     g.scene.fog.near = lerp(lerp(CONFIG.graphics.fogNear, 30, env.dark), 1.5, u);
     g.scene.fog.far = lerp(far, 55, u);
 

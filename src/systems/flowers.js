@@ -76,10 +76,9 @@ export class Flowers {
 
   _build() {
     this.grid = new Map();
-    for (const f of this.world.decor.flowers) {
-      const k = Math.floor(f.x / CELL) * 4096 + Math.floor(f.z / CELL);
-      let c = this.grid.get(k); if (!c) this.grid.set(k, c = []); c.push(f);
-    }
+    const add = (f) => { const k = Math.floor(f.x / CELL) * 1000003 + Math.floor(f.z / CELL); let c = this.grid.get(k); if (!c) this.grid.set(k, c = []); c.push(f); };
+    for (const f of this.world.decor.flowers) add(f);
+    this.world.regions.onGenerate((reg) => { for (const f of reg.decor.flowers) add(f); });    // the endless far land has flowers too
   }
   /** flowers within r of (x, z) (grid lookup, no allocation when none) */
   near(x, z, r, out = []) {
@@ -87,7 +86,7 @@ export class Flowers {
     out.length = 0;
     const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL), r2 = r * r;
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
-      const c = this.grid.get((cx + i) * 4096 + (cz + j)); if (!c) continue;
+      const c = this.grid.get((cx + i) * 1000003 + (cz + j)); if (!c) continue;
       for (const f of c) { const dx = f.x - x, dz = f.z - z; if (dx * dx + dz * dz < r2) out.push(f); }
     }
     return out;

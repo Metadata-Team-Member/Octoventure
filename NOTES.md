@@ -7,6 +7,7 @@
 * t225u: real-scale perspective (octopus 0.42, low camera, big predators/props, occluder fade, ground thumps, bird shadows).
 * t226u: placement audit (0 hovering / 0 buried over 249k objects).
 * t227u: no markers above animals; body language only.
+* t230u-t234u: trees connected + puddles in real dips (audited), tentacle-with-suckers wet trail, no cicadas, quieter occasional squelch, pause-screen controls list, interactive flowers, real shell models, discoverable baby octopuses, endless procedural land with no map edge (see DESIGN.md).
 
 ## Pending / ideas
 * Playtesting on real hardware (feel, balance, fps on laptops/phones).

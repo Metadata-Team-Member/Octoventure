@@ -11,10 +11,10 @@ export const HOUSE_VARIANTS = [
   { w: 9, d: 8, h: 4.6 }, { w: 11, d: 9, h: 5.2 }, { w: 8, d: 7.5, h: 4.2 },
 ];
 /** collision / climbing footprint of each prop kind: [type, a, b, climb height] (box = half sizes, circle = radius) */
-const TREE_SCALE = 1.7;
-const GRASS_SCALE = 1.6;      // blades 1.1-2.4 u: taller than the 0.4 u-high octopus and many times its length
+export const TREE_SCALE = 1.7;
+export const GRASS_SCALE = 1.6;      // blades 1.1-2.4 u: taller than the 0.4 u-high octopus and many times its length
 /** props that are enlarged for the real-scale perspective (uniform, so their colliders scale too); see DESIGN.md */
-const PROP_SCALE = { bin: 1.9, lamp: 1.4, post: 1.6, umbrella: 1.4, log: 1.5, hollowlog: 1.4, crabpot: 1.6, cairn: 1.6, haybale: 1.4, slab: 1.2, trough: 1.3, pylon: 1.2, tin: 1.0 };
+export const PROP_SCALE = { bin: 1.9, lamp: 1.4, post: 1.6, umbrella: 1.4, log: 1.5, hollowlog: 1.4, crabpot: 1.6, cairn: 1.6, haybale: 1.4, slab: 1.2, trough: 1.3, pylon: 1.2, tin: 1.0 };
 const COLLIDE = {
   fence: ['box', 3, 0.18, 3.0], wall: ['box', 3, 0.3, 1.1], shed: ['box', 1.6, 1.6, 2.4], bin: ['circle', 0.55], birdbath: ['circle', 0.4],
   barn: ['box', 7.2, 4.7, 0], silo: ['circle', 3.0], haybale: ['circle', 1.0, 0, 1.5], windmill: ['circle', 0.7], shop: null, parkedcar: ['box', 1.3, 2.9, 1.9],
@@ -186,7 +186,9 @@ function town(ctx) {
     const d = dirs[Math.floor(rnd() * 4)], len = rnd.range(34, 70);
     const ex = s.x + d[0] * len, ez = s.z + d[1] * len;
     if (!w.isRoad(ex, ez, 3.4) || w.isRoad(ex, ez, 0) || w._blocked(ex, ez, 0.8) || w._blocked(s.x, s.z, 0.8)) continue;
-    { const h0 = w.heightAt(ex, ez); if ([[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]].some(([a, b]) => Math.abs(w.heightAt(ex + a, ez + b) - h0) > 0.25)) continue; }   // a drain grate lies flat
+    if (Math.abs(ex) > w.half - 6 || Math.abs(ez) > w.half - 6) continue;                // both grates stay inside the original map
+    const flat = (px, pz) => { const h0 = w.heightAt(px, pz); return [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]].every(([a, b]) => Math.abs(w.heightAt(px + a, pz + b) - h0) <= 0.25); };
+    if (!flat(ex, ez) || !flat(s.x, s.z)) continue;                                       // a drain grate lies flat
     w.tunnels.push({ a: { x: s.x, z: s.z }, b: { x: ex, z: ez }, kind: 'drain', wet: true });
     prop('drain', s.x, s.z, { collide: false }); prop('drain', ex, ez, { collide: false });
     made++;
@@ -275,7 +277,7 @@ function landmarks(ctx) {
 }
 
 // ------------------------------------------------------------------------------------------------ trees
-const TREE_RULES = {
+export const TREE_RULES = {
   suburb:    { p: 0.12, kinds: [['oak', 0.55], ['bush', 0.35], ['palm', 0.1]] },
   town:      { p: 0.025, kinds: [['oak', 0.5], ['bush', 0.5]] },
   farm:      { p: 0.035, kinds: [['gum', 0.6], ['oak', 0.2], ['bush', 0.2]] },

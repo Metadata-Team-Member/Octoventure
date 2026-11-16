@@ -246,7 +246,7 @@ export class Octopus {
         this.health = Math.min(O.maxHealth, this.health + gain * dt);
         this.wetness = Math.min(1, this.wetness + dt * 1.5);
       } else {
-        let rate = O.baseDryRate * T.dry * (world.dryMult ?? 1) * diff().dry;
+        let rate = O.baseDryRate * T.dry * (world.dryMult ?? 1) * (1 + 0.9 * (world.harshAt?.(this.x, this.z) ?? 0)) * diff().dry;   // far inland the air is drier
         if (this.sprinting) rate *= O.sprintDryMult;
         if (this.camoWanted) rate *= C.dryMult;
         this.health = Math.max(0, this.health - rate * dt);
@@ -355,7 +355,7 @@ export class Octopus {
       if (C.k >= 1) { this.climb = null; this.climbLift = 0; }
     }
     // dry out slowly while being handled / climbing (tunnels handled above)
-    if (!this.tunnel && !this.carried) this.health = Math.max(0, this.health - CONFIG.octopus.baseDryRate * (world.dryMult ?? 1) * diff().dry * dt);
+    if (!this.tunnel && !this.carried) this.health = Math.max(0, this.health - CONFIG.octopus.baseDryRate * (world.dryMult ?? 1) * (1 + 0.9 * (world.harshAt?.(this.x, this.z) ?? 0)) * diff().dry * dt);
     if (this.health <= 0) { this.alive = false; this.camoWanted = false; this.tunnel = null; this.climb = null; this.carried = null; this.speed = 0; }
     this.camoBlend = clamp(this.camoBlend + (this.camoWanted ? dt / CONFIG.camo.fadeTime : -dt / (CONFIG.camo.fadeTime * 0.6)), 0, 1);
     this.moving = false; this.sprinting = false;

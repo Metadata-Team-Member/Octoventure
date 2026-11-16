@@ -77,6 +77,9 @@ export class BiomeField {
       farm = Math.max(farm, behind * tf);
       bush = Math.max(bush, behind * tb);
     }
+    // beyond the original map there are no more streets: the suburbs and town thin out into farmland and bush
+    const out = Math.max(Math.abs(x), Math.abs(z)) - W.half;
+    if (out > -80) { const f = ss(-80, 120, out); farm = Math.max(farm, urban * f * 0.5); bush = Math.max(bush, urban * f * 0.5); urban *= 1 - f; }
     const townN = ss(-0.05, 0.3, n.fbm(x * 0.0046 - 31, z * 0.0046 + 9, 2));
     const townMask = townN * ss(0.02, 0.06, tw);                 // none right at the start
     w[B.town] = urban * townMask;

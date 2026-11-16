@@ -227,4 +227,51 @@ for (const seed of [1, 42, 2026]) {
     const d = w.babies.map((b) => Math.hypot(b.x - w.start.x, b.z - w.start.z)); ok(d.filter((x) => x < 250).length >= 3, `seed ${seed}: at least 3 babies within 250 u of the start`);
     corr += w.babies.filter((b) => Math.abs(w.lateral(b.x, b.z) - w.lateral(w.start.x, w.start.z)) < 170 && w.progress(b.x, b.z) > 0 && w.progress(b.x, b.z) < 0.97).length; }
   ok(corr / SEEDS.length >= 9, `${(corr / SEEDS.length).toFixed(1)} babies per world lie along the start-to-sea corridor`); }
+// ---- the endless land: no edge, tiles generated on demand, identical whatever the visiting order, seams are continuous
+{ const seed = 2026;
+  const A = new WorldData(seed), Bw = new WorldData(seed);
+  const orig = []; for (let i = 0; i < 400; i++) { const x = -790 + (i * 37) % 1580, z = -790 + (i * 91) % 1580; orig.push([x, z, A.heightAt(x, z)]); }
+  const tiles = [[4, 1], [10, 10], [-3, 2], [0, -4], [5, 5], [-7, -7]];
+  for (const [rx, rz] of tiles) A.regions.generate(rx, rz);
+  for (const [rx, rz] of [...tiles].reverse()) Bw.regions.generate(rx, rz);
+  for (const [rx, rz] of tiles) {
+    const a = A.regions.get(rx, rz), b = Bw.regions.get(rx, rz), j = (o) => JSON.stringify(o);
+    ok(j(a.decor) === j(b.decor) && j(a.waters.map((q) => [q.kind, q.x, q.z, q.r, q.H])) === j(b.waters.map((q) => [q.kind, q.x, q.z, q.r, q.H])) && a.shells.length === b.shells.length && a.babies.length === b.babies.length, `far tile ${rx},${rz} is identical whatever order tiles are visited in`);
+    ok(a.rect.x1 - a.rect.x0 === 400, 'far tiles are 400 u square');
+    for (const t of a.decor.trees) ok(t.x > a.rect.x0 - 31 && t.x < a.rect.x1 + 31 && t.z > a.rect.z0 - 31 && t.z < a.rect.z1 + 31, 'far tile content stays inside its tile (plus the skirt)');
+  }
+  ok(orig.every(([x, z, h]) => A.heightAt(x, z) === h), 'generating far tiles never changes the original map terrain');
+  // heights are continuous across tile seams and at huge distances (float32 mesh precision stays sub-millimetre-ish: see DESIGN.md)
+  for (const [bx, bz] of [[A.half + 400 * 3, 123.4], [-A.half - 400 * 12, 700], [5000, -5000], [-9000, 9000]]) {
+    const sx = Math.round((bx + A.half) / 400) * 400 - A.half;
+    let worst = 0; for (let k = 0; k < 30; k++) { const z = bz + k * 1.3; worst = Math.max(worst, Math.abs(A.heightAt(sx + 0.01, z) - A.heightAt(sx - 0.01, z))); }
+    ok(worst < 0.02, `terrain is continuous across a tile seam near ${bx.toFixed(0)},${bz.toFixed(0)} (max step ${worst.toFixed(4)})`);
+    ok(Number.isFinite(A.heightAt(bx, bz)) && Math.abs(A.heightAt(bx, bz)) < 400, 'terrain exists (finite) very far from the start');
+    ok(Math.abs(Math.fround(bx) - bx) < 0.001 && Math.abs(Math.fround(A.heightAt(bx, bz)) - A.heightAt(bx, bz)) < 1e-5, 'float32 vertex precision at ~10 km is below a millimetre');
+  }
+  // harshness: 0 on the original map, rising monotonically inland, 1 far inland; the sea side stays gentle
+  const inl = (d) => A.harshAt(-A.dir.x * d, -A.dir.z * d);
+  ok(A.harshAt(0, 0) === 0 && inl(700) < 0.05, 'the original map is not harsh');
+  let prev = -1; for (let d = 0; d <= 4000; d += 100) { const v = inl(d); ok(v >= prev - 1e-9, 'harshness never decreases inland'); prev = v; }
+  ok(inl(3000) > 0.98 && A.harshAt(A.dir.x * 3000, A.dir.z * 3000) === 0, 'far inland is fully harsh, the seaward side is not');
+  // far inland: fewer puddles, trees and flowers than near the shore, drier grass
+  const near = [], far = [];
+  for (let rx = 0; rx < 4; rx++) for (let rz = 0; rz < 4; rz++) { /* original tiles are not generated */ }
+  const C = new WorldData(seed); let pn = 0, pf = 0, fn = 0, ff = 0, dn = 0, df = 0, gn = 0, gf = 0, nn = 0, nf = 0;
+  for (let rx = -12; rx < 16; rx++) for (let rz = -12; rz < 16; rz++) {
+    if (rx >= 0 && rx < 4 && rz >= 0 && rz < 4) continue;
+    const cx = -C.half + (rx + 0.5) * 400, cz = -C.half + (rz + 0.5) * 400, h = C.harshAt(cx, cz), tt = C.tAt(cx, cz);
+    if (tt > 0.8 || (h > 0.02 && h < 0.98)) continue;
+    if (nn >= 6 && nf >= 6) break;
+    if (h < 0.02 && nn < 6) { const r = C.regions.generate(rx, rz); nn++; pn += r.waters.length; fn += r.decor.flowers.length; gn += r.decor.grass.length; dn += r.decor.grass.filter((g) => g.dry).length; }
+    else if (h > 0.98 && nf < 6) { const r = C.regions.generate(rx, rz); nf++; pf += r.waters.length; ff += r.decor.flowers.length; gf += r.decor.grass.length; df += r.decor.grass.filter((g) => g.dry).length; }
+  }
+  ok(nn >= 3 && nf >= 3, `found gentle (${nn}) and harsh (${nf}) land tiles to compare`);
+  ok(pf / nf < 0.35 * pn / nn && ff / nf < 0.6 * fn / nn, `far inland has far fewer puddles (${(pn / nn).toFixed(0)} -> ${(pf / nf).toFixed(0)} per tile) and flowers (${(fn / nn).toFixed(0)} -> ${(ff / nf).toFixed(0)})`);
+  ok(df / gf > dn / gn + 0.3, `far inland grass is mostly dry (${(100 * dn / gn).toFixed(0)}% -> ${(100 * df / gf).toFixed(0)}%)`);
+  // babies and shells exist out there too, with unique ids
+  let nb = 0; const ids = new Set(); for (const b of C.babies) { ids.add(b.id); } nb = C.babies.filter((b) => typeof b.id === 'string').length;
+  ok(nb > 8 && ids.size === C.babies.length, `far regions hide baby octopuses too (${nb}), ids are unique`);
+  ok(C.shells.filter((s) => s.reg).length > 20, 'far regions scatter shells too');
+}
 console.log(`unit checks passed (${checks} assertions).`);

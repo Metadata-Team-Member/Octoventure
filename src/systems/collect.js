@@ -30,26 +30,35 @@ export class Collectibles {
   constructor(world, scene, progress, audio) {
     this.world = world; this.scene = scene; this.progress = progress; this.audio = audio;
     this.root = new THREE.Group(); scene.add(this.root);
-    // ---- shells: three models (scallop, turban, cowrie), each one instanced mesh; a few hundred instances in all
-    const list = world.shells;
+    // ---- shells: three models (scallop, turban, cowrie), each one instanced mesh. The original map's shells have fixed slots;
+    // shells in the endless far regions borrow a slot from a small pool while the octopus is near them.
+    const list = world.shells.filter((sh) => !sh.reg);
     this.geos = buildShellGeos();
     // natural, matte-to-satin shell (no metal): the colours are baked into the vertices, instances only vary the tone a little
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0, side: THREE.DoubleSide });
-    this.meshes = {}; this.counts = { c: 0, t: 0, k: 0 };
+    this.meshes = {}; this.counts = { c: 0, t: 0, k: 0 }; this.free = { c: [], t: [], k: [] };
+    const POOL = 140;
     for (const k of ['c', 't', 'k']) {
       const n = list.filter((_, i) => shellKind(i) === k).length;
-      const m = new THREE.InstancedMesh(this.geos[k], this.mat, Math.max(1, n)); m.count = n; m.frustumCulled = false; this.meshes[k] = m; this.root.add(m);
+      const m = new THREE.InstancedMesh(this.geos[k], this.mat, n + POOL); m.count = n + POOL; m.frustumCulled = false; this.meshes[k] = m; this.root.add(m);
+      _m.makeScale(0, 0, 0);
+      for (let j = 0; j < POOL; j++) { m.setMatrixAt(n + j, _m); this.free[k].push(n + j); }
     }
     this.mesh = this.meshes.c;
     const pal = [0xffffff, 0xfff3ea, 0xf8e6dc, 0xf3ecf6, 0xfaf0d8, 0xe9dccb];
+    this.pal = pal;
     list.forEach((sh, i) => {
       const k = shellKind(i), m = this.meshes[k]; sh.i = i; sh.k = k; sh.j = this.counts[k]++; sh.s = shellScale(i);
       this.setShell(i, sh, sh.s);
       m.setColorAt(sh.j, _c.set(pal[i % pal.length]));
     });
+    for (const k in this.meshes) { const m = this.meshes[k]; for (let j = this.counts[k]; j < m.count; j++) m.setColorAt(j, _c.set(0xffffff)); }
     for (const m of Object.values(this.meshes)) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     this.grid = new Map();
-    for (const sh of list) { const k = Math.floor(sh.x / 20) + ',' + Math.floor(sh.z / 20); (this.grid.get(k) || this.grid.set(k, []).get(k)).push(sh); }
+    this.bgrid = new Map();
+    const gadd = (map, size, o) => { const k = Math.floor(o.x / size) + ',' + Math.floor(o.z / size); (map.get(k) || map.set(k, []).get(k)).push(o); };
+    for (const sh of list) gadd(this.grid, 20, sh);
+    this.active = new Set(); this.actT = 0;
     // ---- babies
     this.babyGeo = babyGeometry();
     this.babyMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.4, emissive: 0x0a3a9a, emissiveIntensity: 0.0 });
@@ -57,32 +66,75 @@ export class Collectibles {
     this.dotMat = new THREE.PointsMaterial({ size: 6, sizeAttenuation: false, map: dotTexture(), transparent: true, depthWrite: false, vertexColors: true });
     this.hearts = 0;
     // ---- subtle tells: a tiny wriggling baby peeks out beside its hiding place when the octopus is near, with a faint glint
-    const nb = world.babies.length;
-    this.peek = new THREE.InstancedMesh(this.babyGeo, this.babyMat, Math.max(1, nb)); this.peek.count = nb; this.peek.frustumCulled = false; this.root.add(this.peek);
-    this.glint = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(Math.max(1, nb) * 3).fill(-999), 3)),
+    // (a small pool of 24 live slots is reused for whichever babies are close)
+    const nb = 24;
+    this.peek = new THREE.InstancedMesh(this.babyGeo, this.babyMat, nb); this.peek.count = 0; this.peek.frustumCulled = false; this.root.add(this.peek);
+    this.glint = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(nb * 3).fill(-999), 3)),
       new THREE.PointsMaterial({ color: 0xbfe0ff, size: 3.4, sizeAttenuation: false, map: dotTexture(), transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.glint.frustumCulled = false; this.root.add(this.glint);
-    world.babies.forEach((b, i) => { const a = i * 2.4; b.px = b.x + Math.cos(a) * 0.55; b.pz = b.z + Math.sin(a) * 0.55; b.py = world.heightAt(b.px, b.pz); b.ph = i * 1.7; });
+    this.babyInit = (b, i) => { const a = i * 2.4; b.px = b.x + Math.cos(a) * 0.55; b.pz = b.z + Math.sin(a) * 0.55; b.py = world.heightAt(b.px, b.pz); b.ph = i * 1.7; };
+    let bi = 0;
+    for (const b of world.babies) { b.ph = undefined; gadd(this.bgrid, 50, b); bi++; }
+    this.bi = bi;
+    // regions generated later (the endless land) register their shells and babies here
+    world.regions.onGenerate((reg) => {
+      for (const sh of reg.shells) { sh.reg = true; sh.slot = -1; gadd(this.grid, 20, sh); }
+      for (const b of reg.babies) { gadd(this.bgrid, 50, b); }
+    });
     this.tellT = 0; this.tellGap = 3; this.clock = 0;
   }
-  /** wriggle + glint for the babies close to the octopus (<= ~40 u; the rest are parked off-screen) */
+  /** wriggle + glint for the babies close to the octopus (<= ~40 u) */
   tells(dt, o) {
-    const w = this.world, P = this.glint.geometry.attributes.position; this.clock += dt;
-    const t = this.clock; let nearest = 1e9, nb = null;
-    w.babies.forEach((b, i) => {
-      const d = Math.hypot(b.x - o.x, b.z - o.z);
-      if (b.found || d > 40) { _m.makeScale(0, 0, 0); this.peek.setMatrixAt(i, _m); P.setXYZ(i, 0, -999, 0); return; }
-      if (d < nearest) { nearest = d; nb = b; }
-      const wig = Math.sin(t * 3.1 + b.ph), k = 0.42 * (1 + 0.06 * Math.sin(t * 5 + b.ph));
-      _q.setFromEuler(_e.set(0.12 * Math.sin(t * 2.3 + b.ph), b.ph + 0.5 * wig, 0.18 * Math.cos(t * 2.7 + b.ph)));
-      _m.compose(_v.set(b.px, b.py - 0.02, b.pz), _q, _s.set(k, k * (1 + 0.1 * wig), k)); this.peek.setMatrixAt(i, _m);
-      const on = Math.sin(t * 2.2 + b.ph) > -0.25;                                    // the glint comes and goes
-      P.setXYZ(i, b.px, on ? b.py + 0.55 + 0.05 * Math.sin(t * 4 + b.ph) : -999, b.pz);
-    });
+    const P = this.glint.geometry.attributes.position; this.clock += dt;
+    const t = this.clock; let nearest = 1e9, nb = null, n = 0;
+    const cx = Math.floor(o.x / 50), cz = Math.floor(o.z / 50);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const cell = this.bgrid.get((cx + dx) + ',' + (cz + dz)); if (!cell) continue;
+      for (const b of cell) {
+        if (b.found) continue;
+        const d = Math.hypot(b.x - o.x, b.z - o.z);
+        if (d > 40 || n >= 24) continue;
+        if (b.ph === undefined) this.babyInit(b, this.bi++);
+        if (d < nearest) { nearest = d; nb = b; }
+        const wig = Math.sin(t * 3.1 + b.ph), k = 0.42 * (1 + 0.06 * Math.sin(t * 5 + b.ph));
+        _q.setFromEuler(_e.set(0.12 * Math.sin(t * 2.3 + b.ph), b.ph + 0.5 * wig, 0.18 * Math.cos(t * 2.7 + b.ph)));
+        _m.compose(_v.set(b.px, b.py - 0.02, b.pz), _q, _s.set(k, k * (1 + 0.1 * wig), k)); this.peek.setMatrixAt(n, _m);
+        const on = Math.sin(t * 2.2 + b.ph) > -0.25;                                    // the glint comes and goes
+        P.setXYZ(n, b.px, on ? b.py + 0.55 + 0.05 * Math.sin(t * 4 + b.ph) : -999, b.pz);
+        n++;
+      }
+    }
+    for (let j = n; j < 24; j++) P.setXYZ(j, 0, -999, 0);
+    this.peek.count = n;
     this.peek.instanceMatrix.needsUpdate = true; P.needsUpdate = true;
     // a very soft little blip now and then when one is close
     this.tellT -= dt;
     if (nb && nearest < 16 && this.tellT <= 0) { this.tellT = 5 + Math.random() * 4; this.audio.babyTell?.(nb.px, nb.py + 0.2, nb.pz); }
+  }
+  /** far-region shells: give the ones near the octopus a mesh slot, take it back from the ones left behind (twice a second) */
+  streamShells(o) {
+    const cx = Math.floor(o.x / 20), cz = Math.floor(o.z / 20);
+    for (const sh of this.active) {
+      if (Math.hypot(sh.x - o.x, sh.z - o.z) > 150 || (sh.got && !(sh.fade > 0))) this.release(sh);
+    }
+    for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
+      const cell = this.grid.get((cx + dx) + ',' + (cz + dz)); if (!cell) continue;
+      for (const sh of cell) {
+        if (!sh.reg || sh.got || sh.slot >= 0) continue;
+        if (Math.hypot(sh.x - o.x, sh.z - o.z) > 120) continue;
+        const f = this.free[sh.k]; if (!f.length) continue;
+        sh.j = sh.slot = f.pop(); this.active.add(sh);
+        sh.s ??= 1;
+        this.setShell(-1, sh, sh.s);
+        this.meshes[sh.k].setColorAt(sh.j, _c.set(this.pal[sh.j % this.pal.length])); this.meshes[sh.k].instanceColor.needsUpdate = true;
+        this.meshes[sh.k].instanceMatrix.needsUpdate = true;
+      }
+    }
+  }
+  release(sh) {
+    this.active.delete(sh);
+    const m = this.meshes[sh.k]; _m.makeScale(0, 0, 0); m.setMatrixAt(sh.slot, _m); m.instanceMatrix.needsUpdate = true;
+    this.free[sh.k].push(sh.slot); sh.slot = -1;
   }
   setShell(i, sh, s) {
     const geo = this.geos[sh.k];
@@ -93,11 +145,13 @@ export class Collectibles {
   update(dt, o, runTime, ctx = {}) {
     const w = this.world;
     // ---- shells: silent pick-up, quietly adds armour
+    this.actT -= dt; if (this.actT <= 0) { this.actT = 0.5; this.streamShells(o); }
     if (o.alive && !o.tunnel) {
       const cx = Math.floor(o.x / 20), cz = Math.floor(o.z / 20);
       for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
         const cell = this.grid.get((cx + dx) + ',' + (cz + dz)); if (!cell) continue;
         for (const sh of cell) {
+          if (sh.reg && sh.slot < 0) continue;
           if (sh.got) { if (sh.fade > 0) { sh.fade = Math.max(0, sh.fade - dt * 4); this.setShell(sh.i, sh, sh.s * sh.fade); this.meshes[sh.k].instanceMatrix.needsUpdate = true; } continue; }
           const ddx = sh.x - o.x, ddz = sh.z - o.z;
           if (ddx * ddx + ddz * ddz < (1.5 * (o.sz ?? 1) + 0.35) ** 2 && Math.abs(sh.y - o.y) < 3.5) {
@@ -110,10 +164,16 @@ export class Collectibles {
     }
     // ---- babies
     this.tells(dt, o);
-    if (o.alive) for (const b of w.babies) {
-      if (b.found) continue;
-      const d = Math.hypot(b.x - o.x, b.z - o.z);
-      if (d < 2.6 * Math.max(0.6, o.sz ?? 1) && Math.abs(b.y - o.y) < 3) this.rescue(b, o, runTime);
+    if (o.alive) {
+      const bx = Math.floor(o.x / 50), bz = Math.floor(o.z / 50);
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        const cell = this.bgrid.get((bx + dx) + ',' + (bz + dz)); if (!cell) continue;
+        for (const b of cell) {
+          if (b.found) continue;
+          const d = Math.hypot(b.x - o.x, b.z - o.z);
+          if (d < 2.6 * Math.max(0.6, o.sz ?? 1) && Math.abs(b.y - o.y) < 3) this.rescue(b, o, runTime);
+        }
+      }
     }
     for (let i = this.fx.length - 1; i >= 0; i--) if (!this.fx[i].update(dt)) { this.fx[i].dispose(); this.fx.splice(i, 1); }
   }

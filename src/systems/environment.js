@@ -125,7 +125,7 @@ export class Environment {
         if (w.temp.length >= E.maxTempPuddles) break;
         const a = this.rnd() * 6.283, d = 5 + Math.sqrt(this.rnd()) * 70;
         const x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
-        if (Math.abs(x) > w.half - 25 || Math.abs(z) > w.half - 25) continue;
+        if (this.rnd() < w.harshAt(x, z) * 0.7) continue;           // far inland the storms leave fewer puddles
         const h = w.heightAt(x, z);
         if (h < 0.5 || w.tAt(x, z) > 0.95 || w._blocked(x, z, 0.5)) continue;
         w.temp.push({ kind: 'storm', x, z, r: 1.6 + this.rnd() * 1.8, H: h, age: 0, life: E.puddleLife + this.rnd() * 60, grow: 0 });

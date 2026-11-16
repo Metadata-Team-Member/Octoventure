@@ -358,8 +358,6 @@ export class Predator {
     }
     if (this.state === 'climb' && this.fleeT > 0) this.fleeT -= dt;
     void flapSpeed;
-    const lim = w.half - 20;
-    this.x = clamp(this.x, -lim, lim); this.z = clamp(this.z, -lim, lim);
     this.y = gy + this.alt;
     this.groundY = gy;
     this.sync(dt);
@@ -639,8 +637,6 @@ export class Predator {
         break;
       }
     }
-    const lim = w.half - 20;
-    this.x = clamp(this.x, -lim, lim); this.z = clamp(this.z, -lim, lim);
     this.y = gy + this.alt;
     this.groundY = gy;
     this.sync(dt);
@@ -757,6 +753,29 @@ export class PredatorManager {
     }
     return null;
   }
+  /** Beyond the original map the land is endless and nobody lives out there: a few wanderers are spawned around the octopus
+   *  (and despawned behind it). The further inland, the harsher: more eagles circle overhead. */
+  farLife(dt, player) {
+    const w = this.world;
+    this._farT = (this._farT ?? 0) - dt; if (this._farT > 0 || !CONFIG.predators.enabled) return;
+    this._farT = 2.5;
+    if (Math.max(Math.abs(player.x), Math.abs(player.z)) < w.half + 20) return;
+    const H = w.harshAt(player.x, player.z);
+    let eagles = 0, ground = 0;
+    for (const p of this.list) if (p.far) (p.kind === 'eagle' ? eagles++ : ground++);
+    const wantE = Math.round(1 + 4 * H), wantG = Math.round(4 * (1 - 0.6 * H) * Math.min(1, w.areaScale / 2 + 0.5));
+    for (let tries = 0; tries < 6 && (eagles < wantE || ground < wantG); tries++) {
+      const a = w.rnd() * 6.28, d = 80 + w.rnd() * 90;
+      const x = player.x + Math.cos(a) * d, z = player.z + Math.sin(a) * d;
+      const hh = w.heightAt(x, z);
+      let kind;
+      if (eagles < wantE && (ground >= wantG || w.rnd() < 0.5)) kind = 'eagle';
+      else if (w.tAt(x, z) > 0.86) { if (hh < 0.5 || w.tAt(x, z) > 1.0) continue; kind = w.rnd() < 0.5 ? 'gull' : 'crab'; }
+      else { if (hh < 1.0 || w.waterAt(x, z)) continue; const r = w.rnd(); kind = r < 0.3 ? 'fox' : r < 0.55 ? 'dog' : r < 0.75 ? 'cat' : r < 0.9 ? 'magpie' : 'kookaburra'; }
+      const p = this.spawn(kind, x, z); p.far = true;
+      if (kind === 'eagle') eagles++; else ground++;
+    }
+  }
   spawn(kind, x, z) { return this.add(new Predator(kind, x, z, this.world, this.scene)); }
   /** venom bite: scare off the closest predator within reach (returns it, or null) */
   bite(player, range, sec) {
@@ -775,11 +794,13 @@ export class PredatorManager {
     // storms bring more birds
     if (w.weatherKind === 'storm' && this.list.filter((p) => p.storm).length < Math.round(4 * w.areaScale)) {
       const a = w.rnd() * 6.28, d = 60 + w.rnd() * 40;
-      const x = clamp(player.x + Math.cos(a) * d, -w.half + 40, w.half - 40), z = clamp(player.z + Math.sin(a) * d, -w.half + 40, w.half - 40);
+      const x = player.x + Math.cos(a) * d, z = player.z + Math.sin(a) * d;
       if (w.heightAt(x, z) > 0.4) { const g = this.spawn('gull', x, z); g.storm = true; }
     }
+    this.farLife(dt, player);
     for (let i = this.list.length - 1; i >= 0; i--) {
       const p = this.list[i];
+      if (p.far && Math.hypot(p.x - player.x, p.z - player.z) > 300) { p.dispose(this.scene); this.list.splice(i, 1); continue; }
       if (p.storm && w.weatherKind !== 'storm' && Math.hypot(p.x - player.x, p.z - player.z) > 60) { p.dispose(this.scene); this.list.splice(i, 1); continue; }
     }
     for (const p of this.list) {
