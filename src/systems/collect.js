@@ -78,10 +78,19 @@ export class Collectibles {
     this.bi = bi;
     // regions generated later (the endless land) register their shells and babies here
     world.regions.onGenerate((reg) => {
-      for (const sh of reg.shells) { sh.reg = true; sh.slot = -1; gadd(this.grid, 20, sh); }
-      for (const b of reg.babies) { gadd(this.bgrid, 50, b); }
+      for (const sh of reg.shells) { sh.reg = true; sh.slot = -1; if (this.savedShells?.has(sh.id)) sh.got = true; gadd(this.grid, 20, sh); }
+      for (const b of reg.babies) { if (this.savedBabies?.has(String(b.id))) b.found = true; gadd(this.bgrid, 50, b); }
     });
     this.tellT = 0; this.tellGap = 3; this.clock = 0;
+  }
+  /** a loaded save: shells already taken (original ones by index, far ones by id) and babies already found stay gone */
+  restore(shellIdx, shellIds, babyIds) {
+    this.savedShells = new Set(shellIds); this.savedBabies = new Set(babyIds.map(String));
+    const list = this.world.shells.filter((s) => !s.reg);
+    for (const i of shellIdx) { const sh = list[i]; if (sh && !sh.got) { sh.got = true; sh.fade = 0; this.setShell(i, sh, 0); } }
+    for (const m of Object.values(this.meshes)) m.instanceMatrix.needsUpdate = true;
+    for (const r of this.world.regions.list) for (const sh of r.shells) if (this.savedShells.has(sh.id)) sh.got = true;
+    for (const b of this.world.babies) if (this.savedBabies.has(String(b.id))) b.found = true;
   }
   /** wriggle + glint for the babies close to the octopus (<= ~40 u) */
   tells(dt, o) {

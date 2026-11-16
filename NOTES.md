@@ -8,6 +8,7 @@
 * t226u: placement audit (0 hovering / 0 buried over 249k objects).
 * t227u: no markers above animals; body language only.
 * t230u-t234u: trees connected + puddles in real dips (audited), tentacle-with-suckers wet trail, no cicadas, quieter occasional squelch, pause-screen controls list, interactive flowers, real shell models, discoverable baby octopuses, endless procedural land with no map edge (see DESIGN.md).
+* t236u-t238u: Tab satchel (gather 14 small things by touch, craft 8 items, octopus-flavoured effects, paused panel in pictograms only), gatherable placement audited with everything else, autosave to localStorage with a versioned/validated schema, transfer codes (Copy / Paste on the pause menu).
 
 ## Pending / ideas
 * Playtesting on real hardware (feel, balance, fps on laptops/phones).

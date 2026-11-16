@@ -96,3 +96,7 @@ button.chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .res.pop { animation: satpop .35s ease-out; }
 .shake { animation: satshake .22s linear; }
 @media (max-width: 700px) { .sat-panel { grid-template-columns: 1fr; overflow: auto; } .sat-left { border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.1); } }
+
+#code-in { font: 500 11px/1 ui-monospace, monospace; color: #dff6ff; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.28); border-radius: 12px; padding: 5px 10px; width: 160px; outline: none; }
+#code-in[hidden] { display: none; }
+#code-in:focus { border-color: #fff; }

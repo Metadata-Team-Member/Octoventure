@@ -46,10 +46,16 @@ npm run build:dist   # normal multi-file build into dist/ (for hosting on any st
 | Ink cloud (only works in water) | **F** or **Q** | B |
 | Venom bite (last resort, long recharge) | **B** or right-click | X |
 | Climb a fence / wall at once | **R** (or just keep pushing into it) | Y (hold) |
+| Satchel (pauses the game) | **Tab** (**Esc** or **Tab** again to close) | View / Back |
+| Quick keys for what you carry (listed on the pause screen) | **G**, **H**, **V** | LB, RB |
 | Zoom | mouse wheel | |
 | Pause / release the mouse | **Esc** (pause menu: Resume, difficulty, Daily, New world, and a quiet list of these controls) | Start |
 | Mute | **M** | |
 | Restart after dying | button, or **R** | |
+
+**Tab** opens your satchel: what you have gathered on the left, what you can make on the right, all in pictures. The game is fully paused while it is open. Gather small things by touching them as you go; work out what they are good for.
+
+Your progress is saved automatically in this browser (no account): press **Play** and you carry on where you were. The pause menu has tiny **New world**, **Copy code** and **Paste code** chips; a code moves your game to another browser.
 
 Mouse-look uses Pointer Lock; Esc releases it and pauses (nothing dries or moves). If the browser refuses the lock it falls back to click-and-drag. Touch screens get an on-screen joystick, RUN and CAMO buttons (shown only once you touch the screen).
 
@@ -100,8 +106,10 @@ npm run smoke    # headless Chrome/Edge: loads play/index.html over file://, no 
                  # camouflage = no damage (incl. mid-attack & eagle dives), lose/restart, win, new sea direction
 npm run placement  # every object over 5 seeds sits on the ground (no hovering, no burying), 1 cm tolerance at octopus scale
 npm run features   # headless browser: abilities, predators, scale, thumps, bird shadows, gamepad, pause menu ...
+npm run satchel    # Tab pauses everything, gathering by touch, recipes, every crafted effect, panel layout at 1440 and 1280x800
+npm run saves      # autosave, reload continues, damaged / future saves, transfer codes, New world, death
 npm run biomes     # visits all 11 biomes, draw-call budget, screenshots
-npm test         # unit + placement + build + smoke + features   (set CHROME_PATH if Chrome/Edge isn't auto-detected)
+npm test         # unit + placement + build + smoke + features + satchel + saves   (set CHROME_PATH if Chrome/Edge isn't auto-detected)
 ```
 The page exposes `window.__game` (`setHealth`, `teleportToOcean`, `spawnPredator`, `advance`, …) for tests and console tinkering.
 
@@ -110,4 +118,4 @@ The page exposes `window.__game` (`setHealth`, `teleportToOcean`, `spawnPredator
 * Terrain is a 2.5 m grid, so narrow creek channels are only roughly resolved.
 * The world is not full real scale: people and animals are compressed (a person is ~8x, not ~9x) and buildings are lower than real, so nothing leaves the screen and layouts keep working.
 * Balance numbers are first guesses and need playtesting - tweak `src/config.js`.
-* Not tested on real GPUs / phones; no save game.
+* Not tested on real GPUs / phones. The save lives in one browser's local storage (clearing site data erases it; use Copy code to keep a copy).

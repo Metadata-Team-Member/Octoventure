@@ -14,7 +14,8 @@
     "placement": "node scripts/placement.mjs",
     "biomes": "node scripts/biomes.mjs",
     "satchel": "node scripts/satchel.mjs",
-    "test": "npm run unit && npm run placement && npm run build && npm run smoke && npm run features"
+    "saves": "node scripts/saves.mjs",
+    "test": "npm run unit && npm run placement && npm run build && npm run smoke && npm run features && npm run satchel && npm run saves"
   },
   "type": "module",
   "dependencies": {

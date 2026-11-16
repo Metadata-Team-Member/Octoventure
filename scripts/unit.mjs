@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE } from '../src/systems/items.js';
 import { GATHER_COUNT, GATHER_KINDS } from '../src/world/gather.js';
 import { ICON_IDS } from '../src/ui/icons.js';
+import { SAVE_VERSION, SAVE_KEY, validateSave, migrate, readSaveText, encodeCode, decodeCode, loadSave, writeSave, clearSave, MIGRATIONS } from '../src/systems/save.js';
 
 let checks = 0;
 const ok = (c, m) => { assert.ok(c, m); checks++; };
@@ -321,5 +322,58 @@ for (const seed of [1, 42, 2026]) {
   const bad = new Inventory().load({ counts: { crab: -5, hax: 9, jar: 1e9, kelp: 'x' }, seen: ['crab', 42, 'zzz'], made: ['den', 'crab'] });
   ok(bad.count('crab') === 0 && bad.count('hax') === 0 && bad.count('jar') === 999 && bad.count('kelp') === 0 && bad.made.has('den') && !bad.made.has('crab'), 'garbage in a loaded satchel is cleaned up');
   ok(FX.denMax === 3 && FX.shield > 10 && FX.mimicDrain < 1 && FX.kelpDry < 1, 'effect numbers are sane');
+}
+
+// ================================================================ saves (t238u)
+{
+  const fixture = () => ({
+    v: 1, seed: 2026, saved: 1700000000000,
+    octo: { x: 120.5, z: -33.25, heading: 1.2, health: 61.5, energy: 40 }, run: 812.4, sea: true,
+    shells: { n: 3, o: [4, 9, 12], r: ['r1_2_s3'] }, babies: ['0', 'r4_4_b1'],
+    inv: { counts: { crab: 2, kelp: 3, shield: 1 }, seen: ['crab', 'kelp', 'shield'], made: ['shield'] },
+    fx: { buff: { shield: 12.5, jar: 0, kelp: 40, mimic: 0, feast: 0 }, ink: 2, venom: true },
+    dens: [{ x: 10, z: 20 }, { x: -4, z: 8.5 }], got: ['o12', 'o40', 'r1_2_5'], explored: [50005000, 50015000],
+    env: { t: 0.62, abs: 900, kind: 'rain', target: 'storm', timer: 55, heat: 0, rain: 0.8, dark: 0.3 },
+  });
+  const f = fixture(), v = validateSave(f);
+  ok(v && JSON.stringify(v) === JSON.stringify(f), 'a good save validates unchanged');
+  ok(JSON.stringify(readSaveText(JSON.stringify(f))) === JSON.stringify(f), 'a save round-trips through text');
+  ok(SAVE_VERSION === 1 && SAVE_KEY === 'octo.save.v1', 'save key / version');
+  // corruption
+  const junk = ['', 'null', '[]', '42', '"x"', '{', '{"v":1}', '{"v":"1","seed":1}', '{"v":1,"seed":-4,"octo":{"x":1,"z":1}}', '{"v":1,"seed":1.5,"octo":{"x":1,"z":1}}', '{"v":1,"seed":5,"octo":{"x":"a","z":1}}', '{"v":1,"seed":5,"octo":{"x":1e12,"z":1}}', '{"v":-1,"seed":5}', '{"v":99,"seed":5,"octo":{"x":1,"z":1}}', 'not json at all \u0000\ufffd', '{"v":1,"seed":5,"octo":null}'];
+  ok(junk.every((t) => readSaveText(t) === null), `${junk.length} kinds of damaged saves are all rejected, none throws`);
+  const wild = fixture(); wild.octo.health = -50; wild.octo.energy = 1e9; wild.env.t = 7; wild.env.kind = 'meteors'; wild.fx.buff.shield = 1e9; wild.fx.ink = 1e6; wild.inv.counts = { crab: -3, hax: 9, jar: 1e9 }; wild.got = ['o1', '<script>', 42, 'x'.repeat(100), 'o2']; wild.dens = [{ x: 1, z: 2 }, { x: 'a' }, null, { x: 1, z: 1 }, { x: 2, z: 2 }, { x: 3, z: 3 }]; wild.shells.o = [-1, 5, 1e9, 'a']; wild.hack = { evil: true };
+  const cw = validateSave(wild);
+  ok(cw && cw.octo.health === 1 && cw.octo.energy === 100 && cw.env.t === 1 && cw.env.kind === 'clear' && cw.fx.buff.shield === 600 && cw.fx.ink === 20, 'out-of-range numbers are clamped, unknown weather falls back');
+  ok(cw.inv.counts.crab === undefined && cw.inv.counts.hax === undefined && cw.inv.counts.jar === 999 && cw.got.join() === 'o1,o2' && cw.dens.length === 3 && JSON.stringify(cw.shells.o) === '[5]' && !('hack' in cw), 'unknown items, odd ids, extra fields and bad dens are dropped');
+  const big = fixture(); big.got = Array.from({ length: 20000 }, (_, i) => 'o' + i); big.explored = Array.from({ length: 20000 }, (_, i) => 50000000 + i);
+  const cb = validateSave(big); ok(cb.got.length === 6000 && cb.explored.length === 6000, 'huge lists are capped');
+  // migration
+  const old = { v: 0, seed: 77, pos: { x: 5, z: -6 }, hp: 44 };
+  const m0 = migrate(old); ok(m0 && m0.v === 1 && m0.octo.x === 5 && m0.octo.health === 44, 'a v0 save is carried to v1');
+  ok(validateSave(m0) && validateSave(m0).seed === 77, 'a migrated save validates');
+  ok(migrate({ v: 2, seed: 1 }) === null && migrate({ v: 1.5 }) === null && migrate({}) === null && migrate(null) === null, 'saves from a newer game or without a version are ignored');
+  const table = { 0: MIGRATIONS[0], 1: (o) => ({ ...o, v: 2, extra: 'x' }), 2: (o) => ({ ...o, v: 3, more: 1 }) };
+  const m3 = migrate({ v: 0, seed: 1 }, 3, table); ok(m3 && m3.v === 3 && m3.extra === 'x' && m3.more === 1, 'migrations chain one step at a time (v0 -> v3)');
+  ok(migrate({ v: 1 }, 3, { 1: () => ({ v: 7 }) }) === null && migrate({ v: 1 }, 3, {}) === null && migrate({ v: 1 }, 2, { 1: () => { throw new Error('x'); } }) === null, 'a broken migration step fails safely');
+  // storage
+  const mem = (init) => { const d = { ...init }; return { getItem: (k) => (k in d ? d[k] : null), setItem: (k, v) => { d[k] = String(v); }, removeItem: (k) => { delete d[k]; }, d }; };
+  const st = mem({}); ok(loadSave(st) === null, 'no save: nothing loaded');
+  ok(writeSave(f, st) && JSON.stringify(loadSave(st)) === JSON.stringify(f), 'write then load');
+  st.d[SAVE_KEY] = '{{{ garbage'; ok(loadSave(st) === null && !(SAVE_KEY in st.d), 'a damaged save is dropped, not kept');
+  st.d[SAVE_KEY] = JSON.stringify({ v: 9, seed: 1 }); ok(loadSave(st) === null && (SAVE_KEY in st.d), 'a save from a newer game is ignored but left alone');
+  clearSave(st); ok(!(SAVE_KEY in st.d), 'clear removes it');
+  ok(writeSave(f, { setItem() { throw new Error('quota'); } }) === false && loadSave({ getItem() { throw new Error('denied'); } }) === null, 'unavailable storage never throws');
+  // transfer codes
+  const code = await encodeCode(f);
+  ok(/^OCTO1-[0-9a-f]{8}-[A-Za-z0-9_-]+$/.test(code), `a code is plain text (${code.length} chars)`);
+  ok(JSON.stringify(await decodeCode(code)) === JSON.stringify(f), 'a code decodes to the same save');
+  ok(JSON.stringify(await decodeCode(`  ${code}\n`)) === JSON.stringify(f), 'surrounding spaces are fine');
+  const flip = code.slice(0, -6) + (code.at(-6) === 'A' ? 'B' : 'A') + code.slice(-5);
+  const bads = ['', 'hello', code.slice(0, 20), code.slice(0, -4), flip, code.replace('OCTO1', 'OCTO2'), 'OCTO1-00000000-AAAA', code + '!!', 'OCTO0-' + code.slice(6)];
+  const res = await Promise.all(bads.map((b) => decodeCode(b)));
+  ok(res.every((r) => r === null), 'damaged, tampered, truncated or foreign codes are all refused');
+  const bigCode = await encodeCode(validateSave(big)); ok(bigCode.length < 40000, `even a very full save makes a manageable code (${bigCode.length} chars)`);
+  ok(!/[0-9]{9,}@|mail|user|name|ip/.test(JSON.stringify(f).replace(/"[a-z]*"\s*:/g, '')) && !('name' in f) && !('email' in f), 'the save carries no personal data');
 }
 console.log(`unit checks passed (${checks} assertions).`);

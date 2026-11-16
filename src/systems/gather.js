@@ -28,7 +28,7 @@ export class Gatherer {
       if (CRITTER[k]) continue;
       const m = new THREE.InstancedMesh(this.geos[k], k === 'jar' ? this.jarMat : this.mat, POOL); m.frustumCulled = false; this.root.add(m);
       for (let j = 0; j < POOL; j++) m.setMatrixAt(j, _zero);
-      m.instanceMatrix.needsUpdate = true; this.meshes[k] = m; this.free[k] = Array.from({ length: POOL }, (_, j) => POOL - 1 - j);
+      m.instanceMatrix.needsUpdate = true; m.visible = false; this.meshes[k] = m; this.free[k] = Array.from({ length: POOL }, (_, j) => POOL - 1 - j);
     }
     // critter pools
     this.pool = { crab: [], shrimp: [] };
@@ -71,7 +71,7 @@ export class Gatherer {
     }
     const f = this.free[g.kind]; if (!f.length) return;
     g.slot = f.pop(); this.active.add(g);
-    const m = this.meshes[g.kind]; m.setMatrixAt(g.slot, this.seatMatrix(g, _m)); m.instanceMatrix.needsUpdate = true;
+    const m = this.meshes[g.kind]; m.visible = true; m.setMatrixAt(g.slot, this.seatMatrix(g, _m)); m.instanceMatrix.needsUpdate = true;
   }
   release(g) {
     if (g.slot < 0) return;
@@ -82,6 +82,7 @@ export class Gatherer {
     }
     const m = this.meshes[g.kind]; m.setMatrixAt(g.slot, _zero); m.instanceMatrix.needsUpdate = true;
     this.free[g.kind].push(g.slot); g.slot = -1; this.active.delete(g);
+    m.visible = this.free[g.kind].length < POOL;               // nothing of this kind near: not drawn at all
   }
   /** bring the nearby items to life and put the far ones away (a couple of times a second) */
   scan(o) {

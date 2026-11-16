@@ -23,6 +23,7 @@ import { Gatherer } from './systems/gather.js';
 import { Abilities } from './systems/abilities.js';
 import { Inventory, FX } from './systems/items.js';
 import { Satchel } from './ui/satchel.js';
+import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell } from './systems/save.js';
 import { clamp, damp, lerp } from './util/rng.js';
 const _fadeT = new THREE.Vector3();
 
@@ -68,6 +69,9 @@ export class Game {
     this.deadShown = false;
     this.progress = new Progress();
     this.inv = new Inventory();
+    this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
+    // saves are for the real game: a fixed ?seed= / ?daily world (tests, sharing a link) never reads or overwrites the one in the browser
+    this.saveEnabled = !params.has('seed') && !params.has('daily') && !params.has('nosave');
     this.satchelOpen = false;
     this.satchel = new Satchel(this.hud.el.satchel, this);
     this.seaMoment = null;
@@ -92,8 +96,18 @@ export class Game {
       if (b.dataset.diff) this.setDifficulty(b.dataset.diff);
       else if (b === this.hud.el.daily) { this.daily = !this.daily; this.saveSettings(); this.newRun(); }
       else if (b === this.hud.el.newWorld) this.newRun();
+      else if (b === this.hud.el.copy) this.copyCode();
+      else if (b === this.hud.el.paste) this.togglePaste();
     });
     this.hud.el.restart.addEventListener('click', () => this.restart());
+    const ci = this.hud.el.codeIn;
+    ci.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') this.applyCode(ci.value); });
+    ci.addEventListener('keyup', (e) => e.stopPropagation());
+    ci.addEventListener('paste', () => setTimeout(() => { if (/^\s*OCTO[01]-/.test(ci.value)) this.applyCode(ci.value); }, 0));
+    // keep the save fresh when the page is hidden or closed
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.saveNow('hidden'); });
+    window.addEventListener('pagehide', () => this.saveNow('hide'));
+    window.addEventListener('beforeunload', () => this.saveNow('unload'));
     this.hud.el.start.addEventListener('click', () => this.begin());
   }
 
@@ -142,7 +156,8 @@ void main(){
   newRun() { this.setPaused(false); this.restart(this.daily ? dailySeed() : undefined); }
 
   // ------------------------------------------------------------------ worlds
-  newWorld(seed) {
+  newWorld(seed, save = null) {
+    const hadWorld = this.hadWorld;
     if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); }
     // ?seed= / CONFIG.seed only fix the FIRST world; every restart rolls a new world (and a new sea direction)
     const fixed = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
@@ -170,7 +185,38 @@ void main(){
     this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
     this.camInit = false;
     this.input.yaw = Math.random() * Math.PI * 2; this.input.pitch = CONFIG.camera.pitch; this.input.zoom = 0;
+    this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
+    if (save) { applySave(this, save); this.pendingSave = save; }
+    else if (hadWorld && this.saveEnabled) clearSave();          // a brand new world replaces whatever was saved
     this.updateCamera(0.016, true);
+  }
+  // ------------------------------------------------------------------ saving (no login: this browser's localStorage)
+  saveNow(why = '') {
+    if (!this.saveEnabled || this.state !== 'playing' || !this.octopus?.alive || !this.world || this.hud.el.loading.hidden === false) return false;
+    return writeSave(snapshot(this));
+  }
+  saveSoon(why) { return this.saveNow(why); }
+  /** "Copy code": the whole save as one short text */
+  async copyCode() {
+    if (this.state !== 'playing' || !this.octopus.alive) return false;
+    const code = await encodeCode(snapshot(this)), chip = this.hud.el.copy;
+    this.hud.el.codeIn.value = code;
+    try { await navigator.clipboard.writeText(code); chip.classList.add('on'); setTimeout(() => chip.classList.remove('on'), 1100); return true; }
+    catch { this.hud.el.codeIn.hidden = false; this.hud.el.codeIn.focus(); this.hud.el.codeIn.select(); return false; }      // no clipboard access: show the code to copy by hand
+  }
+  togglePaste() { const i = this.hud.el.codeIn; i.hidden = !i.hidden; if (!i.hidden) { i.value = ''; i.focus(); } }
+  /** "Paste code": rebuild that world and carry on. A bad code just shakes the box. */
+  async applyCode(text) {
+    const i = this.hud.el.codeIn, s = await decodeCode(text);
+    if (!s) { i.classList.remove('shake'); void i.offsetWidth; i.classList.add('shake'); return false; }
+    i.hidden = true; i.value = '';
+    this.hud.setLoading(true);
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30)));
+    this.newWorld(s.seed, s);
+    this.state = 'playing'; this.hud.setLoading(false);
+    this.setPaused(false); this.input.requestLock(); this.audio.resume();
+    this.saveNow('code');
+    return true;
   }
 
   /** pointer lock gained / lost: losing it mid-game pauses; regaining it resumes */
@@ -182,6 +228,7 @@ void main(){
   setPaused(on) {
     if (this.paused === on) return;
     this.paused = on;
+    if (on) this.saveNow('pause');
     this.hud.setPauseVisible(on && !this.satchelOpen);
     this.input.pressed.clear();
     if (on) { this.input.keys.clear(); this.audio.ctx?.suspend?.(); } else { this.audio.resume(); this.clock.getDelta(); }
@@ -222,6 +269,7 @@ void main(){
 
   begin() {
     if (this.state !== 'menu') return;
+    if (this.pendingSave) { const s = this.pendingSave, o = this.octopus; this.pendingSave = null; o.health = s.octo.health; o.energy = s.octo.energy; for (const k in s.fx.buff) o.buff[k] = s.fx.buff[k]; o.inkCharges = s.fx.ink; o.venomReady = s.fx.venom; }
     this.input.requestLock();
     this.audio.start(); this.audio.resume();
     this.state = 'playing';
@@ -261,6 +309,8 @@ void main(){
 
     if (playing) {
       this.runTime += dt;
+      this.explored.add(exploreCell(o.x, o.z));
+      this.saveT += dt; if (this.saveT >= 30) { this.saveT = 0; this.saveNow('timer'); }
       this.env.update(dt);
       this.env.updatePuddles(dt, o);
       // abilities: ink (water only) and the venom bite (last resort)
@@ -362,6 +412,7 @@ void main(){
   onDeath() {
     if (this.state !== 'playing') return;
     this.state = 'dead';
+    if (this.saveEnabled) clearSave();                           // the run is over: nothing to continue
     const o = this.octopus;
     this.audio.die();
     this.hud.el.endTitle.textContent = CAUSE[o.lastDamage] || 'The octopus dried out';

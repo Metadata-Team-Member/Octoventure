@@ -23,6 +23,7 @@ export class Input {
     this.invertY = CONFIG.camera.invertY;
     const on = (el, ev, fn, o) => { el.addEventListener(ev, fn, o); this.listeners.push([el, ev, fn, o]); };
     on(window, 'keydown', (e) => {
+      if (e.target && e.target.tagName === 'INPUT') return;          // typing in the code box is not playing
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (!e.repeat) this.pressed.add(e.code);

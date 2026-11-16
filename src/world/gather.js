@@ -21,7 +21,7 @@
 import { BIOMES } from './biomes.js';
 
 /** items per 800 x 800 m (tile counts scale by area) */
-export const GATHER_COUNT = { crab: 14, shrimp: 14, snail: 20, mussel: 18, kelp: 30, lettuce: 20, sponge: 10, coral: 12, shellhalf: 28, pebble: 30, moss: 22, coconut: 10, cap: 16, jar: 6 };
+export const GATHER_COUNT = { crab: 20, shrimp: 18, snail: 28, mussel: 26, kelp: 44, lettuce: 28, sponge: 14, coral: 16, shellhalf: 42, pebble: 44, moss: 32, coconut: 14, cap: 22, jar: 8 };
 export const GATHER_KINDS = Object.keys(GATHER_COUNT);
 const SIZE = { crab: [0.9, 1.15], shrimp: [0.9, 1.2], snail: [0.85, 1.2], mussel: [0.8, 1.2], kelp: [0.8, 1.3], lettuce: [0.8, 1.3], sponge: [0.8, 1.4], coral: [0.8, 1.4], shellhalf: [0.8, 1.3], pebble: [0.65, 1.1], moss: [0.8, 1.4], coconut: [0.9, 1.15], cap: [1, 1.25], jar: [0.95, 1.1] };
 
