@@ -55,6 +55,7 @@ export class WorldView {
     this._buildRain();
     this._buildClouds();
     this._buildWind();
+    this._buildTransient();
   }
 
   track(o) { this.disposables.push(o); return o; }
@@ -141,7 +142,7 @@ export class WorldView {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.set(size / 28, size / 28);
     this.seaTex = tex;
-    const mat = this.track(new THREE.MeshStandardMaterial({ color: 0x2c93c4, roughness: 0.18, metalness: 0.05, normalMap: tex, normalScale: new THREE.Vector2(0.55, 0.55), transparent: true, opacity: 0.72 }));
+    const mat = this.track(new THREE.MeshStandardMaterial({ color: 0x2c93c4, roughness: 0.18, metalness: 0.05, normalMap: tex, normalScale: new THREE.Vector2(0.55, 0.55), transparent: true, opacity: 0.72, side: THREE.DoubleSide }));
     const sea = new THREE.Mesh(geo, mat);
     const centre = w.cCoast - 50 + size / 2;
     sea.position.set(w.dir.x * centre, 0, w.dir.z * centre);
@@ -154,16 +155,16 @@ export class WorldView {
   // ------------------------------------------------------------ puddles / ponds / streams / tide pools
   _buildWater() {
     const w = this.world;
-    const discs = w.waters.filter((q) => ['puddle', 'pond', 'tidepool', 'stream', 'drip'].includes(q.kind));
+    const discs = w.waters.filter((q) => q.kind !== 'sprinkler' && q.kind !== 'rain' && q.kind !== 'sea');
     const geo = this.track(new THREE.CircleGeometry(1, 22));
     geo.rotateX(-Math.PI / 2);
     const mat = this.track(new THREE.MeshStandardMaterial({ color: 0x4aa8dc, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-    const colors = { puddle: 0x4aa8dc, pond: 0x2f8fc8, tidepool: 0x57c2d6, stream: 0x5ab6e6, drip: 0x58b0e0 };
+    const colors = { puddle: 0x4aa8dc, pond: 0x2f8fc8, tidepool: 0x57c2d6, stream: 0x5ab6e6, drip: 0x58b0e0, trough: 0x5aa6c8, dam: 0x3d86a8, estuary: 0x4fa3c0, birdbath: 0x6cc0ea, bowl: 0x6cc0ea, aircon: 0x58b0e0, hose: 0x58b0e0 };
     this.waterMesh = instanced(geo, mat, discs, (o, p, e, s) => {
       p.set(o.x, o.H - 0.02, o.z); e.set(0, (o.x * 7.1 + o.z) % 6.28, 0);
       const r = o.kind === 'drip' ? o.r * 0.7 : o.kind === 'stream' ? o.r * 1.15 : o.r * 0.96;
       s.set(r, 1, r * (o.kind === 'puddle' ? 0.82 + ((o.x * 3.3) % 0.2) : 1));
-    }, (o, c) => c.set(colors[o.kind]));
+    }, (o, c) => c.set(colors[o.kind] ?? 0x4aa8dc));
     this.waterMat = mat;
     this.waterMesh.renderOrder = 2;
     this.root.add(this.waterMesh);
@@ -375,6 +376,51 @@ export class WorldView {
     this.root.add(this.windPoints);
   }
 
+  // ------------------------------------------------------------ storm puddles, dew, gated water (one instanced mesh each)
+  _buildTransient() {
+    const w = this.world;
+    const geo = this.track(new THREE.CircleGeometry(1, 20)); geo.rotateX(-Math.PI / 2);
+    this.tempMat = this.track(new THREE.MeshStandardMaterial({ color: 0x4a9fd0, roughness: 0.06, metalness: 0.2, transparent: true, opacity: 0.82, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+    this.tempMesh = new THREE.InstancedMesh(geo, this.tempMat, CONFIG.env.maxTempPuddles + 10);
+    this.tempMesh.count = 0; this.tempMesh.frustumCulled = false; this.tempMesh.renderOrder = 2;
+    this.root.add(this.tempMesh);
+    const gated = w.seasonal;
+    this.gatedMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8f2ff, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.0, emissive: 0x7fb6d8, emissiveIntensity: 0.4, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, depthWrite: false }));
+    this.gatedMesh = new THREE.InstancedMesh(geo, this.gatedMat, Math.max(1, gated.length));
+    this.gatedMesh.count = gated.length; this.gatedMesh.frustumCulled = false; this.gatedMesh.renderOrder = 2;
+    this.gatedLast = -1;
+    this.root.add(this.gatedMesh);
+  }
+  _updateTransient() {
+    const w = this.world, M = _m;
+    // storm puddles grow and shrink
+    const T = w.temp;
+    this.tempMesh.count = T.length;
+    for (let i = 0; i < T.length; i++) {
+      const q = T[i], r = Math.max(0.001, q.r * q.grow);
+      _v.set(q.x, q.H - 0.0 + 0.02, q.z); _s.set(r, 1, r * 0.85); _q.setFromEuler(_e.set(0, q.x * 3.1, 0));
+      M.compose(_v, _q, _s); this.tempMesh.setMatrixAt(i, M);
+    }
+    this.tempMesh.instanceMatrix.needsUpdate = true;
+    // dew / bin lids: fade in and out with their gate
+    const key = Math.round((w.gates.dew * 7 + w.gates.wet * 13) * 50);
+    if (key !== this.gatedLast) {
+      this.gatedLast = key;
+      const G = w.seasonal;
+      let any = 0;
+      for (let i = 0; i < G.length; i++) {
+        const q = G[i], on = clamp(w.gates[q.gate] * 2.2 - 0.3, 0, 1);
+        any = Math.max(any, on);
+        const r = Math.max(0.001, q.r * (q.gate === 'dew' ? 1 : 0.55) * on);
+        _v.set(q.x, (q.y ?? w.heightAt(q.x, q.z)) + (q.lift ?? 0.03), q.z); _s.set(r, 1, r); _q.identity();
+        M.compose(_v, _q, _s); this.gatedMesh.setMatrixAt(i, M);
+      }
+      this.gatedMesh.instanceMatrix.needsUpdate = true;
+      this.gatedMat.opacity = 0.55 * (any > 0 ? 1 : 0);
+      this.gatedMesh.visible = any > 0.01;
+    }
+  }
+
   // ------------------------------------------------------------ per-frame
   update(dt, playerPos, camera) {
     this.time += dt;
@@ -382,6 +428,8 @@ export class WorldView {
     w.update(dt);
     this.seaTex.offset.set(t * 0.012, t * 0.007);
     this.sea.material.opacity = 0.72;
+    this.sea.position.y = w.seaLevel;
+    this._updateTransient();
     this.waterMat.emissive?.setHex(0x0a2a3c);
     this.waterMat.emissiveIntensity = 0.25 + 0.08 * Math.sin(t * 2);
 
@@ -451,13 +499,13 @@ export class WorldView {
       const wx = -w.dir.x, wz = -w.dir.z;
       for (let i = 0; i < this.windN; i++) {
         const s = this.windSeeds[i];
-        s.x = (s.x + dt * 0.05 * s.s * wx + 1) % 1; s.z = (s.z + dt * 0.05 * s.s * wz + 1) % 1;
+        const gv = 1 + w.gust * 7; s.x = (s.x + dt * 0.05 * s.s * wx * gv + 1) % 1; s.z = (s.z + dt * 0.05 * s.s * wz * gv + 1) % 1;
         const ox = ((s.x * 60 - playerPos.x) % 60 + 90) % 60 - 30, oz = ((s.z * 60 - playerPos.z) % 60 + 90) % 60 - 30;
         wp[i * 3] = playerPos.x + ox; wp[i * 3 + 1] = playerPos.y + 0.6 + s.y * 7 + Math.sin(t * 1.3 + i) * 0.3; wp[i * 3 + 2] = playerPos.z + oz;
       }
       this.windPoints.geometry.attributes.position.needsUpdate = true;
       // fewer specks the further we are from the coast so it stays subtle
-      this.windPoints.material.opacity = 0.18 + 0.45 * clamp(1 - Math.abs(w.distToSea(playerPos.x, playerPos.z)) / 420, 0, 1);
+      this.windPoints.material.opacity = 0.18 + 0.45 * clamp(1 - Math.abs(w.distToSea(playerPos.x, playerPos.z)) / 420, 0, 1) + 0.3 * w.gust;
     }
   }
 

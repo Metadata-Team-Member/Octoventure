@@ -48,6 +48,10 @@ export class WorldData {
     this.waters = [];        // every water source: {kind,x,z,r,H,carve}
     this.seaLevel = 0;       // tide: the Environment moves this a little (+-0.5) over time
     this.rain = [];          // moving rain clouds: {x,z,r,vx,vz}
+    this.temp = [];          // temporary storm puddles (Environment adds / removes them)
+    this.seasonal = [];      // sources that only exist at certain times: {kind,gate,x,z,r}
+    this.gates = { dew: 0, wet: 0 };
+    this.dryMult = 1; this.night = 0; this.weatherKind = 'clear'; this.gust = 0; this.raining = false;
     this.houses = [];
     this.taps = [];          // visual props for drips / seeps / sprinklers
     this.sprinklers = [];
@@ -186,6 +190,14 @@ export class WorldData {
       }
     }
     if (best) return best;
+    for (let i = 0; i < this.seasonal.length; i++) {
+      const q = this.seasonal[i];
+      if (this.gates[q.gate] > 0.3 && Math.abs(x - q.x) < q.r && Math.abs(z - q.z) < q.r && Math.hypot(x - q.x, z - q.z) < q.r) return q;
+    }
+    for (let i = 0; i < this.temp.length; i++) {
+      const q = this.temp[i];
+      if (q.grow > 0.5 && Math.hypot(x - q.x, z - q.z) < q.r * q.grow) return q;
+    }
     for (const c of this.rain) if (Math.hypot(x - c.x, z - c.z) < c.r) return c;
     return null;
   }

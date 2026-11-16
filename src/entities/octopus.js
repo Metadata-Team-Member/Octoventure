@@ -2,7 +2,7 @@
 //  Octopus - the player. Model, movement, drying, camouflage.
 // =====================================================================
 import * as THREE from 'three';
-import { CONFIG, TERRAIN } from '../config.js';
+import { CONFIG, TERRAIN, diff } from '../config.js';
 import { clamp, damp, dampAngle, lerp } from '../util/rng.js';
 
 const TENT = 8, SEG = 12;
@@ -156,6 +156,7 @@ export class Octopus {
     this.tmpN = { x: 0, y: 1, z: 0 };
     this.wetness = 0.5;
     this.splashT = 0;
+    this.armor = 0;                // hidden: fraction of damage absorbed (set by the game from collected shells)
   }
 
   greyOf(c) { const l = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; return new THREE.Color(l * 0.95 + 0.06, l * 0.95 + 0.06, l * 0.95 + 0.06); }
@@ -167,7 +168,7 @@ export class Octopus {
   damage(amount, cause) {
     if (!this.alive || this.won) return;
     if (this.camoProtected) return;            // camouflaged = untouchable
-    this.health = Math.max(0, this.health - amount * CONFIG.predators.damageMult);
+    this.health = Math.max(0, this.health - amount * CONFIG.predators.damageMult * diff().damage * (1 - this.armor));
     this.lastDamage = cause;
     this.hurtFlash = 1;
   }
@@ -187,7 +188,7 @@ export class Octopus {
       const wantCamo = input.camo && !this.camoLocked && this.energy > 0.5;
       this.camoWanted = wantCamo;
       if (wantCamo) {
-        this.energy = Math.max(0, this.energy - C.drainPerSec * dt);
+        this.energy = Math.max(0, this.energy - C.drainPerSec * diff().camoDrain * dt);
         if (this.energy <= 0.01) { this.camoLocked = true; this.camoWanted = false; }
       } else {
         this.energy = Math.min(C.maxEnergy, this.energy + C.regenPerSec * dt);
@@ -222,7 +223,7 @@ export class Octopus {
         this.health = Math.min(O.maxHealth, this.health + gain * dt);
         this.wetness = Math.min(1, this.wetness + dt * 1.5);
       } else {
-        let rate = O.baseDryRate * T.dry;
+        let rate = O.baseDryRate * T.dry * (world.dryMult ?? 1) * diff().dry;
         if (this.sprinting) rate *= O.sprintDryMult;
         if (this.camoWanted) rate *= C.dryMult;
         this.health = Math.max(0, this.health - rate * dt);

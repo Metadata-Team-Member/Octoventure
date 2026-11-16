@@ -76,6 +76,11 @@ export function installDebugHooks(game) {
     spawnPredator(kind, dx = 8, dz = 0) { const o = game.octopus; return game.predators.spawn(kind, o.x + dx, o.z + dz); },
     clearPredators() { game.predators.dispose(); },
     advance(sec) { game.advance(sec); },
+    get env() { return game.env; },
+    setTime(t) { game.env.t = t; game.env.apply(); },
+    freezeTime(on = true) { game.env.frozen = on; },
+    setWeather(kind) { game.env.target = kind; game.env.timer = 1e9; },
+    setTide(v) { game.env.tideOverride = v; game.env.apply(); },
     terrainTypes: Object.keys(TERRAIN),
     game,
   };

@@ -11,6 +11,8 @@ import { Input } from './input.js';
 import { Hud } from './hud.js';
 import { GameAudio } from './audio.js';
 import { Progress } from './systems/progress.js';
+import { Environment } from './systems/environment.js';
+import { Atmosphere } from './systems/atmosphere.js';
 import { clamp, damp, lerp } from './util/rng.js';
 
 const CAUSE = { dry: 'The octopus dried out', gull: 'Pecked by a seagull', cat: 'Caught by a cat', dog: 'Chased down by a dog', fox: 'Caught by a fox', crab: 'Pinched by a crab', eagle: 'Snatched by an eagle', human: 'Picked up by a person' };
@@ -47,6 +49,7 @@ export class Game {
     }
     this.scene.add(this.hemi, this.sun, this.sun.target);
     this.buildSky();
+    this.atmo = new Atmosphere(this);
     this.camPos = new THREE.Vector3();
     this.camInit = false;
     this.clock = new THREE.Clock();
@@ -107,6 +110,8 @@ void main(){
     this.world = new WorldData(s);
     this.view = new WorldView(this.world, this.scene, { shadows: this.shadows });
     if (!this.octopus) this.octopus = new Octopus(this.world, this.scene); else this.octopus.reset(this.world);
+    this.env = new Environment(this.world);
+    this.atmo.attachGlow(this.octopus.group);
     this.predators = new PredatorManager(this.world, this.scene);
     this.runTime = 0; this.deadShown = false; this.threat = 0;
     this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
@@ -167,6 +172,8 @@ void main(){
 
     if (playing) {
       this.runTime += dt;
+      this.env.update(dt);
+      this.env.updatePuddles(dt, o);
       const ev = this.predators.update(dt, o);
       this.threat = damp(this.threat ?? 0, ev.threat, 4, dt);
       // warning display: the blue rings flash while a predator is on to us
@@ -248,18 +255,15 @@ void main(){
     this.camera.lookAt(tx, ty + 0.2, tz);
     this.sky.position.copy(this.camera.position);
     // sun & shadow follow the octopus
-    this.sun.position.set(tx + 60, ty + 90, tz + 40);
+    const L = this.atmo.lightDir; this.sun.position.set(tx + L.x * 120, ty + L.y * 120, tz + L.z * 120);
     this.sun.target.position.set(tx, ty, tz);
     this.sun.target.updateMatrixWorld();
   }
 
   updateAtmosphere(dt) {
     const o = this.octopus, w = this.world;
-    if (!CONFIG.hints.saltHaze) return;
     const prox = clamp(1 + w.distToSea(o.x, o.z) / 380, 0, 1);       // 0 far inland ... 1 at shore
-    const f = this.scene.fog.color;
-    f.set(FOG_COLOR).lerp(new THREE.Color(0xc4f0f4), prox * prox * 0.7);
-    this.skyMat.uniforms.horizon.value.copy(f);
+    this.atmo.update(dt, this.env, this.camera, o, prox, this.view.time);
   }
 
   // ------------------------------------------------------------------ loop

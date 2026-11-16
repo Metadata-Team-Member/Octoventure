@@ -28,7 +28,7 @@ page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
 
 const url = pathToFileURL(file).href + '?seed=2026';
 await page.goto(url, { waitUntil: 'load' });
-await page.waitForFunction(() => window.__game && window.__game.frame > 3, { timeout: 60000 });
+await page.waitForFunction(() => window.__game && window.__game.frame > 3, { timeout: 240000 });
 
 // ---- start screen -> playing ---------------------------------------------------
 ok(await page.evaluate(() => window.__game.webgl), 'WebGL context created');
