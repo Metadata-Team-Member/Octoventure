@@ -10,6 +10,7 @@ import { PredatorManager } from './entities/predators.js';
 import { Input } from './input.js';
 import { Hud } from './hud.js';
 import { GameAudio } from './audio.js';
+import { Progress } from './systems/progress.js';
 import { clamp, damp, lerp } from './util/rng.js';
 
 const CAUSE = { dry: 'The octopus dried out', gull: 'Pecked by a seagull', cat: 'Caught by a cat', dog: 'Chased down by a dog', fox: 'Caught by a fox', crab: 'Pinched by a crab', eagle: 'Snatched by an eagle', human: 'Picked up by a person' };
@@ -50,6 +51,8 @@ export class Game {
     this.camInit = false;
     this.clock = new THREE.Clock();
     this.deadShown = false;
+    this.progress = new Progress();
+    this.seaMoment = null;
     window.addEventListener('resize', () => this.resize());
     this.resize();
     this.paused = false;
@@ -106,6 +109,7 @@ void main(){
     if (!this.octopus) this.octopus = new Octopus(this.world, this.scene); else this.octopus.reset(this.world);
     this.predators = new PredatorManager(this.world, this.scene);
     this.runTime = 0; this.deadShown = false; this.threat = 0;
+    this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
     this.camInit = false;
     this.input.yaw = Math.random() * Math.PI * 2; this.input.pitch = CONFIG.camera.pitch; this.input.zoom = 0;
     this.updateCamera(0.016, true);
@@ -175,7 +179,7 @@ void main(){
       if (!o.camoWanted && wasCamo) { this.audio.camo(false); }
       if (o.waterKind && o.waterKind !== wasWater) this.audio.splash();
       if (!o.alive) this.onDeath();
-      else if (world.isSea(o.x, o.z) && o.y < -0.2) this.onWin();
+      else if (world.isSea(o.x, o.z) && o.y < world.seaLevel - 0.2 && this.progress.markSea(this.runTime)) this.onSeaReached();
     } else {
       this.threat = damp(this.threat ?? 0, 0, 4, dt);
       o.alarm = damp(o.alarm, 0, 6, dt);
@@ -186,6 +190,7 @@ void main(){
       this.input.releaseLock();       // free the cursor so the Restart button can be clicked
     }
 
+    this.updateSeaMoment(dt);
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);
     this.updateCamera(dt);
     this.updateAtmosphere(dt);
@@ -206,14 +211,24 @@ void main(){
     this.hud.el.restart.textContent = 'Restart game';
   }
 
-  onWin() {
-    if (this.state !== 'playing') return;
-    this.state = 'won'; this.octopus.won = true;
-    this.audio.win();
-    this.hud.el.endTitle.textContent = 'You made it to the sea!';
-    this.hud.el.restart.textContent = 'Play again';
-    this.hud.setEndVisible(true);
-    this.input.releaseLock();
+  /** first arrival in the open sea: a quiet moment (camera drifts out to sea, surf swells, gentle fade) - and play simply continues */
+  onSeaReached() {
+    this.seaMoment = { t: 0, dur: 7 };
+    this.audio.seaArrival();
+  }
+  updateSeaMoment(dt) {
+    const m = this.seaMoment;
+    const fade = document.getElementById('fade');
+    if (!m) { this.panYaw = 0; return; }
+    m.t += dt;
+    const k = m.t / m.dur;
+    if (k >= 1) { this.seaMoment = null; this.panYaw = 0; if (fade) fade.style.opacity = '0'; return; }
+    const bell = Math.sin(Math.PI * k);
+    // look out over the water, then drift back to wherever the player was looking
+    const w = this.world, want = Math.atan2(-w.dir.x, -w.dir.z);   // yaw whose camera forward points at the sea
+    let d = want - this.input.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+    this.panYaw = d * bell * 0.8;
+    if (fade) fade.style.opacity = (bell * 0.4).toFixed(3);
   }
 
   fmt(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
@@ -221,7 +236,7 @@ void main(){
   updateCamera(dt, snap = false) {
     const o = this.octopus, C = CONFIG.camera;
     const dist = clamp(C.distance + this.input.zoom, C.minDistance, C.maxDistance);
-    const yaw = this.input.yaw, pitch = this.input.pitch;
+    const yaw = this.input.yaw + (this.panYaw || 0), pitch = this.input.pitch;
     const tx = o.x, ty = o.y + 0.9, tz = o.z;
     const off = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(dist);
     const want = new THREE.Vector3(tx + off.x, ty + C.height * 0.4 + off.y, tz + off.z);

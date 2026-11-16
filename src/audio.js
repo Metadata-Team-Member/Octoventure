@@ -71,5 +71,7 @@ export class GameAudio {
   camo(on) { this.tone(on ? 260 : 420, 0.3, 'sine', 0.1, on ? 220 : -200); }
   hurt() { this.noise(0.18, 300, 0.3); this.tone(160, 0.25, 'sawtooth', 0.15, -80); }
   die() { this.tone(300, 0.9, 'triangle', 0.2, -230); }
+  /** first time in the sea: a soft swell of surf and a gentle two-note sigh */
+  seaArrival() { this.noise(3.2, 600, 0.18); this.tone(392, 2.2, 'sine', 0.07, 0, 0.1); this.tone(587, 2.6, 'sine', 0.06, 0, 0.9); }
   win() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.5, 'triangle', 0.18, 0, i * 0.16)); }
 }

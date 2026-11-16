@@ -1,5 +1,5 @@
 // Headless smoke test (Chrome + puppeteer-core). Loads the single-file build over file://,
-// checks for console errors, that WebGL renders frames, and drives win / lose / restart / camo
+// checks for console errors, that WebGL renders frames, and drives lose / restart / camo
 // through the window.__game debug hooks. Also writes a gameplay screenshot.
 //   usage: npm run build && npm run smoke [-- --shot=/path/to/shot.png]
 import puppeteer from 'puppeteer-core';
@@ -286,12 +286,33 @@ const after = await page.evaluate(() => ({ h: window.__game.health, seed: window
 ok(after.h > 98 && !after.vis, 'restart resets health and hides the overlay');
 ok(after.seed !== seedBefore, 'restart builds a new world (new sea direction)');
 
-// ---- win ---------------------------------------------------------------------------------------
-await page.evaluate(() => { const G = window.__game; G.clearPredators(); G.setHealth(100); });
+// ---- the sea is part of the world: arriving is a quiet moment, play continues ------------------------------
+await page.evaluate(() => { const G = window.__game; G.clearPredators(); G.setHealth(40); });
+const before = await page.evaluate(() => ({ uiText: document.body.innerText, overlays: [...document.querySelectorAll('.overlay')].filter((e) => !e.hidden).length }));
 const sea = await page.evaluate(() => window.__game.teleportToOcean(6));
 await page.evaluate(() => window.__game.advance(0.5));
-const win = await page.evaluate(() => ({ s: window.__game.state, t: window.__game.endTitle, card: document.getElementById('end').innerText }));
-ok(sea && win.s === 'won' && /sea/i.test(win.t) && !/\d:\d\d/.test(win.card), `reaching the sea wins, minimal screen ("${win.card.replace(/\n+/g, ' / ')}")`);
+const arr = await page.evaluate(() => ({ s: window.__game.state, reached: window.__game.game.progress.seaReached, moment: !!window.__game.game.seaMoment, h: window.__game.health, end: window.__game.restartVisible }));
+ok(sea && arr.s === 'playing' && arr.reached && !arr.end, 'reaching the sea does NOT end the game (state stays playing, no end screen)');
+ok(arr.moment, 'first arrival triggers the quiet sea moment (camera drift + fade)');
+await page.evaluate(() => window.__game.advance(8));
+const arr2 = await page.evaluate(() => ({ s: window.__game.state, h: window.__game.health, moment: !!window.__game.game.seaMoment, fade: document.getElementById('fade').style.opacity, text: document.body.innerText, kind: window.__game.waterKind }));
+ok(arr2.s === 'playing' && arr2.h > 95 && arr2.kind === 'sea', `swimming in the sea fully rehydrates (health 40 -> ${arr2.h.toFixed(0)})`);
+ok(!arr2.moment && Number(arr2.fade) === 0, 'the quiet moment ends and the screen fade clears');
+ok(arr2.text.trim() === before.uiText.trim(), 'no new on-screen text appeared (screen is as clean as before)');
+// walk back out of the sea onto land
+const back = await page.evaluate(() => {
+  const G = window.__game, g = G.game, w = g.world;
+  g.input.keys.clear();
+  G.teleport(g.octopus.x, g.octopus.z);
+  // aim away from the sea and walk
+  g.octopus.heading = Math.atan2(-w.dir.x, -w.dir.z);
+  g.input.yaw = Math.atan2(-w.dir.x, -w.dir.z);   // camera looks towards the sea, so W walks towards it; S walks back to land
+  g.input.keys.add('KeyS');
+  G.advance(40);
+  g.input.keys.clear();
+  return { sea: w.isSea(g.octopus.x, g.octopus.z), state: G.state, d: G.distanceToSea };
+});
+ok(back.state === 'playing' && !back.sea, 'the octopus can leave the sea and return to land');
 
 // ---- the sea direction is random per world ------------------------------------------------------------
 const angles = [];

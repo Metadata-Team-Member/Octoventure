@@ -84,6 +84,9 @@ export const CONFIG = {
     minPitch: 0.08, maxPitch: 1.35,
   },
 
+  // ---- Hidden collectibles (never shown on screen) -----------------------------------
+  shells: { count: 70, armorPerShell: 0.06, maxArmor: 0.5 },   // every shell quietly absorbs 6% more predator damage (cap 50%)
+
   audio: { enabled: true, volume: 0.6 },
 };
 

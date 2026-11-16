@@ -46,6 +46,7 @@ export class WorldData {
     this.waterHash = new Hash(16);
     this.colHash = new Hash(12);
     this.waters = [];        // every water source: {kind,x,z,r,H,carve}
+    this.seaLevel = 0;       // tide: the Environment moves this a little (+-0.5) over time
     this.rain = [];          // moving rain clouds: {x,z,r,vx,vz}
     this.houses = [];
     this.taps = [];          // visual props for drips / seeps / sprinklers
@@ -117,8 +118,10 @@ export class WorldData {
     return out;
   }
   /** shallow sea / wet shoreline where the octopus can wade (fast + hydrating) */
-  isShallow(x, z) { return this.tAt(x, z) > 0.95 && this.heightAt(x, z) < 0.12; }
-  isSea(x, z) { return this.heightAt(x, z) < -0.25 && this.tAt(x, z) > 0.95; }
+  isShallow(x, z) { return this.tAt(x, z) > 0.95 && this.heightAt(x, z) < 0.12 + this.seaLevel; }
+  isSea(x, z) { return this.heightAt(x, z) < this.seaLevel - 0.25 && this.tAt(x, z) > 0.95; }
+  /** metres of water above the sea floor here (0 on land) */
+  seaDepth(x, z) { return this.tAt(x, z) > 0.95 ? Math.max(0, this.seaLevel - this.heightAt(x, z)) : 0; }
 
   // ---------------- terrain type ---------------------------------------------------
   isRoad(x, z, margin = 0) {

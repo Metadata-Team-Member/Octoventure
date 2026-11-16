@@ -36,3 +36,5 @@ button.link { display: block; margin: 14px auto 0; background: none; border: 0; 
 #start { background: rgba(6, 30, 38, 0.35); }
 #start, #pause { cursor: pointer; }
 canvas#game.locked { cursor: none; }
+
+#fade { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: #dff6ff; transition: opacity 0.25s linear; z-index: 5; }
