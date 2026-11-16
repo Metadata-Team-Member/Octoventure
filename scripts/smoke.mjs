@@ -155,7 +155,7 @@ ok(spd.water.kind && spd.water.speed > spd.land.speed * 1.2, `faster in water ($
 const shallow = await page.evaluate(() => {
   const G = window.__game, w = G.game.world, st = w.start;
   w.rain.length = 0;   // moving rain clouds would make this flaky
-  for (let d = 0; d < 800; d++) { const x = st.x + w.dir.x * d, z = st.z + w.dir.z * d; if (w.isShallow(x, z) && !w.isSea(x, z) && !w.waterAt(x, z)) { G.teleport(x, z); G.setHealth(40); G.advance(0.3); return { kind: G.waterKind, h: G.health, state: G.state }; } }
+  for (let d = 0; d < 1500; d++) { const x = st.x + w.dir.x * d, z = st.z + w.dir.z * d; if (w.isShallow(x, z) && !w.isSea(x, z) && !w.waterAt(x, z)) { G.teleport(x, z); G.setHealth(40); G.advance(0.3); return { kind: G.waterKind, h: G.health, state: G.state }; } }
   return null;
 });
 ok(shallow && shallow.kind === 'sea' && shallow.h > 40 && shallow.state === 'playing', 'sea shallows count as water (fast + rehydrating)');

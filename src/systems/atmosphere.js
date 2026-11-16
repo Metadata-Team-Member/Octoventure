@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { clamp, lerp, smoothstep as ss } from '../util/rng.js';
 import { dotTexture, FOG_COLOR } from '../world/worldView.js';
+import { BIOMES, BIOME_INFO } from '../world/biomes.js';
 
 const C = (h) => new THREE.Color(h);
 const PAL = {
@@ -81,8 +82,28 @@ export class Atmosphere {
   }
   attachGlow(octoGroup) { octoGroup.add(this.glow); }
 
+  /** blend the per-biome lighting tint, fog thickness and ambient-sound mix at the player (smoothed) */
+  _biome(dt, o) {
+    const w = this.g.world, q = w.biomes.weights(o.x, o.z);
+    if (!this.bTint) { this.bTint = new THREE.Color(0xffffff); this.bFog = 1; this.ambient = {}; }
+    const tc = this._tmpC ??= new THREE.Color(), want = this._wantC ??= new THREE.Color();
+    want.setRGB(0, 0, 0); let fog = 0;
+    const amb = {};
+    for (let i = 0; i < BIOMES.length; i++) {
+      const wt = q[i]; if (wt < 0.001) continue;
+      const info = BIOME_INFO[BIOMES[i]];
+      want.r += tc.set(info.tint).r * wt; want.g += tc.g * wt; want.b += tc.b * wt;
+      fog += info.fog * wt;
+      for (const k in info.amb) amb[k] = (amb[k] || 0) + info.amb[k] * wt;
+    }
+    const k = 1 - Math.exp(-1.2 * dt);
+    this.bTint.lerp(want, k); this.bFog += (fog - this.bFog) * k;
+    for (const key of ['hum', 'birds', 'wind', 'cows', 'cicada', 'babble', 'frogs', 'surf', 'gulls']) this.ambient[key] = (this.ambient[key] || 0) + ((amb[key] || 0) - (this.ambient[key] || 0)) * k;
+  }
+
   update(dt, env, camera, o, prox, t) {
     const g = this.g, w = g.world;
+    this._biome(dt, o);
     const day = env.daylight, night = env.night;
     // ---- sky palette -------------------------------------------------------------------
     const dusk = clamp(1 - Math.abs(env.sunElev) / 0.32, 0, 1) * (1 - env.dark * 0.6);   // golden hour around sunrise / sunset
@@ -105,11 +126,12 @@ export class Atmosphere {
     const u = this.under;
     const fogCol = this.hor.clone();
     if (u > 0.01) fogCol.lerp(UNDER.clone().lerp(UNDER_DEEP, clamp(-(camera.position.y - w.seaLevel) / 8 + 0.2, 0, 0.8)).multiplyScalar(0.4 + 0.6 * day), u);
+    fogCol.lerp(this.bTint, 0.07 * day);
     g.scene.fog.color.copy(fogCol);
     g.skyMat.uniforms.top.value.copy(this.top).lerp(fogCol, u);
     g.skyMat.uniforms.mid.value.copy(this.mid).lerp(fogCol, u);
     g.skyMat.uniforms.horizon.value.copy(fogCol);
-    const far = lerp(CONFIG.graphics.fogFar, 150, env.dark) * lerp(1, 0.75, night) * lerp(1, 0.9, env.heat);
+    const far = lerp(CONFIG.graphics.fogFar, 150, env.dark) * lerp(1, 0.75, night) * lerp(1, 0.9, env.heat) * this.bFog;
     g.scene.fog.near = lerp(lerp(CONFIG.graphics.fogNear, 30, env.dark), 1.5, u);
     g.scene.fog.far = lerp(far, 55, u);
 
@@ -128,6 +150,8 @@ export class Atmosphere {
     g.sun.color.copy(sunCol.lerp(MOON, night));
     g.sun.intensity = (sunI + moonI) * (1 - u * 0.55) + this.flash * 2.5;
     g.hemi.color.copy(HEMI_SKY_DAY).lerp(HEMI_SKY_NIGHT, night).lerp(C(0xe8a070), dusk * 0.35);
+    g.hemi.color.multiply(this.bTint);
+    g.sun.color.lerp(this.bTint, 0.35 * day);
     g.hemi.groundColor.copy(HEMI_GR_DAY).lerp(HEMI_GR_NIGHT, night);
     g.hemi.intensity = (0.3 + 1.05 * day) * (1 - env.dark * 0.5) * (1 - u * 0.3) + 0.4 * night + this.flash * 1.6;
     g.renderer.toneMappingExposure = 1.0 + env.heat * 0.1 + night * 0.35;
