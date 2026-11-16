@@ -10,12 +10,12 @@ export class Progress {
   reset() {
     this.seaReached = false;      // the octopus has been in the open sea at least once
     this.seaReachedAt = null;     // run time (s) of the first arrival
-    this.shells = 0;              // shells collected this run (each secretly toughens the skin)
+    this.shells = 0;              // shells collected this run
     this.rescued = new Set();     // ids of baby octopuses found this run
     this.log = [];                // [{t, type, ...}] tiny event log, handy for a future end-game
   }
   get babies() { return this.rescued.size; }
-  /** fraction of predator damage that is absorbed (hidden mechanic: -6% per shell, capped) */
+  /** fraction of predator damage absorbed (hidden mechanic, see DESIGN.md) */
   get armor() { const A = CONFIG.shells; return Math.min(A.maxArmor, this.shells * A.armorPerShell); }
   note(t, type, extra = {}) { this.log.push({ t, type, ...extra }); if (this.log.length > 200) this.log.shift(); }
   addShell(t) { this.shells++; this.note(t, 'shell'); }

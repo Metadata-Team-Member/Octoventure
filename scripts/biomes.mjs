@@ -1,5 +1,5 @@
 // Visits every biome (teleport hook), checks it looks/behaves like itself, takes one screenshot each.
-//   node scripts/biomes.mjs [--seed=2026] [--out=/workspace]
+//   node scripts/biomes.mjs [--seed=2026] [--out=.]
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -35,7 +35,7 @@ for (const name of names) {
   check(r.okTp && (r.biome === name || name === 'sea' && r.biome === 'sea'), `${name}: teleported into the biome (now in ${r.biome}, ground ${r.terrain})`);
   console.log(`      draw calls ${r.perf.calls}, tris ${(r.perf.triangles / 1000).toFixed(0)}k, chunks ${r.perf.chunks}/${r.perf.chunksVisible}, tint #${r.tint}, fog x${r.fog.toFixed(2)}, trees ${JSON.stringify(r.trees)}`);
   check(r.perf.calls < 900, `${name}: draw calls under budget (${r.perf.calls})`);
-  await page.screenshot({ path: `${opt('out', '/workspace')}/octo-v2-biome-${name}.png` });
+  await page.screenshot({ path: `${opt('out', '.')}/octo-v2-biome-${name}.png` });
 }
 check(problems.length === 0, 'no console errors or warnings' + (problems.length ? '\n' + problems.join('\n') : ''));
 console.log(fails ? `${fails} check(s) FAILED` : 'all biome checks passed');

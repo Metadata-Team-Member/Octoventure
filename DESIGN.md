@@ -1,4 +1,8 @@
-# Design notes (maintainer-facing; deliberately NOT in the README)
+# Design notes
+
+> **SPOILER WARNING.** This file describes the game's hidden mechanics (shell collectibles, baby octopuses, end-game hooks). If you are play-testing Octoventure, stop reading here and go and play: the game is meant to be discovered.
+
+Maintainer-facing; deliberately not linked from the README.
 
 ## Hidden mechanics
 * **Shell toughening (no indication anywhere).** Every shell collected silently adds `CONFIG.shells.armorPerShell` (6%) damage reduction, capped at `maxArmor` (50%). There is no counter, sound, glow or text. Shells are picked up by walking over them (`systems/collect.js`), progress lives in `systems/progress.js`, and `Octopus.damage()` applies `armor`. Tests: `unit.mjs` (3 shells = 18%, cap 50%).

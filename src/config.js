@@ -1,5 +1,5 @@
 // =====================================================================
-//  OCTOPUS RUN TO THE SEA - tweakable settings
+//  OCTOVENTURE - tweakable settings
 //  Change a number, save, and (in `npm run dev`) the game reloads.
 // =====================================================================
 
@@ -120,7 +120,7 @@ export const CONFIG = {
   },
 
   // ---- Hidden collectibles (never shown on screen) -----------------------------------
-  shells: { count: 70, armorPerShell: 0.06, maxArmor: 0.5 },   // every shell quietly absorbs 6% more predator damage (cap 50%)
+  shells: { count: 70, armorPerShell: 0.06, maxArmor: 0.5 },   // shell collectibles (see DESIGN.md - spoilers)
 
   audio: { enabled: true, volume: 0.6 },
 };

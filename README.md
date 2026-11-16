@@ -1,12 +1,15 @@
-# 🐙 Blue-Ringed Octopus: Run to the Sea
+# 🐙 Octoventure
 
-A third-person 3D browser game (Three.js). You are a tiny **Australian blue-ringed octopus** (*Hapalochlaena*), stranded far inland and slowly drying out in the sun. The ocean is somewhere out there – **in a random direction every game, with no compass** – and you have to find your way back to it across an open world of gardens, roads, meadows, forests, mud, rocky hills, dunes and tidal flats.
+**Play now: https://metadata-team-member.github.io/Octoventure/**  (desktop browser, mouse + keyboard or a gamepad; click Play)
 
-> Status: **playable prototype (v0.2)** – built to be played, poked at and adjusted.
-> No login, no server, no accounts. The repo is private.
+You are a tiny **Australian blue-ringed octopus** (*Hapalochlaena*), 20 cm long, stranded far inland and slowly drying out. The ocean is somewhere out there - **in a random direction every game, with no compass** - and you have to find your way back across gardens, streets, farms, bush, creeks, wetlands, dunes and beaches, a world that towers over you. There is no HUD, no timer and no tutorial: work it out as you play. Predators will notice you (your blue rings flash), and your defence is camouflage. Water is life. Everything else is for you to discover.
+
+**Quick controls:** WASD move - mouse look - Shift sprint - Space camouflage (hold) - F ink (in water) - B / right-click venom - R climb - Esc pause. Full list below.
 
 ![gameplay](docs/screenshot.png)
 ![camouflaged](docs/screenshot-camo.png)
+
+> Status: **playable prototype (v0.2)** - feedback welcome. No login, no server, no accounts, no data collected. All rights reserved (no licence granted yet).
 
 ## How to run it
 
@@ -31,7 +34,7 @@ Windows shortcut: double-click **`Dev.bat`** (installs on first run, starts the 
 npm run build        # writes play/index.html (committed so Option 1 always works)
 npm run build:dist   # normal multi-file build into dist/ (for hosting on any static server)
 ```
-`play/index.html` is committed on purpose. GitHub Pages is **not** enabled: Pages on a *private* repository needs a paid GitHub plan. If you ever want a shareable link, either upgrade, make a public copy, or drop `dist/` on any static host (Netlify, Cloudflare Pages, S3, …).
+`play/index.html` is committed on purpose so a double-click always works. The public site is the same single file, published to the `gh-pages` branch and served by GitHub Pages (`npm run deploy:pages` rebuilds and publishes it).
 
 ## Controls
 | Action | Keys / mouse | Gamepad |
@@ -82,7 +85,7 @@ index.html            page + HUD markup           src/config.js       all tunabl
 src/main.js           bootstrap                   src/game.js         game state, camera, win/lose, loop
 src/world/worldData.js  pure world generator      src/world/worldView.js  chunked terrain/decor rendering
 src/world/placement.js  ground seating (shared w/ audit)   src/world/fade.js  camera occluder fade
-src/world/areas.js    biome layouts, props, water   DESIGN.md / NOTES.md  design + status
+src/world/areas.js    biome layouts, props, water
 src/world/models.js   low-poly model helpers      src/entities/octopus.js  player model & rules
 src/entities/predators.js  species + AI           src/audio.js, input.js, hud.js, debug.js
 scripts/unit.mjs      world-generator checks      scripts/smoke.mjs   headless browser test

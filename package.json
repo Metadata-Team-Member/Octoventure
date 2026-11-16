@@ -1,11 +1,12 @@
 {
-  "name": "blue-ringed-octopus-run-to-the-sea",
-  "version": "0.1.0",
+  "name": "octoventure",
+  "version": "0.2.0",
   "description": "Third-person 3D browser game: a tiny Australian blue-ringed octopus must cross open land back to the sea before it dries out.",
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
     "build:dist": "vite build --outDir dist",
+    "deploy:pages": "sh scripts/deploy-pages.sh",
     "preview": "vite preview --outDir play",
     "unit": "node scripts/unit.mjs",
     "smoke": "node scripts/smoke.mjs",

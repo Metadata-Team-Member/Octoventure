@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const shotArg = process.argv.find((a) => a.startsWith('--shot='));
-const SHOT = shotArg ? shotArg.slice(7) : '/workspace/octopus-game-shot2.png';
+const SHOT = shotArg ? shotArg.slice(7) : 'octopus-game-shot2.png';
 const CAMO_SHOT = SHOT.replace(/\.png$/, '-camo.png');
 const chrome = process.env.CHROME_PATH || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find(existsSync);
 if (!chrome) { console.error('No Chrome/Edge found. Set CHROME_PATH.'); process.exit(2); }

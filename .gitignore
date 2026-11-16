@@ -4,3 +4,5 @@ dist/
 .DS_Store
 .env
 .env.*
+/octopus-game-shot*.png
+/octo-v2-*.png
