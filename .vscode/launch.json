@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Play in Edge (needs `Run game` task running)",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://localhost:5173/?autostart=0",
+      "webRoot": "${workspaceFolder}"
+    }
+  ]
+}
