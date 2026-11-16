@@ -53,6 +53,17 @@ for (const seed of [1, 7, 42, 1234, 99999, 2026, 31337, 555]) {
     ok(CONFIG && ['lawn','grass','forest','mud','rock','scrub','road','sand','dune','wet'].includes(w.typeAt(x, z)), 'valid type');
   }
 }
+// self-discovery balance: drying is slow (>= 5 minutes from full to empty on plain ground, even on hot asphalt > 2 min)
+ok(100 / (CONFIG.octopus.baseDryRate * 1.0) >= 300, 'at least 5 min of health on normal ground');
+ok(100 / (CONFIG.octopus.baseDryRate * 2.2) >= 120, 'at least 2 min of health on the hottest ground');
+ok(CONFIG.octopus.waterSpeedMult > 1, 'wading is faster than walking');
+{
+  const w = new WorldData(77);
+  ok(!w.isShallow(w.start.x, w.start.z), 'start is not shallow water');
+  let found = false;
+  for (let d = 0; d < 700 && !found; d += 1) found = w.isShallow(w.start.x + w.dir.x * d, w.start.z + w.dir.z * d);
+  ok(found, 'shallows exist before the open sea');
+}
 // distribution of terrain types along a run, to show variety
 const w = new WorldData(2026);
 const seen = new Set();

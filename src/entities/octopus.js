@@ -10,6 +10,8 @@ const TENT = 8, SEG = 12;
 const SKIN = new THREE.Color(0xd9a63f);
 const DRY = new THREE.Color(0xc2b085);
 const RING_BLUE = new THREE.Color(0x0a52ff);
+const PALE = new THREE.Color(0xeaf6ff);
+const PALE_EDGE = new THREE.Color(0xb9c6d2);
 const RING_FLASH = new THREE.Color(0x1a8cff);
 const DEAD = new THREE.Color(0x8c8480);
 
@@ -156,11 +158,15 @@ export class Octopus {
     this.splashT = 0;
   }
 
-  get camoActive() { return this.camoBlend > 0.85; }     // fully blended = predators are fooled
+  greyOf(c) { const l = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; return new THREE.Color(l * 0.95 + 0.06, l * 0.95 + 0.06, l * 0.95 + 0.06); }
+  get camoActive() { return this.camoBlend > 0.85; }     // fully blended
+  /** hidden: predators can't hurt or track you. Immediate while the key is held (and energy lasts), brief grace while fading out. */
+  get camoProtected() { return this.alive && (this.camoWanted || this.camoBlend > 0.5); }
   get hiding() { return this.camoWanted && this.alive; }
 
   damage(amount, cause) {
     if (!this.alive || this.won) return;
+    if (this.camoProtected) return;            // camouflaged = untouchable
     this.health = Math.max(0, this.health - amount * CONFIG.predators.damageMult);
     this.lastDamage = cause;
     this.hurtFlash = 1;
@@ -171,7 +177,8 @@ export class Octopus {
     const O = CONFIG.octopus, C = CONFIG.camo;
     this.terrain = world.typeAt(this.x, this.z);
     const T = TERRAIN[this.terrain];
-    const water = this.alive && !this.won ? world.waterAt(this.x, this.z) : null;
+    let water = this.alive && !this.won ? world.waterAt(this.x, this.z) : null;
+    if (!water && this.alive && !this.won && world.isShallow(this.x, this.z)) water = { kind: 'sea' };
     this.waterKind = water ? water.kind : null;
 
     if (this.alive && !this.won) {
@@ -193,7 +200,7 @@ export class Octopus {
       if (mag > 1) { mx /= mag; mz /= mag; }
       const canMove = !this.camoWanted || C.moveSpeedMult > 0;
       const sprint = input.sprint && mag > 0.1 && canMove;
-      const base = (sprint ? O.sprintSpeed : O.walkSpeed) * T.speed * (this.camoWanted ? C.moveSpeedMult : 1) * (water ? 0.9 : 1);
+      const base = (sprint ? O.sprintSpeed : O.walkSpeed) * (water ? O.waterSpeedMult : T.speed) * (this.camoWanted ? C.moveSpeedMult : 1);
       const targetSpeed = canMove ? Math.min(1, mag) * base : 0;
       this.speed = damp(this.speed, targetSpeed, 12, dt);
       this.moving = this.speed > 0.5;
@@ -247,7 +254,8 @@ export class Octopus {
     const ground = new THREE.Color(TERRAIN[this.terrain].color);
     this.camoColor.lerp(ground, 1 - Math.exp(-6 * dt));
     const col = this.mat.color;
-    col.copy(SKIN).lerp(DRY, Math.pow(dry, 1.4) * 0.65).lerp(DEAD, died);
+    // colour drains toward grey as health falls: full colour at 100, grey near 0
+    col.copy(SKIN).lerp(this.greyOf(SKIN), dry * 0.95).lerp(DEAD, died);
     // camouflage: blend toward ground colour (a touch darker, like a shadow-pattern)
     const camoTarget = this.camoColor.clone().multiplyScalar(0.92);
     col.lerp(camoTarget, camo * 0.96);
@@ -260,13 +268,19 @@ export class Octopus {
     const alarm = this.alive ? this.alarm : 0;
     const vis = (1 - camo) * (1 - died);
     const ringColor = this.ringBlue.color;
-    ringColor.copy(RING_BLUE).lerp(RING_FLASH, Math.max(shimmer * 0.25, alarm * pulse * 0.8));
+    ringColor.copy(RING_BLUE).lerp(RING_FLASH, Math.max(shimmer * 0.25, alarm * pulse * 0.8)).lerp(this.greyOf(RING_BLUE), dry * 0.85);
     this.ringBlue.emissive.copy(ringColor);
     this.ringBlue.emissiveIntensity = (0.2 + 0.08 * shimmer + alarm * (0.05 + 0.5 * pulse)) * vis + 0.02;
     // when camouflaged the rings fade into the ground colour
     ringColor.lerp(camoTarget, camo * 0.9);
     this.ringBlue.emissive.lerp(camoTarget, camo * 0.9);
     this.ringBlack.color.set(0x07070a).lerp(camoTarget.clone().multiplyScalar(0.7), camo * 0.9);
+    // camouflage energy cue: while hidden the (dark) rings get lighter and lighter as the camo runs out
+    const warn = camo * Math.pow(1 - clamp(this.energy / CONFIG.camo.maxEnergy, 0, 1), 1.15);
+    ringColor.lerp(PALE, warn);
+    this.ringBlue.emissive.lerp(PALE, warn);
+    this.ringBlue.emissiveIntensity += warn * 0.9;
+    this.ringBlack.color.lerp(PALE_EDGE, warn);
     this.ringBlue.color.multiplyScalar(0.45).lerp(DEAD, died * 0.8);
     this.mat.transparent = false;
 

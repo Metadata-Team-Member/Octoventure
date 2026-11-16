@@ -116,6 +116,8 @@ export class WorldData {
     out.x = -dx / l; out.y = 2 * e / l; out.z = -dz / l;
     return out;
   }
+  /** shallow sea / wet shoreline where the octopus can wade (fast + hydrating) */
+  isShallow(x, z) { return this.tAt(x, z) > 0.95 && this.heightAt(x, z) < 0.12; }
   isSea(x, z) { return this.heightAt(x, z) < -0.25 && this.tAt(x, z) > 0.95; }
 
   // ---------------- terrain type ---------------------------------------------------

@@ -12,7 +12,6 @@ import { Hud } from './hud.js';
 import { GameAudio } from './audio.js';
 import { clamp, damp, lerp } from './util/rng.js';
 
-const WATER_NAMES = { puddle: 'a puddle', stream: 'a stream', pond: 'a pond', tidepool: 'a tide pool', drip: 'a dripping tap', sprinkler: 'a sprinkler', rain: 'the rain' };
 const CAUSE = { dry: 'The octopus dried out', gull: 'Pecked by a seagull', cat: 'Caught by a cat', dog: 'Chased down by a dog', fox: 'Caught by a fox', crab: 'Pinched by a crab', eagle: 'Snatched by an eagle', human: 'Picked up by a person' };
 
 export class Game {
@@ -51,17 +50,17 @@ export class Game {
     this.camInit = false;
     this.clock = new THREE.Clock();
     this.deadShown = false;
-    this.toastedWater = {};
     window.addEventListener('resize', () => this.resize());
     this.resize();
     this.input.onKey = (e) => {
-      if (e.code === 'KeyM') { const m = this.audio.toggleMute(); this.hud.toast(m ? 'Sound off' : 'Sound on', '', 'mute', 0.5); }
+      if (e.code === 'KeyM') this.audio.toggleMute();
+      // press any (real) key to start
+      if (this.state === 'menu' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(F\d+|Tab|Escape|Shift.*|Control.*|Alt.*|Meta.*|CapsLock)$/.test(e.code)) this.begin();
       if (e.code === 'KeyR' && this.state !== 'playing' && this.state !== 'menu') this.restart();
-      if ((e.code === 'Enter') && this.state === 'menu') this.begin();
     };
     this.hud.el.play.addEventListener('click', () => this.begin());
     this.hud.el.restart.addEventListener('click', () => this.restart());
-    this.hud.el.retry.addEventListener('click', () => this.restart(this.world.seed));
+    this.hud.el.start.addEventListener('click', () => this.begin());
   }
 
   buildSky() {
@@ -103,10 +102,9 @@ void main(){
     this.view = new WorldView(this.world, this.scene, { shadows: this.shadows });
     if (!this.octopus) this.octopus = new Octopus(this.world, this.scene); else this.octopus.reset(this.world);
     this.predators = new PredatorManager(this.world, this.scene);
-    this.runTime = 0; this.deadShown = false; this.threat = 0; this.toastedWater = {};
+    this.runTime = 0; this.deadShown = false; this.threat = 0;
     this.camInit = false;
     this.input.yaw = Math.random() * Math.PI * 2; this.input.pitch = CONFIG.camera.pitch; this.input.zoom = 0;
-    this.hud.el.seedline.textContent = `World seed ${this.world.seed}`;
     this.updateCamera(0.016, true);
   }
 
@@ -114,8 +112,7 @@ void main(){
     if (this.state !== 'menu') return;
     this.audio.start(); this.audio.resume();
     this.state = 'playing';
-    this.hud.setStartVisible(false); this.hud.show(true);
-    this.hud.toast('Find water! Your skin is drying out…', '', 'intro', 99);
+    this.hud.setStartVisible(false);
   }
 
   restart(seed) {
@@ -126,7 +123,7 @@ void main(){
     requestAnimationFrame(() => setTimeout(() => {
       this.newWorld(seed);
       this.state = 'playing';
-      this.hud.setLoading(false); this.hud.show(true);
+      this.hud.setLoading(false);
     }, 30));
   }
 
@@ -153,19 +150,12 @@ void main(){
       // warning display: the blue rings flash while a predator is on to us
       if (!this.forceAlarm) o.alarm = damp(o.alarm, this.threat > 0.04 ? 1 : 0, 9, dt);
       for (const e of ev.events) {
-        if (e.type === 'alert') { this.hud.toast(`${e.who} spotted you! Rings flashing…`, 'bad', 'alert' + e.who, 3); this.audio.alert(); }
-        if (e.type === 'fooled') this.hud.toast(`The ${e.who.toLowerCase()} lost interest`, 'good', 'fooled', 2);
+        if (e.type === 'alert') this.audio.alert();
       }
       if (o.health < wasHealth - 4 && wasHealth - o.health > dt * 30) this.audio.hurt();
       if (o.camoWanted && !wasCamo) { this.audio.camo(true); }
       if (!o.camoWanted && wasCamo) { this.audio.camo(false); }
-      if (o.camoLocked && !wasLocked) this.hud.toast('Camouflage exhausted – recharging', 'bad', 'camolock', 3);
-      if (o.waterKind && o.waterKind !== wasWater) {
-        this.audio.splash();
-        if (!this.toastedWater[o.waterKind]) { this.toastedWater[o.waterKind] = true; this.hud.toast(`Rehydrating in ${WATER_NAMES[o.waterKind]}`, 'good', 'water' + o.waterKind, 30); }
-      }
-      if (o.health < CONFIG.octopus.lowHealthWarn && o.alive) this.hud.toast('Drying out! Find water!', 'bad', 'low', 8);
-
+      if (o.waterKind && o.waterKind !== wasWater) this.audio.splash();
       if (!o.alive) this.onDeath();
       else if (world.isSea(o.x, o.z) && o.y < -0.2) this.onWin();
     } else {
@@ -174,13 +164,13 @@ void main(){
     }
     if (this.state === 'dead' && !this.deadShown && o.deadT > 1.4) {
       this.deadShown = true;
-      this.hud.setEndVisible(true); this.hud.el.restart.focus?.();
+      this.hud.setEndVisible(true);
     }
 
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);
     this.updateCamera(dt);
     this.updateAtmosphere(dt);
-    this.hud.update(o, this.runTime, this.threat ?? 0);
+    this.hud.update(o);
     const coast = clamp(1 + world.distToSea(o.x, o.z) / 420, 0, 1);
     this.audio.update(dt, coast, o.sprinting);
     if (this.params.get('debug') === '1') {
@@ -194,8 +184,6 @@ void main(){
     const o = this.octopus;
     this.audio.die();
     this.hud.el.endTitle.textContent = CAUSE[o.lastDamage] || 'The octopus dried out';
-    this.hud.el.endText.textContent = o.lastDamage === 'dry' ? 'The sun won this time. The octopus has stopped moving…' : 'The octopus has stopped moving…';
-    this.hud.el.endStats.textContent = `Survived ${this.fmt(this.runTime)} · travelled ${Math.round(o.distance)} m · ${Math.max(0, Math.round(-this.world.distToSea(o.x, o.z)))} m from the sea`;
     this.hud.el.restart.textContent = 'Restart game';
   }
 
@@ -204,8 +192,6 @@ void main(){
     this.state = 'won'; this.octopus.won = true;
     this.audio.win();
     this.hud.el.endTitle.textContent = 'You made it to the sea!';
-    this.hud.el.endText.textContent = 'Cool, wet and free. The octopus slips beneath the waves.';
-    this.hud.el.endStats.textContent = `Time ${this.fmt(this.runTime)} · distance ${Math.round(this.octopus.distance)} m · health ${Math.ceil(this.octopus.health)}%`;
     this.hud.el.restart.textContent = 'Play again';
     this.hud.setEndVisible(true);
   }

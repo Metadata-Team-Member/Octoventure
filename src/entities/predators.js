@@ -17,7 +17,7 @@ function pivot(child, x, y, z) { const g = new THREE.Group(); g.position.set(x, 
 // ---------------------------------------------------------------- species
 export const SPECIES = {
   gull: {
-    label: 'Seagull', speed: 8.5, walk: 2.4, notice: 26, attackRange: 1.6, damage: 12, cooldown: 1.0, pierce: 0, flying: false, hop: true,
+    label: 'Seagull', speed: 8.5, walk: 2.4, notice: 26, attackRange: 1.6, damage: 12, cooldown: 1.0, flying: false, hop: true,
     build() {
       const g = new THREE.Group(); const legs = [];
       const white = mat(0xf4f6f8), grey = mat(0x9aa3ad), orange = mat(0xf1a233), black = mat(0x222428);
@@ -36,7 +36,7 @@ export const SPECIES = {
     },
   },
   cat: {
-    label: 'Cat', speed: 9.5, walk: 2.6, notice: 24, attackRange: 2.0, damage: 15, cooldown: 1.1, pierce: 2.5,
+    label: 'Cat', speed: 9.5, walk: 2.6, notice: 24, attackRange: 2.0, damage: 15, cooldown: 1.1,
     build() {
       const g = new THREE.Group(); const legs = [];
       const fur = mat(0xd98a43), dark = mat(0x8c4f21), light = mat(0xf4e6cf), pink = mat(0xe9a4a4), black = mat(0x1d1d1d);
@@ -60,7 +60,7 @@ export const SPECIES = {
     },
   },
   dog: {
-    label: 'Dog', speed: 10.5, walk: 2.8, notice: 30, attackRange: 2.4, damage: 18, cooldown: 1.2, pierce: 5.5,
+    label: 'Dog', speed: 10.5, walk: 2.8, notice: 30, attackRange: 2.4, damage: 18, cooldown: 1.2,
     build() {
       const g = new THREE.Group(); const legs = [];
       const fur = mat(0x8a5a35), dark = mat(0x4a2d18), light = mat(0xe7d3b4), black = mat(0x151515);
@@ -81,7 +81,7 @@ export const SPECIES = {
     },
   },
   fox: {
-    label: 'Fox', speed: 10, walk: 2.7, notice: 32, attackRange: 2.1, damage: 20, cooldown: 1.1, pierce: 3.5,
+    label: 'Fox', speed: 10, walk: 2.7, notice: 32, attackRange: 2.1, damage: 20, cooldown: 1.1,
     build() {
       const g = new THREE.Group(); const legs = [];
       const fur = mat(0xd9692b), white = mat(0xfaf3e6), black = mat(0x1e1a18);
@@ -105,7 +105,7 @@ export const SPECIES = {
     },
   },
   crab: {
-    label: 'Crab', speed: 6.2, walk: 1.6, notice: 13, attackRange: 1.5, damage: 9, cooldown: 0.9, pierce: 1.5, side: true, shore: true,
+    label: 'Crab', speed: 6.2, walk: 1.6, notice: 13, attackRange: 1.5, damage: 9, cooldown: 0.9, side: true, shore: true,
     build() {
       const g = new THREE.Group(); const legs = []; const claws = [];
       const red = mat(0xd9462e), dark = mat(0xa8331f), black = mat(0x111111);
@@ -122,7 +122,7 @@ export const SPECIES = {
     },
   },
   eagle: {
-    label: 'Eagle', speed: 22, walk: 9, notice: 48, attackRange: 2.6, damage: 26, cooldown: 12, pierce: 0, flying: true,
+    label: 'Eagle', speed: 22, walk: 9, notice: 48, attackRange: 2.6, damage: 26, cooldown: 12, flying: true,
     build() {
       const g = new THREE.Group();
       const brown = mat(0x5b3d24), white = mat(0xf5f1e8), yellow = mat(0xf2c230), dark = mat(0x35241a), black = mat(0x111111);
@@ -143,7 +143,7 @@ export const SPECIES = {
     },
   },
   human: {
-    label: 'Person', speed: 6.2, walk: 2.2, notice: 22, attackRange: 3.0, damage: 24, cooldown: 1.6, pierce: 0, human: true,
+    label: 'Person', speed: 6.2, walk: 2.2, notice: 22, attackRange: 3.0, damage: 24, cooldown: 1.6, human: true,
     build() {
       const g = new THREE.Group(); const legs = [], arms = [];
       const shirt = mat([0xd04a4a, 0x3a78c9, 0x4aa86a, 0xe0b340, 0x8a55c4][Math.floor(Math.random() * 5)]);
@@ -241,9 +241,10 @@ export class Predator {
     const dist = Math.hypot(dx, dz);
     this.cool = Math.max(0, this.cool - dt); this.ignore = Math.max(0, this.ignore - dt);
     this.phase += dt * (1 + this.speed * 0.9);
+    if (player.camoProtected && dist < s.notice * 1.5) this.ignore = Math.max(this.ignore, 7);   // once fooled, it stays uninterested for a while
     if (s.flying) return this.updateEagle(dt, player, dist);
 
-    const fooled = player.camoActive && dist > s.pierce;      // camo fully on and the predator isn't nose-to-nose
+    const fooled = player.camoProtected;      // hidden: nobody can see, track or hurt you (no close-range exception)
     const alive = player.alive && !player.won;
     const sprintBoost = player.sprinting ? 1.25 : 1;
     const noticeR = s.notice * (player.moving ? sprintBoost : 0.65);
@@ -258,8 +259,8 @@ export class Predator {
           if (Math.random() < 0.4) { this.target = null; this.timer = 1.5 + Math.random() * 3; } else { this.pickWanderTarget(); this.timer = 4 + Math.random() * 5; }
         }
         if (this.target) { if (this.walkToward(this.target.x, this.target.z, s.walk, dt) < 1.2) { this.target = null; } } else this.speed = damp(this.speed, 0, 6, dt);
-        if (alive && this.ignore <= 0 && !fooled && (dist < noticeR || (dist < noticeR * 0.7 && !player.camoActive))) {
-          if (!(player.camoWanted && dist > s.pierce)) { this.state = 'alert'; this.alertT = this.kind === 'cat' ? 0.9 : 0.55; }
+        if (alive && this.ignore <= 0 && !fooled && dist < noticeR) {
+          this.state = 'alert'; this.alertT = this.kind === 'cat' ? 0.9 : 0.55;
         }
         break;
       }
@@ -268,6 +269,7 @@ export class Predator {
         this.speed = damp(this.speed, 0, 10, dt);
         this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 9, dt);
         this.alertT -= dt;
+        if (fooled) { this.state = 'confused'; this.timer = 1.4; break; }
         if (this.alertT <= 0) {
           if (fooled) { this.state = 'confused'; this.timer = 1.7; } else { this.state = 'chase'; this.chaseT = 0; }
         }
@@ -288,10 +290,11 @@ export class Predator {
         this.setMark('!', '#ff4d3d');
         this.speed = damp(this.speed, 0, 10, dt);
         this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 12, dt);
+        if (fooled) { this.lunge = 0; this.state = 'confused'; this.timer = 1.4; this.cool = s.cooldown; break; }
         this.lunge += dt / 0.4;
         if (this.lunge > 0.5 && !this.lungeHit) {
           this.lungeHit = true;
-          if (alive && dist < s.attackRange + 1.0 && !(player.camoActive && dist > s.pierce)) { dmg = s.damage; player.damage(s.damage, this.kind); }
+          if (alive && dist < s.attackRange + 1.0 && !fooled) { dmg = s.damage; player.damage(s.damage, this.kind); }
         }
         if (this.lunge >= 1) {
           this.lunge = 0; this.cool = s.cooldown;
@@ -327,7 +330,7 @@ export class Predator {
   updateEagle(dt, player, dist) {
     const s = this.spec, w = this.world;
     const alive = player.alive && !player.won;
-    const fooled = player.camoActive;
+    const fooled = player.camoProtected;
     let dmg = 0;
     const gy = w.heightAt(this.x, this.z);
     switch (this.state) {
@@ -362,10 +365,10 @@ export class Predator {
         this.alt = lerp(this.diveFrom.a, 0.7, f * f);
         this.heading = Math.atan2(px - this.x, pz - this.z);
         this.speed = 24;
-        if (player.camoActive && f > 0.15) { this.state = 'climb'; this.timer = 3.5; this.setMark('?', '#ffe14d'); this.cool = 7; break; }
+        if (fooled) { this.state = 'climb'; this.timer = 3.5; this.setMark('?', '#ffe14d'); this.cool = 7; break; }
         if (f >= 1) {
           const d = Math.hypot(player.x - this.x, player.z - this.z);
-          if (alive && d < s.attackRange + 0.6 && !player.camoActive) { dmg = s.damage; player.damage(s.damage, 'eagle'); }
+          if (alive && d < s.attackRange + 0.6 && !fooled) { dmg = s.damage; player.damage(s.damage, 'eagle'); }
           this.cool = s.cooldown; this.state = 'climb'; this.timer = 3.5;
         }
         break;

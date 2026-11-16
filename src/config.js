@@ -18,8 +18,8 @@ export const CONFIG = {
     sprintSpeed: 11.0,
     sprintDryMult: 2.0,    // sprinting dries you out this much faster
     turnRate: 10,
-    baseDryRate: 1.0,      // health lost per second on "normal" ground (multiplied by terrain dryMult)
-    lowHealthWarn: 30,     // HUD turns red below this
+    baseDryRate: 0.25,     // health lost per second on "normal" ground (x terrain dry multiplier). 0.25 = ~6.5 min from full to empty on grass
+    waterSpeedMult: 1.4,   // wading is FASTER than walking on land (terrain slow-downs don't apply in water)
   },
 
   // ---- Camouflage ----------------------------------------------------
@@ -30,13 +30,14 @@ export const CONFIG = {
     minToStart: 30,        // after running dry you need this much energy before camo works again
     fadeTime: 0.55,        // seconds to blend into the ground (predators only fooled once ~fully blended)
     dryMult: 1.25,         // holding camo costs extra moisture (chromatophores work hard)
+    // While hidden (holding camo with energy left) NO predator can hurt you or keep chasing - see Octopus.camoProtected
     moveSpeedMult: 0.0,    // 0 = frozen while camouflaged (a crawl would also be "mostly still")
   },
 
   // ---- Water -------------------------------------------------------
   water: {
     // health regained per second while standing in each water source
-    puddle: 26, stream: 34, tidepool: 30, drip: 16, sprinkler: 20, rain: 11, pond: 32,
+    sea: 40, puddle: 26, stream: 34, tidepool: 30, drip: 16, sprinkler: 20, rain: 11, pond: 32,
     puddleCount: 130,
     streamCount: 7,
     dripCount: 14,

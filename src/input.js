@@ -32,9 +32,11 @@ export class Input {
   }
 
   setupTouch(canvas, on) {
-    if (!('ontouchstart' in window) && !(navigator.maxTouchPoints > 0)) return;
     const ui = document.getElementById('touch');
-    if (ui) ui.hidden = false;
+    // hidden by default; shown the first time a finger touches the screen, hidden again on keyboard / mouse use
+    on(window, 'touchstart', () => { if (ui) ui.hidden = false; }, { passive: true });
+    on(window, 'keydown', () => { if (ui) ui.hidden = true; });
+    on(window, 'mousedown', (e) => { if (ui && e.sourceCapabilities && !e.sourceCapabilities.firesTouchEvents) ui.hidden = true; });
     const stick = document.getElementById('stick'), knob = document.getElementById('knob');
     const camo = document.getElementById('btn-camo'), sprint = document.getElementById('btn-sprint');
     let sid = null, cx = 0, cy = 0, look = null;
