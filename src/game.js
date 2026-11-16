@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { CONFIG, TERRAIN } from './config.js';
 import { WorldData } from './world/worldData.js';
 import { WorldView, FOG_COLOR } from './world/worldView.js';
+import { setFade } from './world/fade.js';
 import { Octopus } from './entities/octopus.js';
 import { PredatorManager } from './entities/predators.js';
 import { Input } from './input.js';
@@ -18,6 +19,7 @@ import { CarManager } from './entities/cars.js';
 import { Collectibles } from './systems/collect.js';
 import { Effects } from './systems/effects.js';
 import { clamp, damp, lerp } from './util/rng.js';
+const _fadeT = new THREE.Vector3();
 
 const CAUSE = { dry: 'The octopus dried out', gull: 'Pecked by a seagull', cat: 'Caught by a cat', dog: 'Chased down by a dog', fox: 'Caught by a fox', crab: 'Pinched by a crab', eagle: 'Snatched by an eagle', human: 'Picked up by a person', car: 'Hit by a car', magpie: 'Swooped by a magpie', kookaburra: 'Swooped by a kookaburra' };
 
@@ -39,7 +41,7 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(FOG_COLOR, CONFIG.graphics.fogNear, CONFIG.graphics.fogFar);
-    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, 0.2, 1400);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, 0.08, 1400);
     this.hud = new Hud();
     this.input = new Input(canvas);
     this.audio = new GameAudio();
@@ -230,6 +232,7 @@ void main(){
         if (e.type === 'alert') this.audio.creature(e.kind, e.x, e.y ?? 1.5, e.z);
         else if (e.type === 'call') this.audio.creature(e.kind, e.x, e.y ?? 2, e.z);
         else if (e.type === 'grab') this.audio.grab();
+        else if (e.type === 'thump') this.audio.thump(e.amp, e.x, e.y, e.z);
       }
       if (o.health < wasHealth - 4 && wasHealth - o.health > dt * 30) this.audio.hurt();
       if (o.camoWanted && !wasCamo) { this.audio.camo(true); }
@@ -328,20 +331,23 @@ void main(){
 
   updateCamera(dt, snap = false) {
     const o = this.octopus, C = CONFIG.camera;
-    const dist = clamp(C.distance + this.input.zoom, C.minDistance, C.maxDistance);
+    const k = o.sz ?? 1;                                          // the camera scales with the octopus: close and low, so the world towers
+    const dist = clamp(C.distance + this.input.zoom, C.minDistance, C.maxDistance) * k;
     const yaw = this.input.yaw + (this.panYaw || 0), pitch = this.input.pitch;
-    const tx = o.x, ty = o.y + 0.9, tz = o.z;
+    const tx = o.x, ty = o.y + 0.9 * k, tz = o.z;
     const off = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(dist);
     // swimming at depth: the camera drops down beside the octopus so the water is visible around it
     const dv = o.dive || 0;
-    const want = new THREE.Vector3(tx + off.x, ty + C.height * 0.4 + off.y * (1 - dv * 0.8) - dv * 0.5, tz + off.z);
+    const want = new THREE.Vector3(tx + off.x, ty + C.height * 0.4 * k + off.y * (1 - dv * 0.8) - dv * 0.5 * k, tz + off.z);
     const gy = this.world.heightAt(want.x, want.z);
-    if (want.y < gy + 0.9) want.y = gy + 0.9;
+    if (want.y < gy + 0.9 * k) want.y = gy + 0.9 * k;
     if (!this.camInit || snap) { this.camPos.copy(want); this.camInit = true; }
     else this.camPos.lerp(want, 1 - Math.exp(-14 * dt));
     this.camera.position.copy(this.camPos);
-    if (o.shake > 0.01) { const sk = o.shake * o.shake * 0.5; this.camera.position.x += (Math.random() - 0.5) * sk; this.camera.position.y += (Math.random() - 0.5) * sk; this.camera.position.z += (Math.random() - 0.5) * sk; }
-    this.camera.lookAt(tx, ty + 0.2, tz);
+    if (o.shake > 0.01) { const sk = o.shake * o.shake * 0.5 * k; this.camera.position.x += (Math.random() - 0.5) * sk; this.camera.position.y += (Math.random() - 0.5) * sk; this.camera.position.z += (Math.random() - 0.5) * sk; }
+    setFade(this.camera.position, _fadeT.set(tx, ty, tz), k);
+    if (o.thump > 0.01) this.camera.position.y -= o.thump * 0.35 * k * (Math.sin(performance.now() * 0.06) > 0 ? 1 : 0.4);   // footsteps of something big nearby jolt the view
+    this.camera.lookAt(tx, ty + 0.2 * k, tz);
     this.sky.position.copy(this.camera.position);
     // sun & shadow follow the octopus
     const L = this.atmo.lightDir; this.sun.position.set(tx + L.x * 120, ty + L.y * 120, tz + L.z * 120);

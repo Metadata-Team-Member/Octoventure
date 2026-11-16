@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { clamp } from '../util/rng.js';
-import { PROP_GEO } from '../world/props.js';
+import { PROP_GEO, CAR_SCALE } from '../world/props.js';
 
 export class CarManager {
   constructor(world, scene) {
@@ -40,7 +40,7 @@ export class CarManager {
     mesh.castShadow = CONFIG.graphics.shadows;
     this.scene.add(mesh);
     const dir = rnd() < 0.5 ? 1 : -1;
-    const car = { mesh, x: c.x, z: c.z, alongX: c.alongX, dir, speed: 9 + rnd() * 5, hornT: 0, hitCool: 0, heading: 0, lane: 1.9 };
+    const car = { mesh, x: c.x, z: c.z, alongX: c.alongX, dir, speed: 7 + rnd() * 4, hornT: 0, hitCool: 0, heading: 0, lane: 1.9 };
     this.place(car);
     return car;
   }
@@ -65,7 +65,7 @@ export class CarManager {
       const step = c.speed * dt * c.dir;
       const nx = c.alongX ? c.x + step : c.x, nz = c.alongX ? c.z : c.z + step;
       const ax = c.alongX ? c.x + c.dir * 9 : c.x, az = c.alongX ? c.z : c.z + c.dir * 9;
-      if (!w.isRoad(ax, az)) { c.dir = -c.dir; c.speed = 9 + w.rnd() * 5; }
+      if (!w.isRoad(ax, az)) { c.dir = -c.dir; c.speed = 7 + w.rnd() * 4; }
       else {
         const P = this.lineP(c.x, c.z);
         // crossing the centre line of the perpendicular street: maybe turn
@@ -86,16 +86,16 @@ export class CarManager {
         const fx = Math.sin(c.heading), fz = Math.cos(c.heading);
         const rx = player.x - c.px, rz = player.z - c.pz;
         const along = rx * fx + rz * fz, lat = rx * fz - rz * fx;
-        if (Math.abs(along) < 2.5 && Math.abs(lat) < 1.7 && c.hitCool <= 0) {
+        if (Math.abs(along) < 2.5 * CAR_SCALE && Math.abs(lat) < 1.0 * CAR_SCALE + 0.3 && c.hitCool <= 0) {
           c.hitCool = 1.6;
           player.damage(CONFIG.abilities.carDamage, 'car', { ignoreCamo: true });
           // knocked clear of the road
           const sgn = lat >= 0 ? 1 : -1;
           const kx = fz * sgn, kz = -fx * sgn;
-          const r = w.resolve(player.x + kx * 3.2, player.z + kz * 3.2, 0.7);
+          const r = w.resolve(player.x + kx * 3.6, player.z + kz * 3.6, 0.7 * (player.sz ?? 1));
           player.x = r.x; player.z = r.z; player.shake = 1; player.hitByCar = true;
         }
-        if (along > 0 && along < 28 && Math.abs(lat) < 3.2 && d < 40) { warn = true; if (c.hornT <= 0) c.hornT = 1.8; }
+        if (along > 0 && along < 34 && Math.abs(lat) < 3.6 && d < 40) { warn = true; if (c.hornT <= 0) c.hornT = 1.8; }
       }
       c.hornT = Math.max(0, c.hornT - dt);
     }

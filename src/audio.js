@@ -161,6 +161,8 @@ export class GameAudio {
 
   // ------------------------------------------------------------ the octopus
   step(wet = 0.5, speed = 5) { const v = 0.04 + 0.1 * clamp(wet, 0, 1); this.noise(0.08, 300 + R() * 220, v, null, 0.9); if (wet > 0.35) this.tone(150 + R() * 70, 0.07, 'sine', v * 0.6, -70); }
+  /** a low thud through the ground when something big walks past (amp 0..1.3) */
+  thump(amp, x, y, z) { if (!this.ctx) return; const d = this.at(x, y, z); this.tone(52 + 20 * Math.min(1, amp), 0.16, 'sine', Math.min(0.5, 0.12 + amp * 0.32), -30, 0, d); this.noise(0.1, 140, Math.min(0.3, amp * 0.2), d, 0.8); }
   heartbeat(v = 0.25) { this.tone(62, 0.13, 'sine', v); this.tone(52, 0.16, 'sine', v * 0.8, 0, 0.17); }
   ink() { this.noise(0.6, 800, 0.22); this.tone(210, 0.4, 'sine', 0.12, -120); this.tone(330, 0.2, 'sine', 0.08, -150, 0.05); }
   bite() { this.noise(0.35, 3000, 0.28, null, 1.2); this.tone(340, 0.3, 'sawtooth', 0.12, 240); }

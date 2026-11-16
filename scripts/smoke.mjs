@@ -176,11 +176,11 @@ const pred = await page.evaluate(() => {
   G.teleportNearOcean(-10 + 400);          // somewhere neutral inland
   G.setHealth(100);
   const base = G.ringGlow;
-  // fox 26 m away in front of the camera; octopus is moving so it gets noticed
+  // fox 16 m away in front of the camera; octopus is moving so it gets noticed
   const yaw = g.input.yaw, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
   g.input.keys.add('KeyW');
   G.advance(0.4);
-  const fox = G.spawnPredator('fox', fx * 26, fz * 26);
+  const fox = G.spawnPredator('fox', fx * 16, fz * 16);
   let alerted = false, t = 0;
   while (t < 4 && !alerted) { G.advance(1 / 30); t += 1 / 30; alerted = fox.state === 'alert' || fox.state === 'chase'; }
   const flash = (() => { G.advance(0.5); return { alarm: G.alarm, glow: G.ringGlow }; })();

@@ -192,7 +192,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     return { shallow, deep, spShallow };
   });
   ok(r.deep > r.shallow + 0.8, `swimming dives deeper when the camera looks down (${r.shallow.toFixed(1)} m -> ${r.deep.toFixed(1)} m)`);
-  ok(r.spShallow > 9, `swimming is fast (${r.spShallow.toFixed(1)} m/s)`);
+  ok(r.spShallow > 9 * 0.42, `swimming is fast (${r.spShallow.toFixed(1)} m/s)`);
 }
 
 // ================================================================ camouflage protects against everyone except cars
@@ -359,7 +359,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     G.mockPad(null);
     return out;
   });
-  ok(r.moved > 6, `left stick moves (${r.moved.toFixed(1)} m)`);
+  ok(r.moved > 6 * 0.42, `left stick moves (${r.moved.toFixed(1)} m)`);
   ok(r.looked > 0.5, `right stick looks (${r.looked.toFixed(2)} rad)`);
   ok(r.sprint, 'trigger sprints');
   ok(r.camo, 'A holds camouflage');
@@ -429,6 +429,42 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.sprites === 0 && r.canvases === 0 && r.marks === 0, `no exclamation / question markers or floating sprites on predators (sprites ${r.sprites}, canvas textures ${r.canvases})`);
   ok(r.lookDeg > 25 && r.aware > 0.8, `an alerted dog turns its head toward you (${r.lookDeg.toFixed(0)} deg, awareness ${r.aware.toFixed(2)})`);
   ok(r.calmLook < 5, `a calm cat does not stare (${r.calmLook.toFixed(1)} deg)`);
+}
+
+
+// ================================================================ real-scale perspective
+{
+  const r = await E(async () => {
+    const G = window.__game, g = G.game, o = g.octopus, w = g.world;
+    const out = { sz: o.sz, scale: o.group.scale.x };
+    const box = (obj) => { let minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9, minz = 1e9, maxz = -1e9; obj.updateMatrixWorld(true); obj.traverse((m) => { if (!m.isMesh) return; m.geometry.computeBoundingBox(); const b = m.geometry.boundingBox; for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) { const e = m.matrixWorld.elements; const X = e[0] * x + e[4] * y + e[8] * z + e[12], Y = e[1] * x + e[5] * y + e[9] * z + e[13], Z = e[2] * x + e[6] * y + e[10] * z + e[14]; minx = Math.min(minx, X); maxx = Math.max(maxx, X); miny = Math.min(miny, Y); maxy = Math.max(maxy, Y); minz = Math.min(minz, Z); maxz = Math.max(maxz, Z); } }); return { h: maxy - miny, len: Math.max(maxx - minx, maxz - minz) }; };
+    const ob = box(o.body); const octoLen = ob.len;
+    out.octoLen = octoLen;
+    G.clearPredators();
+    out.ratio = {};
+    for (const k of ['human', 'dog', 'cat', 'gull', 'magpie']) { const p = G.spawnPredator(k, 40, 0); p.group.rotation.set(0, 0, 0); p.group.scale.x; p.sync(0); const b = box(p.group); out.ratio[k] = +(Math.max(b.h, b.len) / octoLen).toFixed(1); G.clearPredators(); }
+    // footstep thump: a person walks past, the camera/ground gets a jolt
+    G.setTime(12); G.freezeTime(true);
+    G.setHealth(100);
+    const h = G.spawnPredator('human', 9, 0); h.state = 'wander'; h.target = { x: o.x + 3, z: o.z + 3 }; h.speed = 2.2; h.act = 1;
+    let maxT = 0, thumps = 0;
+    for (let i = 0; i < 240; i++) { g.advance(1 / 30); if (o.thump > maxT) maxT = o.thump; h.state = h.state === 'wander' ? 'wander' : h.state; }
+    out.thump = maxT;
+    G.clearPredators();
+    // bird shadow: an eagle in the air casts a ground shadow, one on the ground does not
+    const e = G.spawnPredator('eagle', 20, 0); g.advance(0.2);
+    out.shadowOn = !!e.shadowDisc && e.shadowDisc.visible; out.shadowDy = e.shadowDisc ? e.shadowDisc.position.y - w.heightAt(e.shadowDisc.position.x, e.shadowDisc.position.z) : 9;
+    G.clearPredators();
+    // occluder fade is compiled into the grass / prop materials
+    out.fade = [g.view.vcMat, g.view.whiteMat, g.view.grassMat].every((m) => typeof m.onBeforeCompile === 'function' && m.customProgramCacheKey() === 'fade1');
+    return out;
+  });
+  ok(Math.abs(r.sz - 0.42) < 1e-6 && Math.abs(r.scale - r.sz) < 1e-6, `the octopus is drawn at real-scale (size ${r.sz})`);
+  ok(r.ratio.human >= 6 && r.ratio.human <= 14, `a person towers over the octopus (~${r.ratio.human}x its length; target ~8x)`);
+  ok(r.ratio.dog >= 2.5 && r.ratio.dog <= 6 && r.ratio.gull >= 1.8 && r.ratio.cat >= 1.8, `a dog is ~${r.ratio.dog}x, cat ~${r.ratio.cat}x, gull ~${r.ratio.gull}x, magpie ~${r.ratio.magpie}x`);
+  ok(r.thump > 0.05, `a person walking past shakes the ground under the octopus (thump ${r.thump.toFixed(2)})`);
+  ok(r.shadowOn && Math.abs(r.shadowDy) < 0.3, `a bird overhead casts a shadow on the ground (visible ${r.shadowOn}, ${r.shadowDy.toFixed(2)} u above terrain)`);
+  ok(r.fade, 'camera occluder fade is compiled into the grass, tree and prop materials');
 }
 
 // ================================================================ the screen stays clean

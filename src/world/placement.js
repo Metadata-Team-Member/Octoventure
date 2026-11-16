@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 
 /** 1 cm at octopus scale (octopus ~1.5 u ~ 20 cm): the largest gap allowed under any object */
-export const TOL = 0.075;
+export const TOL = 0.0315;     // 1 cm at octopus scale: the octopus is ~20 cm = 0.63 u (CONFIG.octopus.size * 1.5 u model)
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _q = new THREE.Quaternion(), _qt = new THREE.Quaternion(), _v = new THREE.Vector3(), _n = { x: 0, y: 1, z: 0 }, _ax = new THREE.Vector3(), _p = new THREE.Vector3(), _sc = new THREE.Vector3();
@@ -24,7 +24,7 @@ const probeCache = new WeakMap();
 export function probesOf(geo) {
   let c = probeCache.get(geo); if (c) return c;
   geo.computeBoundingBox();
-  const bb = geo.boundingBox, h = bb.max.y - bb.min.y, pos = geo.attributes.position, band = bb.min.y + Math.max(0.06, h * 0.06);
+  const bb = geo.boundingBox, h = bb.max.y - bb.min.y, pos = geo.attributes.position, band = bb.min.y + Math.max(0.02, h * 0.06);
   const low = []; let cx = 0, cz = 0;
   for (let i = 0; i < pos.count; i++) if (pos.getY(i) <= band) { low.push([pos.getX(i), pos.getY(i), pos.getZ(i)]); cx += pos.getX(i); cz += pos.getZ(i); }
   cx /= low.length || 1; cz /= low.length || 1;
@@ -49,7 +49,8 @@ export function ringMin(world, x, z, r, n = 12) {
 }
 
 /** small things that lie on the ground tilt to the slope */
-const TILT_PROPS = new Set(['fence', 'wall', 'trough', 'tin', 'shellhide', 'bowl', 'slab', 'log', 'hollowlog', 'towel', 'cairn', 'crabpot', 'haybale', 'plank', 'drain']);
+const THIN = new Set(['towel', 'plank', 'drain']);      // flat things stay flush instead of sinking in
+const TILT_PROPS = new Set(['fence', 'wall', 'trough', 'tin', 'shellhide', 'bowl', 'slab', 'log', 'hollowlog', 'towel', 'cairn', 'crabpot', 'haybale', 'plank', 'drain', 'hull', 'fencehole']);
 
 /**
  * What to draw for one spawned object: yaw, scale, tilt (0..1 follows the slope), bury (units sunk below contact), and
@@ -59,7 +60,7 @@ export function instanceSpec(cat, sub, o, geoH = 1) {
   switch (cat) {
     case 'tree': return { x: o.x, z: o.z, rot: o.rot, sx: o.scale, sy: o.scale, sz: o.scale, tilt: 0, bury: 0.08 * o.scale };
     case 'rock': { const h = geoH * o.size * o.sy; return { x: o.x, z: o.z, rot: o.rot, sx: o.size, sy: o.size * o.sy, sz: o.size, tilt: 0.8, bury: 0.2 * h }; }
-    case 'grass': return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: 0, bury: 0.04 };
+    case 'grass': return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: 0, bury: 0.04 * o.s };
     case 'flower': return { x: o.x, z: o.z, rot: o.rot ?? 0, sx: o.s, sy: o.s, sz: o.s, tilt: 0, bury: 0.02 };
     case 'reed': return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: 0, bury: 0.04 };
     case 'beach':
@@ -73,7 +74,7 @@ export function instanceSpec(cat, sub, o, geoH = 1) {
     case 'shell': return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: 1, bury: 0.01 };
     case 'prop': {
       const s = o.s;
-      const sp = { x: o.x, z: o.z, rot: o.rot, sx: s, sy: s, sz: s, tilt: sub === 'drain' ? 1 : TILT_PROPS.has(sub) ? 0.8 : 0, bury: 0 };
+      const sp = { x: o.x, z: o.z, rot: o.rot, sx: s, sy: s, sz: s, tilt: sub === 'drain' ? 1 : TILT_PROPS.has(sub) ? 0.8 : 0, bury: TILT_PROPS.has(sub) && !THIN.has(sub) ? 0.03 : 0 };
       if (o.fixedY) sp.y = o.y;
       return sp;
     }
@@ -86,7 +87,15 @@ export function seat(world, geo, spec, out) {
   const P = probesOf(geo);
   _q.setFromAxisAngle(UP, spec.rot || 0);
   if (spec.tilt) {
-    world.faceNormal(spec.x, spec.z, _n);
+    // slope of the ground under the whole footprint (not of the one triangle under the centre: small things straddle several)
+    let R = 0;
+    for (const p of P.pts) R = Math.max(R, Math.hypot(p[0] * spec.sx, p[2] * spec.sz));
+    if (R > 0.02) {
+      R = Math.min(R, 3);
+      const hh = (dx, dz) => world.heightAt(spec.x + dx, spec.z + dz);
+      const nx = -(hh(R, 0) - hh(-R, 0)) / (2 * R), nz = -(hh(0, R) - hh(0, -R)) / (2 * R), nl = Math.hypot(nx, 1, nz);
+      _n.x = nx / nl; _n.y = 1 / nl; _n.z = nz / nl;
+    } else world.faceNormal(spec.x, spec.z, _n);
     const ang = Math.acos(Math.min(1, _n.y));
     if (ang > 1e-4) {
       _ax.set(_n.z, 0, -_n.x).normalize();                     // up x normal

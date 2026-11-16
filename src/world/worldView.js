@@ -14,6 +14,7 @@ import { smoothstep as ss, lerp, clamp } from '../util/rng.js';
 import { tint, merge, at, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
 import { HUE_KINDS, LANDMARK_KINDS } from './props.js';
 import { buildGeoLib } from './geoLib.js';
+import { applyFade } from './fade.js';
 import { seat, instanceSpec, geoFor, geoHeight, waterDisc, discMatrix, fitDisc, ringMin } from './placement.js';
 
 export const FOG_COLOR = 0xcfe6f2;
@@ -132,6 +133,7 @@ export class WorldView {
     this.vcMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }));
     this.whiteMat = this.track(new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, roughness: 0.95 }));
     this.grassMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1, side: THREE.DoubleSide }));
+    for (const m of [this.vcMat, this.whiteMat, this.grassMat]) applyFade(m);   // occluders dither away between the camera and the octopus
     this.terrainMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 }));
     this.waterMat = this.track(new THREE.MeshStandardMaterial({ color: 0x4aa8dc, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     this.lib = buildGeoLib();                       // the same geometry the placement audit uses

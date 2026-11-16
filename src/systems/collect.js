@@ -69,7 +69,7 @@ export class Collectibles {
         for (const sh of cell) {
           if (sh.got) { if (sh.fade > 0) { sh.fade = Math.max(0, sh.fade - dt * 4); this.setShell(sh.i, sh, sh.s * sh.fade); this.mesh.instanceMatrix.needsUpdate = true; } continue; }
           const ddx = sh.x - o.x, ddz = sh.z - o.z;
-          if (ddx * ddx + ddz * ddz < 1.5 * 1.5 && Math.abs(sh.y - o.y) < 3.5) {
+          if (ddx * ddx + ddz * ddz < (1.5 * (o.sz ?? 1) + 0.35) ** 2 && Math.abs(sh.y - o.y) < 3.5) {
             sh.got = true; sh.fade = 1;
             this.progress.addShell(runTime);
             o.armor = this.progress.armor;
@@ -81,7 +81,7 @@ export class Collectibles {
     if (o.alive) for (const b of w.babies) {
       if (b.found) continue;
       const d = Math.hypot(b.x - o.x, b.z - o.z);
-      if (d < 1.9 && Math.abs(b.y - o.y) < 3) this.rescue(b, o, runTime);
+      if (d < 1.9 * Math.max(0.6, o.sz ?? 1) && Math.abs(b.y - o.y) < 3) this.rescue(b, o, runTime);
     }
     for (let i = this.fx.length - 1; i >= 0; i--) if (!this.fx[i].update(dt)) { this.fx[i].dispose(); this.fx.splice(i, 1); }
   }

@@ -11,9 +11,13 @@ export const HOUSE_VARIANTS = [
   { w: 9, d: 8, h: 4.6 }, { w: 11, d: 9, h: 5.2 }, { w: 8, d: 7.5, h: 4.2 },
 ];
 /** collision / climbing footprint of each prop kind: [type, a, b, climb height] (box = half sizes, circle = radius) */
+const TREE_SCALE = 1.7;
+const GRASS_SCALE = 1.6;      // blades 1.1-2.4 u: taller than the 0.4 u-high octopus and many times its length
+/** props that are enlarged for the real-scale perspective (uniform, so their colliders scale too); see DESIGN.md */
+const PROP_SCALE = { bin: 1.9, lamp: 1.4, post: 1.6, umbrella: 1.4, log: 1.5, hollowlog: 1.4, crabpot: 1.6, cairn: 1.6, haybale: 1.4, slab: 1.2, trough: 1.3, pylon: 1.2, tin: 1.0 };
 const COLLIDE = {
-  fence: ['box', 3, 0.18, 1.4], wall: ['box', 3, 0.3, 1.1], shed: ['box', 1.6, 1.6, 2.4], bin: ['circle', 0.55], birdbath: ['circle', 0.4],
-  barn: ['box', 7.2, 4.7, 0], silo: ['circle', 3.0], haybale: ['circle', 1.0, 0, 1.5], windmill: ['circle', 0.7], shop: null, parkedcar: ['box', 1.05, 2.3, 1.5],
+  fence: ['box', 3, 0.18, 3.0], wall: ['box', 3, 0.3, 1.1], shed: ['box', 1.6, 1.6, 2.4], bin: ['circle', 0.55], birdbath: ['circle', 0.4],
+  barn: ['box', 7.2, 4.7, 0], silo: ['circle', 3.0], haybale: ['circle', 1.0, 0, 1.5], windmill: ['circle', 0.7], shop: null, parkedcar: ['box', 1.3, 2.9, 1.9],
   lamp: ['circle', 0.25], pylon: ['circle', 0.4], lighthouse: ['circle', 3.4], crabpot: ['circle', 0.55], shack: ['box', 3.2, 2.6, 0], hull: ['circle', 1.6],
   watertower: ['circle', 2.0], cairn: ['circle', 0.7],
 };
@@ -26,7 +30,7 @@ export function placeAreas(w) {
 
   /** push a visual prop (+ collider) and return it */
   const prop = (kind, x, z, o = {}) => {
-    const p = { kind, x, z, y: o.y ?? w.heightAt(x, z), rot: o.rot ?? 0, s: o.s ?? 1, tint: o.tint ?? 1, ...o.extra };
+    const p = { kind, x, z, y: o.y ?? w.heightAt(x, z), rot: o.rot ?? 0, s: (o.s ?? 1) * (PROP_SCALE[kind] ?? 1), tint: o.tint ?? 1, ...o.extra };
     w.props.push(p);
     const c = COLLIDE[kind];
     if (c && o.collide !== false) {
@@ -182,6 +186,7 @@ function town(ctx) {
     const d = dirs[Math.floor(rnd() * 4)], len = rnd.range(34, 70);
     const ex = s.x + d[0] * len, ez = s.z + d[1] * len;
     if (!w.isRoad(ex, ez, 3.4) || w.isRoad(ex, ez, 0) || w._blocked(ex, ez, 0.8) || w._blocked(s.x, s.z, 0.8)) continue;
+    { const h0 = w.heightAt(ex, ez); if ([[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5]].some(([a, b]) => Math.abs(w.heightAt(ex + a, ez + b) - h0) > 0.25)) continue; }   // a drain grate lies flat
     w.tunnels.push({ a: { x: s.x, z: s.z }, b: { x: ex, z: ez }, kind: 'drain', wet: true });
     prop('drain', s.x, s.z, { collide: false }); prop('drain', ex, ez, { collide: false });
     made++;
@@ -303,7 +308,7 @@ function scatterTrees(ctx) {
     if (Math.hypot(x - w.start.x, z - w.start.z) < 7 || w.isRoad(x, z, 2.2) || w.inLot(x, z, 2) || w._blocked(x, z, 1.2)) continue;
     const h = w.heightAt(x, z);
     if (h < (kind === 'mangrove' ? 0.12 : 0.9)) continue;
-    const scale = kind === 'bush' ? rnd.range(0.7, 1.4) : kind === 'gum' ? rnd.range(1.0, 1.8) : rnd.range(0.8, 1.7);
+    const scale = (kind === 'bush' ? rnd.range(0.7, 1.4) : kind === 'gum' ? rnd.range(1.0, 1.8) : rnd.range(0.8, 1.7)) * (kind === 'bush' ? 1.3 : TREE_SCALE);   // real-scale perspective: trees are giants next to a 20 cm octopus
     trees.push({ x, z, y: h, kind, scale, rot: rnd() * 6.28, tint: rnd.range(0.82, 1.1) });
     if (kind !== 'bush') w._addCircle(x, z, (kind === 'mangrove' ? 0.7 : 0.5) * scale, { kind: 'tree' });
   }
@@ -345,7 +350,7 @@ function scatterGround(ctx) {
     const h = w.heightAt(x, z);
     if (h < 0.9) continue;
     const dry = tp === 'scrub' || tp === 'dune' || tp === 'dunegrass' || tp === 'pasture' && rnd() < 0.4 || tp === 'litter';
-    grass.push({ x, z, y: h, s: rnd.range(0.7, 1.5) * (tp === 'dune' || tp === 'dunegrass' ? 1.4 : 1), rot: rnd() * 6.28, dry, tint: rnd.range(0.8, 1.15), wet: tp === 'swamp' });
+    grass.push({ x, z, y: h, s: rnd.range(0.7, 1.5) * GRASS_SCALE * (tp === 'dune' || tp === 'dunegrass' ? 1.4 : 1), rot: rnd() * 6.28, dry, tint: rnd.range(0.8, 1.15), wet: tp === 'swamp' });
   }
   tries = 0;
   const ft = Math.round(G.flowerCount * K);

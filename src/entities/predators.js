@@ -8,6 +8,7 @@ import { CONFIG, diff } from '../config.js';
 import { clamp, damp, dampAngle, angleDiff, lerp } from '../util/rng.js';
 
 let RND = Math.random;
+const _up = new THREE.Vector3(0, 1, 0), _sv = new THREE.Vector3(), _sn = { x: 0, y: 1, z: 0 };
 /** the manager points this at world.rnd so a seed (or the daily seed) fully decides who is where and how they spawn */
 export function setPredatorRng(f) { RND = f; }
 const mat = (hex, extra = {}) => new THREE.MeshStandardMaterial({ color: hex, flatShading: true, roughness: 0.85, ...extra });
@@ -16,6 +17,15 @@ const sph = (r, m, sx = 1, sy = 1, sz = 1, seg = 8) => { const o = new THREE.Mes
 const cone = (r, h, m, seg = 6) => new THREE.Mesh(new THREE.ConeGeometry(r, h, seg), m);
 const cyl = (r1, r2, h, m, seg = 6) => new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, seg), m);
 function pivot(child, x, y, z) { const g = new THREE.Group(); g.position.set(x, y, z); g.add(child); return g; }
+
+/**
+ * Real-scale perspective: how much each animal's model is enlarged. The octopus is drawn at 0.42 (CONFIG.octopus.size), so the
+ * models below (~1.3-2 u) tower over it: person ~8-9x its body length, dog ~3.5x, gull/magpie/kookaburra ~2.5x, cat/fox ~2.5-3x (measured by features.mjs). Not full
+ * real scale (people would be off-screen), so these are compressed a little. Reach / hit radii scale with them.
+ */
+const THUMP = { human: 1.0, dog: 0.5, fox: 0.28, cat: 0.28 };     // how hard each walker's steps hit the ground
+const FLYERS = new Set(['eagle', 'gull', 'magpie', 'kookaburra']);
+export const SIZE = { gull: 1.15, cat: 0.8, dog: 1.05, fox: 0.95, crab: 0.7, eagle: 1.3, human: 1.8, magpie: 1.0, kookaburra: 1.05 };
 
 // ---------------------------------------------------------------- species
 export const SPECIES = {
@@ -225,9 +235,14 @@ export class Predator {
     this.hasBucket = kind === 'human' && RND() < 0.65; if (m.bucket) m.bucket.visible = this.hasBucket;
     this.swoops = 0; this.perchAlt = 5.5 + RND() * 3; this.mgr = null; this.pounceT = 0; this.trackPt = null; this.act = 1;
     if (this.spec.swoop) { this.state = 'perch'; this.alt = this.perchAlt; }
-    this.scale = this.spec.scale ?? 1;
+    this.scale = SIZE[kind] ?? 1;
+    this.group.scale.setScalar(this.scale);
+    this.reach = this.spec.attackRange * this.scale;       // bigger animals reach further
     this.aware = 0; this.awareV = 0; this.toPlayer = this.heading;     // body-language level: 0 calm, ~0.45 wary / searching, 1 has noticed you
-    if (kind === 'eagle') { this.shadowDisc = new THREE.Mesh(new THREE.CircleGeometry(2.2, 14), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false })); this.shadowDisc.rotation.x = -Math.PI / 2; scene.add(this.shadowDisc); }
+    if (FLYERS.has(kind)) {          // a shadow that slides over the ground (and over the octopus) when a bird passes overhead
+      this.shadowDisc = new THREE.Mesh(new THREE.CircleGeometry(1, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+      this.shadowDisc.renderOrder = 3; this.shadowDisc.visible = false; scene.add(this.shadowDisc);
+    }
     this.sync();
   }
   /**
@@ -255,7 +270,7 @@ export class Predator {
     let nx = this.x + Math.sin(this.heading) * step, nz = this.z + Math.cos(this.heading) * step;
     if (!this.spec.flying) {
       if (!this.canWalk(nx, nz)) { this.heading += 1.2; this.speed *= 0.5; this.pickTargetSoon = true; return d; }
-      const r = this.world.resolve(nx, nz, 0.9 * (this.kind === 'human' ? 1.0 : 1)); nx = r.x; nz = r.z;
+      const r = this.world.resolve(nx, nz, 0.9 * this.scale * (this.kind === 'human' ? 1.0 : 1)); nx = r.x; nz = r.z;
     }
     this.x = nx; this.z = nz;
     return d;
@@ -314,7 +329,7 @@ export class Predator {
         if (fooled) { this.state = 'climb'; this.timer = 2; this.cool = 4; break; }
         if (f >= 1) {
           const d = Math.hypot(player.x - this.x, player.z - this.z);
-          if (alive && d < s.attackRange + 0.8 && !fooled) { dmg = s.damage; player.damage(s.damage, this.kind); }
+          if (alive && d < this.reach + 0.8 && !fooled) { dmg = s.damage; player.damage(s.damage, this.kind); }
           this.cool = s.cooldown; this.state = 'climb'; this.timer = 2.2;
         }
         break;
@@ -472,7 +487,7 @@ export class Predator {
         this.lift = Math.sin(Math.PI * k) * 1.1;
         this.lunge = k * 0.7;
         if (fooled) { this.state = 'confused'; this.timer = 1.4; this.lift = 0; this.lunge = 0; this.cool = s.cooldown; break; }
-        if (!this.pounceHit && alive && dist < s.attackRange + 0.4) { this.pounceHit = true; dmg = s.damage * 1.3; player.damage(dmg, this.kind); }
+        if (!this.pounceHit && alive && dist < this.reach + 0.4) { this.pounceHit = true; dmg = s.damage * 1.3; player.damage(dmg, this.kind); }
         if (k >= 1) { this.state = 'stalk'; this.cool = s.cooldown * 2.2; this.lift = 0; this.lunge = 0; this.crouch = 0.6; }
         break;
       }
@@ -511,7 +526,7 @@ export class Predator {
         if (dist > s.notice * 1.9 || this.chaseT > 14) { this.state = 'leave'; this.timer = 4; this.ignore = 6; break; }
         this.lift = damp(this.lift, 0, 5, dt);
         this.walkToward(player.x, player.z, s.speed, dt);
-        if (dist < s.attackRange && this.cool <= 0) { this.state = 'attack'; this.lunge = 0.0; this.lungeHit = false; }
+        if (dist < this.reach && this.cool <= 0) { this.state = 'attack'; this.lunge = 0.0; this.lungeHit = false; }
         break;
       }
       case 'attack': {
@@ -522,7 +537,7 @@ export class Predator {
         this.lunge += dt / 0.4;
         if (this.lunge > 0.5 && !this.lungeHit) {
           this.lungeHit = true;
-          if (alive && dist < s.attackRange + 1.0 && !fooled) {
+          if (alive && dist < this.reach + 1.0 && !fooled) {
             if (this.hasBucket && !player.carried && !player.tunnel) {
               // scooped up in the bucket: carried for a few seconds (health loss), then dropped
               player.carried = { by: this, t: 0 }; this.carrying = true; this.state = 'carry'; this.lunge = 0; this.cool = s.cooldown;
@@ -608,7 +623,7 @@ export class Predator {
         if (fooled) { this.state = 'climb'; this.timer = 3.5; this.cue(0.45); this.cool = 7; break; }
         if (f >= 1) {
           const d = Math.hypot(player.x - this.x, player.z - this.z);
-          if (alive && d < s.attackRange + 0.6 && !fooled) { dmg = s.damage; player.damage(s.damage, 'eagle'); }
+          if (alive && d < this.reach + 0.6 && !fooled) { dmg = s.damage; player.damage(s.damage, 'eagle'); }
           this.cool = s.cooldown; this.state = 'climb'; this.timer = 3.5;
         }
         break;
@@ -632,7 +647,23 @@ export class Predator {
     return dmg;
   }
 
+  /** ground shadow of a bird in the air: sharper and darker the lower it flies, gone when it is on the ground */
+  updateShadow() {
+    const d = this.shadowDisc; if (!d) return;
+    const h = this.alt + (this.lift || 0);
+    const on = h > 0.9 && this.state !== 'perch';
+    d.visible = on;
+    if (!on) return;
+    const w = this.world;
+    d.position.set(this.x, w.heightAt(this.x, this.z) + 0.06, this.z);
+    const n = w.faceNormal(this.x, this.z, _sn); d.quaternion.setFromUnitVectors(_up, _sv.set(n.x, n.y, n.z));
+    const r = (this.kind === 'eagle' ? 2.6 : 1.2) * this.scale * clamp(1.3 - h / 40, 0.55, 1.2);
+    d.scale.set(r, r * 1.5, r);
+    d.material.opacity = clamp(0.38 - h / 70, 0.08, 0.34);
+  }
+
   sync(dt = 0) {
+    this.updateShadow();
     const s = this.spec, p = this.parts, t = this.phase;
     this.group.position.set(this.x, this.y + (this.lift || 0), this.z);
     const faceOffset = s.side ? Math.PI / 2 : 0;
@@ -646,7 +677,6 @@ export class Predator {
       if (s.swoop) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'perch' ? -0.9 : this.state === 'swoop' ? 0.6 : Math.sin(this.phase * 16) * 0.7); });
       else p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'dive' ? 0.7 : flap + 0.08); });
       this.group.rotation.z = Math.sin(t * 0.2) * 0.15; this.group.rotation.x = this.state === 'dive' || this.state === 'swoop' ? 0.6 : this.state === 'climb' ? -0.35 : 0;
-      if (this.shadowDisc) { this.shadowDisc.position.set(this.x, (this.groundY ?? this.y) + 0.08, this.z); const sc = clamp(1.6 - this.alt / 20, 0.6, 1.5); this.shadowDisc.scale.set(sc, sc, sc); }
       return;
     }
     if (p.legs) p.legs.forEach((l, i) => { l.rotation.x = s.side ? 0 : swing * (i % 2 ? 1 : -1) * (this.kind === 'human' ? 0.9 : 1); if (s.side) l.rotation.z = (i % 2 ? 1 : -1) * Math.sin(t * 6 + i) * 0.25 * mv - (i < 3 ? -0.3 : 0.3) * 0; });
@@ -756,9 +786,20 @@ export class PredatorManager {
       const d = Math.hypot(p.x - player.x, p.z - player.z);
       const near = d < R;
       p.group.visible = d < CONFIG.graphics.fogFar + 20;
-      if (p.shadowDisc) p.shadowDisc.visible = p.group.visible;
+      if (p.shadowDisc && !p.group.visible) p.shadowDisc.visible = false;
       if (!near) continue;
       hurt += p.update(dt, player, this.world);
+      // ground-thump: every footfall of a heavy walker shakes the ground under the octopus (felt through the camera + a low thud)
+      const wt = THUMP[p.kind];
+      if (wt && p.speed > 0.8 && p.state !== 'perch') {
+        const sg = Math.sign(Math.sin(p.phase * 3.2));
+        if (p._sg !== undefined && sg !== p._sg) {
+          const f = clamp(1 - d / (28 * p.scale), 0, 1);
+          const amp = wt * clamp(p.speed / 5, 0.45, 1.3) * f * f;
+          if (amp > 0.02) { player.thump = Math.max(player.thump || 0, amp); events.push({ type: 'thump', amp, x: p.x, y: p.y, z: p.z }); }
+        }
+        p._sg = sg;
+      }
       if (p.events.length) { for (const e of p.events) events.push({ ...e, x: p.x, z: p.z, y: p.y + (p.lift || 0) + (p.alt || 0) }); p.events.length = 0; }
       if (p.state !== p._prev) {
         if (p.state === 'alert' && d < 70) events.push({ type: 'alert', who: p.spec.label, kind: p.kind, x: p.x, z: p.z, y: p.y + 1.5 });

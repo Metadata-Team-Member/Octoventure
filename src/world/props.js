@@ -25,6 +25,7 @@ function car() {
   ]);
 }
 
+export const CAR_SCALE = 1.25;
 export const PROP_GEO = {
   house0: () => house(9, 8, 4.6, 0xe8d9c2, 0xa14b3a),
   house1: () => house(11, 9, 5.2, 0xc9d6df, 0x5a5f6b),
@@ -83,3 +84,17 @@ export const PROP_GEO = {
 export const HUE_KINDS = new Set(['parkedcar', 'umbrella', 'towel', 'hull']);
 /** tall landmarks that stay visible beyond the normal view distance */
 export const LANDMARK_KINDS = new Set(['lighthouse', 'windmill', 'watertower']);
+
+/**
+ * Real-scale perspective: against a 20 cm octopus these things are far taller than their layouts (lot sizes, car slots, fence runs)
+ * were drawn for, so they are stretched *vertically* (footprints are untouched). Cars grow uniformly (slots are sized for that).
+ */
+const STRETCH = { house0: 1.7, house1: 1.7, house2: 1.7, shop: 1.5, barn: 1.4, shed: 1.7, fence: 2.1, fencehole: 1.0 };
+for (const [kind, k] of Object.entries(STRETCH)) {
+  const make = PROP_GEO[kind];
+  PROP_GEO[kind] = () => { const g = make(); g.scale(1, k, 1); return g; };
+}
+{
+  const make = PROP_GEO.parkedcar;
+  PROP_GEO.parkedcar = () => { const g = make(); g.scale(CAR_SCALE, CAR_SCALE, CAR_SCALE); return g; };
+}

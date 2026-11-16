@@ -3,7 +3,7 @@
 // For every spawned object (props, trees, rocks, grass, flowers, reeds, beach bits, seagrass, reef, shells, water decals,
 // taps, sprinklers, landmarks) across several seeds it takes the lowest part of the object, transforms it exactly the way
 // the renderer does, and compares it with the terrain MESH (the same triangles _terrainChunk draws, interpolated here with
-// an independent implementation). 1 cm at octopus scale = 0.075 u (octopus ~1.5 u ~ 20 cm).
+// an independent implementation). 1 cm at octopus scale = 0.0315 u (octopus ~0.63 u ~ 20 cm).
 //   hover  = how far the lowest point of the object is above the surface (a visible gap)       -> fail if > TOL
 //   buried = how far the object's base is below the surface at its deepest, vs its own height   -> fail if > limit
 import * as THREE from 'three';
@@ -44,7 +44,7 @@ const botCache = new WeakMap();
 function bottom(geo) {
   let c = botCache.get(geo); if (c) return c;
   geo.computeBoundingBox(); const bb = geo.boundingBox, h = bb.max.y - bb.min.y, pos = geo.attributes.position, pts = [];
-  const band = bb.min.y + Math.max(0.06, h * 0.06);
+  const band = bb.min.y + Math.max(0.02, h * 0.06);
   for (let i = 0; i < pos.count; i++) if (pos.getY(i) <= band) pts.push(new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)));
   c = { pts, h, minY: bb.min.y }; botCache.set(geo, c); return c;
 }
@@ -116,7 +116,7 @@ for (const seed of seeds) {
     const plane = (dx, dz) => wd.y0 !== undefined ? wd.y0 + wd.gx * dx + wd.gz * dz : wd.y;
     for (let k = 0; k < 36; k++) { const a = (k + 0.37) / 36 * Math.PI * 2, dx = Math.cos(a) * wd.r, dz = Math.sin(a) * wd.r; hov = Math.max(hov, plane(dx, dz) - surf(wd.q.x + dx, wd.q.z + dz)); }
     const hid = surf(wd.q.x, wd.q.z) - plane(0, 0);            // >0 : the centre of the pool is buried under the ground (invisible water)
-    tally('water', wd.q.kind, hov, hid, 1.5, 0.1 + TOL, Math.max(Math.abs(wd.gx ?? 0), Math.abs(wd.gz ?? 0)) >= 0.59 || w.half - Math.max(Math.abs(wd.q.x), Math.abs(wd.q.z)) < 24);
+    tally('water', wd.q.kind, hov, hid, 1.5, 0.175, Math.max(Math.abs(wd.gx ?? 0), Math.abs(wd.gz ?? 0)) >= 0.59 || w.half - Math.max(Math.abs(wd.q.x), Math.abs(wd.q.z)) < 24);
   }
   if (!LEGACY && P.placedExtras) for (const ex of P.placedExtras(w)) tally(ex.cat, ex.name, ex.hover(surf), ex.bury(surf), ex.limit);
 }

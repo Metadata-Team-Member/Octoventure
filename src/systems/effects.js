@@ -92,16 +92,16 @@ export class Effects {
     this.printMesh.instanceMatrix.needsUpdate = true;
     const onDry = !o.waterKind && !o.swim && !o.tunnel && !o.climb && !o.carried && o.alive;
     if (onDry && o.moving && wet > 0.25) {
-      if (!this.lastPrint || Math.hypot(o.x - this.lastPrint.x, o.z - this.lastPrint.z) > 0.9) {
+      if (!this.lastPrint || Math.hypot(o.x - this.lastPrint.x, o.z - this.lastPrint.z) > 0.9 * (o.sz ?? 1)) {
         const p = this.prints[this.printI++ % this.printN];
-        const side = (this.printI % 2 ? 1 : -1) * 0.22;
-        p.x = o.x + Math.cos(o.heading) * side; p.z = o.z - Math.sin(o.heading) * side; p.y = w.heightAt(p.x, p.z); p.rot = o.heading; p.age = 0; p.wet = wet; p.sz = 0.7 + wet * 0.5;
+        const side = (this.printI % 2 ? 1 : -1) * 0.22 * (o.sz ?? 1);
+        p.x = o.x + Math.cos(o.heading) * side; p.z = o.z - Math.sin(o.heading) * side; p.y = w.heightAt(p.x, p.z); p.rot = o.heading; p.age = 0; p.wet = wet; p.sz = (0.7 + wet * 0.5) * (o.sz ?? 1);
         this.lastPrint = { x: o.x, z: o.z };
         ctx?.step?.(wet, o.speed);
       }
     }
     // ---- droplets: shaken off while moving fast and wet, big splash on entering water
-    if (o.alive && o.moving && wet > 0.4 && o.speed > 6 && Math.random() < dt * 14) this.splash(o.x, o.y, o.z, 1);
+    if (o.alive && o.moving && wet > 0.4 && o.speed > 6 * (o.sz ?? 1) && Math.random() < dt * 14) this.splash(o.x, o.y, o.z, 1);
     const inW = !!o.waterKind;
     if (inW && !this.wasWater) this.splash(o.x, o.y, o.z, 16);
     if (inW && o.moving && Math.random() < dt * 10) this.splash(o.x, o.y, o.z, 1);

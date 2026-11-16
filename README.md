@@ -2,7 +2,7 @@
 
 A third-person 3D browser game (Three.js). You are a tiny **Australian blue-ringed octopus** (*Hapalochlaena*), stranded far inland and slowly drying out in the sun. The ocean is somewhere out there – **in a random direction every game, with no compass** – and you have to find your way back to it across an open world of gardens, roads, meadows, forests, mud, rocky hills, dunes and tidal flats.
 
-> Status: **initial concept / prototype (v0.1)** – built to be played, poked at and adjusted.
+> Status: **playable prototype (v0.2)** – built to be played, poked at and adjusted.
 > No login, no server, no accounts. The repo is private.
 
 ![gameplay](docs/screenshot.png)
@@ -34,37 +34,44 @@ npm run build:dist   # normal multi-file build into dist/ (for hosting on any st
 `play/index.html` is committed on purpose. GitHub Pages is **not** enabled: Pages on a *private* repository needs a paid GitHub plan. If you ever want a shareable link, either upgrade, make a public copy, or drop `dist/` on any static host (Netlify, Cloudflare Pages, S3, …).
 
 ## Controls
-| Action | Keys |
-|---|---|
-| Move (relative to the camera) | **W A S D** or **arrow keys** |
-| Sprint (dries you out 2× faster) | **Shift** |
-| Camouflage (hold) | **Space**, **C** or **E** |
-| Look around | **just move the mouse** (click the game once to capture it) |
-| Zoom | **mouse wheel** |
-| Pause / release the mouse | **Esc** (click to resume) |
-| Mute / unmute | **M** |
-| Restart after the game ends | button, or **R** |
+| Action | Keys / mouse | Gamepad |
+|---|---|---|
+| Move (relative to the camera) | **W A S D** or arrow keys | left stick |
+| Look around | just move the mouse (click Play once to capture it) | right stick |
+| Sprint (dries you out 2x faster) | **Shift** | LT / RT |
+| Camouflage (hold) | **Space**, **C** or **E** | A (hold) |
+| Ink cloud (only works in water) | **F** or **Q** | B |
+| Venom bite (last resort, long recharge) | **B** or right-click | X |
+| Climb a fence / wall at once | **R** (or just keep pushing into it) | Y (hold) |
+| Zoom | mouse wheel | |
+| Pause / release the mouse | **Esc** (pause menu: Resume, difficulty, Daily, New world) | Start |
+| Mute | **M** | |
+| Restart after dying | button, or **R** | |
 
-Mouse-look uses the browser's Pointer Lock: click once and the cursor disappears and the camera follows the mouse like a normal PC game; **Esc** releases it and pauses (nothing dries or moves) and shows a single **Resume** button until you click again. The win / game-over screens release the mouse so you can click their buttons. If the browser refuses the lock (some embedded browsers), it falls back to click-and-drag. Sensitivity and invert-Y are in `src/config.js` (`camera.mouseSensitivity`, `camera.invertY`).
+Mouse-look uses Pointer Lock; Esc releases it and pauses (nothing dries or moves). If the browser refuses the lock it falls back to click-and-drag. Touch screens get an on-screen joystick, RUN and CAMO buttons (shown only once you touch the screen).
 
-Touch screens get an on-screen joystick, RUN and CAMO buttons (they only appear once you touch the screen; they stay hidden on desktop). Drag anywhere else to look.
-Start: click **Play** (or press any key). URL options: `?seed=1234` (fixed first world), `?debug=1` (fps / position / distance-to-sea overlay for developers), `?shadows=0` (faster on weak GPUs), `?autostart=1` (skip the title screen).
+**URL options:** `?seed=1234` fixed world - `?daily=1` today's world (Perth date; same for everyone) - `?difficulty=gentle|normal|harsh` - `?size=2400` world width/depth in metres (default 1600, i.e. 4x the area of the first prototype; counts scale with the area) - `?shadows=0` faster on weak GPUs - `?autostart=1` skip the title - `?debug=1` fps / position overlay. Shift-click **Play** starts the daily world.
 
 ## How to play (a self-discovery game)
-There is **no HUD, timer, tutorial or hint text** on screen. Controls are listed here only; everything else you work out by playing.
-* The octopus **dries out** over time (about 6½ minutes from full to empty on ordinary ground – faster on some surfaces). Its **colour fades toward grey as health drops** and it slumps when it dies. Find water to bring the colour back.
-* Water comes in many forms – look and listen for it. Different ground changes your speed and how fast you dry; wading is *faster* than walking.
-* **Predators** roam each habitat. When one notices you your **blue rings flash**. Chase, bite, dive – you'll learn who is who.
-* **Camouflage** (hold Space): your body takes on the ground colour and the rings fade. **While you are camouflaged no predator can hurt you** – they break off, get confused and wander away, and stay uninterested for a while. It costs camo energy, freezes you and dries you faster; as the energy runs out **the rings go paler and paler** – that is your warning that the hiding is about to end.
-* **The sea** is in a random direction every game, and there is no compass or map.
-* **Win:** wade into the sea ("You made it to the sea!" / Play again). **Lose:** at 0 health the octopus stops moving and a **Restart game** button appears (new world, new sea direction).
+There is **no HUD, timer, tutorial, markers or hint text**. Everything is read from the world and the octopus itself.
+* You are **20 cm long** and the world is drawn to match: grass towers over you, puddles are ponds, a person is about 8x your size, a dog 3-4x, gulls and magpies 2-3x, cars are moving buildings. Big animals shake the ground when they walk close, and bird shadows sweep over you. Grass and props that block the camera dither away.
+* The octopus **dries out** (about 6.5 min from full on ordinary ground, faster on some surfaces and at midday or in heatwaves). Its **colour fades toward grey as it dries**. Find water: puddles, ponds, streams, tide pools, drips, taps, sprinklers, bird baths, pet bowls, bin lids after rain, dew at dawn, rain, the sea. Wading is faster than walking.
+* **Predators** (gull, cat, dog, fox, crab, eagle, person, magpie, kookaburra) each behave differently; you read them by body language - heads turning toward you, freezing, crouching, wings up, calls - and by your **blue rings flashing** when you have been noticed.
+* **Camouflage:** your body takes the ground colour and the rings fade; while camouflaged predators cannot hurt you and wander off. It costs energy (rings go paler as it runs out) and freezes you. **Cars ignore camouflage** - they are not looking - so listen: engine noise swells as one approaches and it will honk if it is bearing down on you.
+* **Abilities found by playing:** squeeze through drains, pipes, culverts and fence holes (walk into the mouth); hide in tins, shells, logs and under slabs; ink cloud in water blinds attackers; venom bite scares one off; climb fences and walls.
+* **Little octopuses** are hiding around the world; finding one plays a small scene. Nothing is counted on screen.
+* **The sea** is in a random direction, no compass or map; clues: sand and dunes, gulls and surf, pale haze, a sea breeze, streams drifting to the coast, Norfolk pines, a lighthouse. **Reaching it does not end the game**: you can swim, dive (look down), explore the reef and rock pools and walk back inland. Dying (0 health) stops the octopus and offers **Restart game**.
+* The world has 11 biomes: suburb, town, farm, bush, riverbank, wetland, dunes, beach, headland, estuary and the sea.
 
 ## Features
-* Procedural open world (seeded) – heightmap terrain, 10 terrain types, irregular coastline, tidal flats and a shallow sea. Subtle, unlabelled clues to the sea's direction (sand and dunes, gulls and surf, pale haze, a faint sea breeze, streams that drift to the coast; each can be switched off in `src/config.js`).
-* Blue-ringed octopus built from primitives: mottled ochre body, 8 animated arms, ~80 iridescent blue rings with black outlines. Colour drains to grey with health; rings flash when a predator has noticed you; under camouflage the body takes the ground colour and the rings fade, going pale as the camo energy runs out.
-* 7 predator species with a small state machine (wander → alert → chase → attack → confused → leave); eagles circle and dive. Camouflage makes you untouchable (attacks and dives abort at once).
-* Water scenarios: puddles, ponds, streams, tide pools, drips/seeps, sprinklers, rain clouds, sea shallows (wading is faster).
-* Low-poly style with fog, shadows, sky dome, clouds, drifting rain and procedural WebAudio sound (wind, surf, gulls, splash, alerts; **M** mutes).
+* Seeded open world, 1600 x 1600 m, streamed in 100 m chunks of instanced geometry; mesh-exact ground heights, everything seated on the terrain (an automated audit checks every object over 5 worlds).
+* Day/night cycle, weather (clear, heatwave, rain, storm), tides, wind and dew; per-biome lighting.
+* Spatial WebAudio (surf, wind, gulls, magpies, kookaburras, engines, horns, ground thumps, squelching footsteps, heartbeat when nearly dry), droplets, wet footprints, camera shake on lunges and heavy footsteps.
+* Difficulty (gentle / normal / harsh) and the daily world are chosen from the pause menu only.
+* Gamepad support (standard mapping).
+
+## Performance notes
+Measured headless with a software renderer (so a real GPU does far better): 360-490 draw calls and 165-320k triangles per frame depending on biome, world generation about 0.45 s, chunks build on demand. `?shadows=0` removes the shadow pass. Smaller `?size=` values help low-end machines.
 
 ## Tweaking the game
 Everything tunable is in **`src/config.js`**: world size, drying rate, sprint cost, camo energy / cooldown / dry multiplier, `waterSpeedMult`, water amounts and refill rates, predator counts and global damage (`damageMult: 0` = peaceful stroll), hints, graphics (tree/grass counts, fog, shadows) and the terrain table (colour, speed, dry multiplier). Predator species stats (speed, notice distance, damage) are at the top of `src/entities/predators.js`.
@@ -73,7 +80,9 @@ Everything tunable is in **`src/config.js`**: world size, drying rate, sprint co
 ```
 index.html            page + HUD markup           src/config.js       all tunables
 src/main.js           bootstrap                   src/game.js         game state, camera, win/lose, loop
-src/world/worldData.js  pure world generator      src/world/worldView.js  terrain/sea/water/decor rendering
+src/world/worldData.js  pure world generator      src/world/worldView.js  chunked terrain/decor rendering
+src/world/placement.js  ground seating (shared w/ audit)   src/world/fade.js  camera occluder fade
+src/world/areas.js    biome layouts, props, water   DESIGN.md / NOTES.md  design + status
 src/world/models.js   low-poly model helpers      src/entities/octopus.js  player model & rules
 src/entities/predators.js  species + AI           src/audio.js, input.js, hud.js, debug.js
 scripts/unit.mjs      world-generator checks      scripts/smoke.mjs   headless browser test
@@ -86,13 +95,16 @@ npm run unit     # world generator: sea always reachable, water variety, slow dr
 npm run smoke    # headless Chrome/Edge: loads play/index.html over file://, no console errors, render loop,
                  # no HUD elements, slow drying, colour → grey, faster in water, rings flash, rings pale as camo runs out,
                  # camouflage = no damage (incl. mid-attack & eagle dives), lose/restart, win, new sea direction
-npm test         # unit + build + smoke   (set CHROME_PATH if Chrome/Edge isn't auto-detected)
+npm run placement  # every object over 5 seeds sits on the ground (no hovering, no burying), 1 cm tolerance at octopus scale
+npm run features   # headless browser: abilities, predators, scale, thumps, bird shadows, gamepad, pause menu ...
+npm run biomes     # visits all 11 biomes, draw-call budget, screenshots
+npm test         # unit + placement + build + smoke + features   (set CHROME_PATH if Chrome/Edge isn't auto-detected)
 ```
 The page exposes `window.__game` (`setHealth`, `teleportToOcean`, `spawnPredator`, `advance`, …) for tests and console tinkering.
 
 ## Known limitations / ideas for next iteration
-* Prototype art: all models are primitives; animation is simple. Predator legs/gaits are basic.
-* No minimap/compass by design – but there's also no way to "learn" the world between runs; ideas: a field journal, discoverable landmarks.
-* Water collisions are circles and terrain carving is coarse (2.5 m grid), so puddle edges are a bit faceted.
-* Balance numbers are still first guesses (drying is now ~4× slower than v0.1). Needs playtesting – tweak `src/config.js`.
-* Ideas: day/night and heat waves, tides, hiding under rocks/seaweed for a camo bonus, venom bite as a last-ditch defence, more predators (snakes, crows, cars), difficulty modes, scoring/leaderboard, save/seed sharing, controller support, better sound, mobile polish, a proper menu/settings, optional login later.
+* Prototype art: all models are primitives; animation is simple.
+* Terrain is a 2.5 m grid, so narrow creek channels are only roughly resolved.
+* The world is not full real scale: people and animals are compressed (a person is ~8x, not ~9x) and buildings are lower than real, so nothing leaves the screen and layouts keep working.
+* Balance numbers are first guesses and need playtesting - tweak `src/config.js`.
+* Not tested on real GPUs / phones; no save game.

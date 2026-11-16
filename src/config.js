@@ -13,8 +13,9 @@ export const CONFIG = {
 
   // ---- Octopus -----------------------------------------------------
   octopus: {
+    size: 0.42,            // body scale. A blue-ringed octopus is ~20 cm: the model is 1.5 u long, so at 0.42 one unit ~ 33 cm and the whole world towers over it (see DESIGN.md)
     maxHealth: 100,
-    walkSpeed: 7.0,
+    walkSpeed: 7.0,        // speeds are for the unscaled body; Octopus multiplies them by `size` so it covers ground at 'octopus pace'
     sprintSpeed: 11.0,
     sprintDryMult: 2.0,    // sprinting dries you out this much faster
     turnRate: 10,
@@ -99,7 +100,8 @@ export const CONFIG = {
     flowerCount: 700,
   },
   camera: {
-    distance: 7.5, minDistance: 3.5, maxDistance: 16, height: 1.4, fov: 58, pitch: 0.42,
+    distance: 7.5, minDistance: 3.5, maxDistance: 16, height: 1.4, fov: 66,   // distances are for the unscaled octopus (multiplied by octopus.size): a low camera, a slightly wide lens
+    pitch: 0.42,
     usePointerLock: true,    // click once to capture the mouse, then just move it to look (Esc releases + pauses)
     mouseSensitivity: 0.0022, // radians per pixel of mouse movement
     invertY: false,          // true = push mouse up to raise the camera

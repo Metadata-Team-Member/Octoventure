@@ -19,6 +19,8 @@ export class Octopus {
   constructor(world, scene) {
     this.world = world;
     this.group = new THREE.Group();
+    this.sz = CONFIG.octopus.size ?? 1;           // real-scale perspective: the octopus is small, the world is big
+    this.group.scale.setScalar(this.sz);
     scene.add(this.group);
     this.mat = new THREE.MeshStandardMaterial({ color: SKIN.clone(), roughness: 0.35, metalness: 0.0, vertexColors: true });
     // iridescent blue rings (emissive so they can glow / flash) with a black outline
@@ -158,7 +160,7 @@ export class Octopus {
     this.splashT = 0;
     this.inkCool = 0; this.biteCool = 0; this.biteReady = 1; this.hiddenIn = null; this.hideBlend = 0;
     this.tunnel = null; this.climb = null; this.pushT = 0; this.carried = null; this.swim = 0; this.dive = 0; this.invuln = 0;
-    this.shake = 0; this.group.visible = true; this.pendingBabyGlow = 0;
+    this.shake = 0; this.thump = 0; this.group.visible = true; this.pendingBabyGlow = 0;
     this.armor = 0;                // hidden: fraction of damage absorbed (set by the game from collected shells)
   }
 
@@ -193,6 +195,7 @@ export class Octopus {
 
     this.inkCool = Math.max(0, this.inkCool - dt); this.biteCool = Math.max(0, this.biteCool - dt); this.invuln = Math.max(0, this.invuln - dt);
     this.shake = Math.max(0, this.shake - dt * 2.2);
+    this.thump = Math.max(0, (this.thump || 0) - dt * 5);
     if (this.alive && !this.won && (this.tunnel || this.climb || this.carried)) {
       this.updateSpecial(dt, input, world, water);
     } else if (this.alive && !this.won) {
@@ -215,17 +218,17 @@ export class Octopus {
       if (mag > 1) { mx /= mag; mz /= mag; }
       const canMove = !this.camoWanted || C.moveSpeedMult > 0;
       const sprint = input.sprint && mag > 0.1 && canMove;
-      const base = (sprint ? O.sprintSpeed : O.walkSpeed) * (water ? O.waterSpeedMult * (this.swim > 0.3 ? CONFIG.abilities.swimSpeedMult : 1) : T.speed) * (this.camoWanted ? C.moveSpeedMult : 1) * (this.hiddenIn ? 0.6 : 1);
+      const base = this.sz * (sprint ? O.sprintSpeed : O.walkSpeed) * (water ? O.waterSpeedMult * (this.swim > 0.3 ? CONFIG.abilities.swimSpeedMult : 1) : T.speed) * (this.camoWanted ? C.moveSpeedMult : 1) * (this.hiddenIn ? 0.6 : 1);
       const targetSpeed = canMove ? Math.min(1, mag) * base : 0;
       this.speed = damp(this.speed, targetSpeed, 12, dt);
-      this.moving = this.speed > 0.5;
+      this.moving = this.speed > 0.5 * this.sz;
       this.sprinting = sprint && this.moving;
       if (mag > 0.1 && canMove) this.heading = dampAngle(this.heading, Math.atan2(mx, mz), O.turnRate, dt);
       const dist = this.speed * dt;
       if (dist > 0) {
         const dx = Math.sin(this.heading) * dist, dz = Math.cos(this.heading) * dist;
         let nx = this.x + dx, nz = this.z + dz;
-        const r = world.resolve(nx, nz, 0.7);
+        const r = world.resolve(nx, nz, 0.7 * this.sz);
         nx = r.x; nz = r.z;
         // pushing into a fence / wall / bale: climb over it (instantly with the climb key, otherwise after a short push)
         if (r.hit && r.col?.climb && mag > 0.1) {
@@ -268,11 +271,11 @@ export class Octopus {
     // hide: walk into the middle of a hiding place; leave by walking out
     if (this.hiddenIn) {
       const h = this.hiddenIn;
-      if (Math.hypot(this.x - h.x, this.z - h.z) > h.r + 0.5) this.hiddenIn = null;
+      if (Math.hypot(this.x - h.x, this.z - h.z) > h.r + 0.5 * this.sz) this.hiddenIn = null;
     } else {
       for (const h of world.hides) {
         const dx = h.x - this.x, dz = h.z - this.z;
-        if (Math.abs(dx) < 1 && Math.abs(dz) < 1 && dx * dx + dz * dz < 0.75 * 0.75) { this.hiddenIn = h; this.hideEvent = h; break; }
+        if (Math.abs(dx) < 1 && Math.abs(dz) < 1 && dx * dx + dz * dz < (0.75 * this.sz * 1.4) ** 2) { this.hiddenIn = h; this.hideEvent = h; break; }
       }
     }
     this.hideBlend = damp(this.hideBlend, this.hiddenIn ? 1 : 0, 7, dt);
@@ -283,7 +286,7 @@ export class Octopus {
         for (let e = 0; e < 2; e++) {
           const m = e ? t.b : t.a, o = e ? t.a : t.b;
           const dx = m.x - this.x, dz = m.z - this.z;
-          if (dx * dx + dz * dz > 1.5 * 1.5) continue;
+          if (dx * dx + dz * dz > (1.5 * this.sz * 1.3) ** 2) continue;
           const ex = o.x - m.x, ez = o.z - m.z, el = Math.hypot(ex, ez) || 1;
           if ((fx * ex + fz * ez) / el < -0.2) continue;             // must be heading into the mouth, not away from it
           this.tunnel = { t, from: m, to: o, k: 0, len: el, wet: t.wet };
@@ -296,15 +299,15 @@ export class Octopus {
   startClimb(col, world) {
     const dx = Math.sin(this.heading), dz = Math.cos(this.heading);
     let ex = this.x, ez = this.z, ok = false;
-    for (let d = 0.6; d < 14; d += 0.5) {
+    for (let d = 0.6 * this.sz; d < 14; d += 0.5 * this.sz) {
       const x = this.x + dx * d, z = this.z + dz * d;
       let inside;
       if (col.r !== undefined) inside = Math.hypot(x - col.x, z - col.z) < col.r + 0.1;
       else inside = Math.abs(x - col.x) < col.hw + 0.1 && Math.abs(z - col.z) < col.hd + 0.1;
-      if (!inside) { ex = x + dx * 0.9; ez = z + dz * 0.9; ok = true; break; }
+      if (!inside) { ex = x + dx * 0.9 * this.sz; ez = z + dz * 0.9 * this.sz; ok = true; break; }
     }
     if (!ok) { this.pushT = 0; return; }
-    const r = world.resolve(ex, ez, 0.7);
+    const r = world.resolve(ex, ez, 0.7 * this.sz);
     if (r.hit) { this.pushT = -0.8; return; }                   // something solid on the far side: not a way across
     const h = col.h || 1.2;
     this.climb = { from: { x: this.x, z: this.z }, to: { x: ex, z: ez }, k: 0, dur: 0.8 + h * 0.35, h };
@@ -316,8 +319,8 @@ export class Octopus {
     if (this.carried) {
       const c = this.carried, by = c.by;
       c.t += dt;
-      this.x = by.x + Math.sin(by.heading) * 0.7; this.z = by.z + Math.cos(by.heading) * 0.7;
-      this.carryY = by.y + 2.5;
+      this.x = by.x + Math.sin(by.heading) * 0.7 * (by.scale || 1); this.z = by.z + Math.cos(by.heading) * 0.7 * (by.scale || 1);
+      this.carryY = by.y + 2.5 * (by.scale || 1);
       this.health = Math.max(0, this.health - (A.carryDamage / A.carryTime) * diff().damage * (1 - this.armor) * dt);
       this.lastDamage = 'human';
       this.hurtFlash = Math.max(this.hurtFlash, 0.4);
@@ -325,7 +328,7 @@ export class Octopus {
       if (c.t >= A.carryTime || this.camoWanted || by.dead) {
         // dropped a few metres away
         const a = Math.random() * 6.28;
-        const r = world.resolve(this.x + Math.cos(a) * 7, this.z + Math.sin(a) * 7, 0.7);
+        const r = world.resolve(this.x + Math.cos(a) * 7, this.z + Math.sin(a) * 7, 0.7 * this.sz);
         this.x = r.x; this.z = r.z; this.carried = null; this.invuln = 1.6; this.carryY = null; this.shake = 0.6;
         if (by.release) by.release();
       }
@@ -341,14 +344,14 @@ export class Octopus {
       if (T.k >= 1) {
         this.tunnel = null; this.invuln = 0.6;
         const dx = T.to.x - T.from.x, dz = T.to.z - T.from.z, l = Math.hypot(dx, dz) || 1;
-        this.x = T.to.x + dx / l * 1.4; this.z = T.to.z + dz / l * 1.4;
+        this.x = T.to.x + dx / l * 1.4 * this.sz; this.z = T.to.z + dz / l * 1.4 * this.sz;
       }
     } else if (this.climb) {
       const C = this.climb;
       C.k += dt / C.dur;
       const k = Math.min(1, C.k), e = k * k * (3 - 2 * k);
       this.x = lerp(C.from.x, C.to.x, e); this.z = lerp(C.from.z, C.to.z, e);
-      this.climbLift = Math.sin(Math.PI * k) * (C.h + 0.7);
+      this.climbLift = Math.sin(Math.PI * k) * (C.h + 0.7 * this.sz);
       if (C.k >= 1) { this.climb = null; this.climbLift = 0; }
     }
     // dry out slowly while being handled / climbing (tunnels handled above)
@@ -366,8 +369,8 @@ export class Octopus {
     let target = floor;
     if (sea) {
       const dive = clamp(((input.pitch ?? 0.42) - 0.4) / 0.6, 0, 1);
-      const surfaceY = world.seaLevel - 0.35;
-      const deepY = Math.max(floor + 0.35, world.seaLevel - Math.min(depth - 0.3, 6));
+      const surfaceY = world.seaLevel - 0.35 * this.sz;
+      const deepY = Math.max(floor + 0.35 * this.sz, world.seaLevel - Math.min(depth - 0.3, 6));
       this.dive = damp(this.dive, dive, 3, dt);
       target = lerp(surfaceY, deepY, this.dive);
     } else this.dive = damp(this.dive, 0, 5, dt);
@@ -379,9 +382,9 @@ export class Octopus {
 
   animate(dt) {
     const world = this.world;
-    this.walkPhase += dt * (this.speed * 1.1 + (this.alive ? 1.2 : 0));
+    this.walkPhase += dt * (this.speed / this.sz * 1.1 + (this.alive ? 1.2 : 0));
     const t = this.walkPhase;
-    const move = clamp(this.speed / 7, 0, 1.4);
+    const move = clamp(this.speed / (7 * this.sz), 0, 1.4);
     const dry = 1 - clamp(this.health / CONFIG.octopus.maxHealth, 0, 1);
     const camo = this.camoBlend;
     const died = this.alive ? 0 : clamp(this.deadT / 1.2, 0, 1);
