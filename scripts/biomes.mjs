@@ -57,7 +57,7 @@ for (const [a, b] of pairs) {
   }, a, b);
   check(r && r.a.mid > 0.3 && r.b.mid > 0.3, `${a} -> ${b}: a blend exists (weights ${r ? r.a.mid.toFixed(2) + ' / ' + r.b.mid.toFixed(2) : 'none'}), ground ${r ? JSON.stringify(r.types) : ''}`);
   check(r && r.a.here > r.b.here && r.calls < 900, `${a} -> ${b}: the camera starts on the ${a} side (${r ? r.a.here.toFixed(2) + ' vs ' + r.b.here.toFixed(2) : ''}), draw calls ${r ? r.calls : ''}`);
-  await page.screenshot({ path: `${opt('out', '.')}/octo-v5-transition-${a}-${b}.png` });
+  await page.screenshot({ path: `${opt('out', '/tmp')}/octo-v5-transition-${a}-${b}.png` });
 }
 check(problems.length === 0, 'no console errors or warnings' + (problems.length ? '\n' + problems.join('\n') : ''));
 console.log(fails ? `${fails} check(s) FAILED` : 'all biome checks passed');
