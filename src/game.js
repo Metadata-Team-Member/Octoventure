@@ -29,6 +29,7 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, CONFIG.graphics.pixelRatioCap));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
+    if (params.get('size')) CONFIG.worldSize = Math.max(800, Math.min(4800, Math.round(Number(params.get('size')) / 100) * 100 || CONFIG.worldSize));
     this.shadows = params.get('shadows') !== '0' && CONFIG.graphics.shadows;
     this.renderer.shadowMap.enabled = this.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -107,7 +108,9 @@ void main(){
     const fixed = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
     const s = seed ?? (!this.hadWorld && fixed != null ? fixed : Math.floor(Math.random() * 1e9));
     this.hadWorld = true;
+    const g0 = performance.now();
     this.world = new WorldData(s);
+    this.genMs = performance.now() - g0;
     this.view = new WorldView(this.world, this.scene, { shadows: this.shadows });
     if (!this.octopus) this.octopus = new Octopus(this.world, this.scene); else this.octopus.reset(this.world);
     this.env = new Environment(this.world);

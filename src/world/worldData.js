@@ -1,15 +1,18 @@
 // =====================================================================
 //  WorldData - the pure (no three.js) description of one generated world:
-//  terrain height, terrain type, water sources, colliders and decoration spots.
-//  Everything is derived from a seed so a world can be reproduced exactly.
+//  terrain height, terrain type, biomes, water sources, colliders and decoration spots.
+//  Everything is derived from a seed so a world can be reproduced exactly (daily seed!).
+//  Biome logic lives in biomes.js, the placement of each biome's props in areas.js.
 // =====================================================================
 import { CONFIG } from '../config.js';
 import { makeNoise } from '../util/noise.js';
 import { mulberry32, clamp, lerp, smoothstep } from '../util/rng.js';
+import { BiomeField, B, BIOMES, COAST_KINDS } from './biomes.js';
+import { placeAreas } from './areas.js';
 
 const ss = smoothstep;
 
-class Hash {
+export class Hash {
   constructor(cell = 16) { this.cell = cell; this.map = new Map(); }
   key(ix, iz) { return ix * 73856093 ^ iz * 19349663; }
   add(x, z, reach, item) {
@@ -34,62 +37,168 @@ export class WorldData {
     this.rnd = mulberry32(this.seed ^ 0x9e3779b9);
     this.n = makeNoise(this.seed);
     this.half = cfg.worldSize / 2;
+    this.areaScale = (cfg.worldSize / 800) ** 2;      // all "counts" in CONFIG are per 800 x 800 m, so density stays the same on bigger maps
 
     // --- the secret: which way is the sea? -----------------------------------------
     this.angle = this.rnd() * Math.PI * 2;
     this.dir = { x: Math.cos(this.angle), z: Math.sin(this.angle) };   // points TOWARDS the sea
+    this.perp = { x: -this.dir.z, z: this.dir.x };                     // along the shoreline
     this.cStart = -cfg.startDistance * this.half;
     this.cCoast = cfg.coastDistance * this.half;
-    this.roadOff = { x: this.rnd() * 80, z: this.rnd() * 80 };
+    this.roadOff = { x: this.rnd() * 90, z: this.rnd() * 90 };
 
     this.carveHash = new Hash(16);
     this.waterHash = new Hash(16);
     this.colHash = new Hash(12);
-    this.waters = [];        // every water source: {kind,x,z,r,H,carve}
-    this.seaLevel = 0;       // tide: the Environment moves this a little (+-0.5) over time
+    this.centreHash = new Hash(32);
+    this.creekHash = new Hash(24);
+    this.waters = [];        // every static water source: {kind,x,z,r,H,carve}
     this.rain = [];          // moving rain clouds: {x,z,r,vx,vz}
     this.temp = [];          // temporary storm puddles (Environment adds / removes them)
     this.seasonal = [];      // sources that only exist at certain times: {kind,gate,x,z,r}
     this.gates = { dew: 0, wet: 0 };
     this.dryMult = 1; this.night = 0; this.weatherKind = 'clear'; this.gust = 0; this.raining = false;
+    this.seaLevel = 0;       // tide: the Environment moves this a little (+-0.5) over time
     this.houses = [];
-    this.taps = [];          // visual props for drips / seeps / sprinklers
+    this.taps = [];          // visual props for drips / seeps / sprinklers / aircon
     this.sprinklers = [];
-    this.colliders = [];     // circles {x,z,r} and boxes {x,z,hw,hd}
+    this.colliders = [];     // circles {x,z,r} and boxes {x,z,hw,hd}  (+ optional climb/h/kind)
+    this.props = [];         // visual props {kind,x,z,y,rot,s,...} (instanced per chunk by the view)
+    this.hides = [];         // hiding places {x,z,r,kind}
+    this.tunnels = [];       // squeeze-through gaps {a:{x,z},b:{x,z},kind,wet}
+    this.shells = [];        // hidden collectible shells {x,z,y,got}
+    this.babies = [];        // baby octopuses to rescue {id,x,z,y,kind,found}
+    this.landmarks = [];     // {kind,x,z}
+    this.creek = [];         // creek centre-line nodes (every ~2.4 m)
+    this.coast = null;
 
+    this._makeCoast();
+    this._makeCreek();
+    this.biomes = new BiomeField(this);
     this._placeStart();
     this._placeWater();
-    this._placeHouses();
-    this.decor = this._placeDecor();
+    placeAreas(this);
   }
 
   // ---------------- coordinates ----------------------------------------------------
   /** 0 at the start line, 1 at the shoreline (not warped). */
   progress(x, z) { return (x * this.dir.x + z * this.dir.z - this.cStart) / (this.cCoast - this.cStart); }
+  /** metres along the shoreline (perpendicular to the sea direction) */
+  lateral(x, z) { return x * this.perp.x + z * this.perp.z; }
   /** progress with an irregular coastline / biome borders. */
   tAt(x, z) {
-    const w = this.n.fbm(x * 0.0055 + 311, z * 0.0055 - 77, 3) * 0.06;
-    const j = this.n.noise2(x * 0.045, z * 0.045) * 0.012;
+    const n = this.n;
+    const w = n.fbm(x * 0.0055 + 311, z * 0.0055 - 77, 3) * 0.06 + n.fbm(x * 0.0016 + 9, z * 0.0016 - 3, 2) * 0.05;
+    const j = n.noise2(x * 0.045, z * 0.045) * 0.012;
     return this.progress(x, z) + w + j;
   }
   /** meters from the shoreline along the sea direction (negative = on land) */
   distToSea(x, z) { return (this.tAt(x, z) - 1.0) * (this.cCoast - this.cStart); }
+  get span() { return this.cCoast - this.cStart; }
+  /** point on the (unwarped) shoreline at lateral position u */
+  shorePoint(u, tt = 1) {
+    const c = this.cStart + tt * this.span;
+    return { x: this.dir.x * c + this.perp.x * u, z: this.dir.z * c + this.perp.z * u };
+  }
+
+  // ---------------- coast stretches & the creek (decided first: no heights needed) -----------------
+  _makeCoast() {
+    const rnd = this.rnd;
+    const order = [0, 1, 2, 3];
+    for (let i = 3; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    const segs = []; let a = 0;
+    for (const k of order) { const wdt = k === 3 ? rnd.range(240, 330) : rnd.range(290, 440); segs.push({ kind: k, a, b: a + wdt }); a += wdt; }
+    const period = a;
+    const est = segs.find((s) => s.kind === 3);
+    const uE = rnd.range(-220, 220);
+    const shift = uE - (est.a + est.b) / 2;
+    this.coast = { segments: segs, period, shift, estuaryU: uE, kinds: COAST_KINDS };
+  }
+  /** which stretch of coast is at lateral u: index into COAST_KINDS (dominant) */
+  coastKindAt(u) { return this.biomes.coastKinds(u).reduce((best, v, i, arr) => (v > arr[best] ? i : best), 0); }
+  /** lateral centre of the nearest stretch of the given kind (for tests / landmark placement) */
+  coastCentre(kindName, near = 0) {
+    const k = COAST_KINDS.indexOf(kindName), c = this.coast;
+    let best = null;
+    for (const s of c.segments) if (s.kind === k) for (const off of [-c.period, 0, c.period]) {
+      const m = (s.a + s.b) / 2 + off + c.shift;
+      if (best === null || Math.abs(m - near) < Math.abs(best - near)) best = m;
+    }
+    return best;
+  }
+
+  _makeCreek() {
+    const rnd = this.rnd;
+    const E = this.shorePoint(this.coast.estuaryU, 0.985);
+    const mk = (S, T, amp, steps0) => {
+      const len = Math.hypot(T.x - S.x, T.z - S.z) * 1.12;
+      const steps = Math.max(8, Math.floor(len / 2.4));
+      const p1 = rnd() * 6.28, p2 = rnd() * 6.28, f1 = rnd.range(6, 10), f2 = rnd.range(14, 20);
+      const pts = [];
+      for (let i = 0; i <= steps; i++) {
+        const s = i / steps, env = Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.98 + 0.01)), 0.6);
+        const m = amp * (Math.sin(s * f1 + p1) * 0.6 + Math.sin(s * f2 + p2) * 0.3) * env;
+        pts.push({ x: lerp(S.x, T.x, s) + this.perp.x * m, z: lerp(S.z, T.z, s) + this.perp.z * m, s });
+      }
+      return pts;
+    };
+    const uS = this.coast.estuaryU + rnd.range(-240, 240);
+    const S = this.shorePoint(uS, 0.27);
+    const main = mk(S, E, 55);
+    // a tributary that joins the main creek about 60% of the way down
+    const j = main[Math.floor(main.length * 0.62)];
+    const S2 = this.shorePoint(uS + rnd.range(-260, 260) , 0.5);
+    const trib = mk(S2, j, 30);
+    this.creek = main; this.creekTrib = trib;
+    for (const list of [main, trib]) list.forEach((p, i) => { if (i % 3 === 0) this.creekHash.add(p.x, p.z, 26, p); });
+  }
+  /** metres to the nearest creek centre line (1e9 when far) */
+  creekDist(x, z) {
+    const list = this.creekHash.at(x, z);
+    let best = 1e9;
+    for (let i = 0; i < list.length; i++) { const p = list[i]; const d = (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z); if (d < best) best = d; }
+    return best > 1e8 ? 1e9 : Math.sqrt(best);
+  }
+  /** creek progress s (0 source .. 1 mouth) at the nearest node (only valid when close) */
+  creekS(x, z) {
+    const list = this.creekHash.at(x, z); let best = 1e9, s = 0;
+    for (const p of list) { const d = (x - p.x) ** 2 + (z - p.z) ** 2; if (d < best) { best = d; s = p.s; } }
+    return s;
+  }
 
   // ---------------- terrain height -------------------------------------------------
-  _zoneAmp(tt) {
-    return 0.8 + 2.7 * ss(0.14, 0.26, tt) + 5.6 * ss(0.42, 0.56, tt) - 6.2 * ss(0.68, 0.78, tt) - 2.6 * ss(0.86, 0.94, tt);
-  }
   /** terrain before water carving */
   baseHeight(x, z) {
     const n = this.n;
-    const tt = this.tAt(x, z);
-    const amp = this._zoneAmp(tt);
-    let h = 2.3 + amp * (n.fbm(x * 0.011, z * 0.011, 4) + 1) * 0.95 + 0.22 * n.noise2(x * 0.13, z * 0.13);
-    const ridge = 1 - Math.abs(n.noise2(x * 0.028 + 5, z * 0.028 - 9));
-    h += ss(0.7, 0.76, tt) * (1 - ss(0.88, 0.95, tt)) * 3.0 * ridge * ridge;   // dunes
-    const beach = 1.5 - 15 * (tt - 0.9);
-    h = lerp(h, beach, ss(0.84, 0.95, tt));
-    if (tt > 0.92 && tt < 1.02) h += 0.12 * n.noise2(x * 0.2, z * 0.2);        // tidal-flat ripples
+    const w = this.biomes.weights(x, z);
+    const tw = this.tAt(x, z);
+    const u = this.lateral(x, z);
+    const hills = ss(0.46, 0.6, tw);
+    const amp = w[B.suburb] * 0.8 + w[B.town] * 0.45 + w[B.farm] * 1.9 + w[B.bush] * (3.4 + 5.2 * hills) + w[B.riverbank] * 1.6 +
+      w[B.wetland] * 0.5 + w[B.dunes] * 2.4 + w[B.beach] * 0.9 + w[B.headland] * 7.5 + w[B.estuary] * 0.3 + w[B.sea] * 0.8;
+    const low = w[B.wetland] + w[B.estuary];
+    let h = lerp(2.3, 1.1, low) + amp * (n.fbm(x * 0.011, z * 0.011, 4) + 1) * 0.95 + 0.22 * n.noise2(x * 0.13, z * 0.13) * (1 - low * 0.6);
+    // creek valley: the banks slope gently down to the water
+    const cd = this.creekDist(x, z);
+    if (cd < 22) h -= 0.55 * (1 - ss(3, 22, cd)) * (1 - low);
+    // ---- the shore: each stretch of coast has its own profile ------------------------------
+    const coast = ss(0.64, 0.74, tw);
+    if (coast > 0) {
+      const ck = this.biomes.coastKinds(u);
+      // beach (+ dunes behind): ridges, then a gentle slope into the sea
+      let hb = h + ss(0.7, 0.76, tw) * (1 - ss(0.88, 0.95, tw)) * 3.0 * Math.pow(1 - Math.abs(n.noise2(x * 0.028 + 5, z * 0.028 - 9)), 2);
+      hb = lerp(hb, 1.5 - 15 * (tw - 0.9), ss(0.84, 0.95, tw));
+      // mangrove wetland: low, flat, muddy; shallow for a long way
+      let hm = lerp(h, 0.75 - 4 * (tw - 0.9) + 0.1 * n.noise2(x * 0.2, z * 0.2), ss(0.74, 0.9, tw)) - 14 * ss(1.05, 1.3, tw);
+      // headland: high ground, a cliff, a rocky shelf with pools, then deep water
+      let hh = lerp(h, 0.55 + 0.35 * n.noise2(x * 0.09, z * 0.09), ss(0.9, 0.972, tw)) - 55 * ss(1.0, 1.1, tw) * 0.2 - 10 * ss(1.02, 1.2, tw);
+      hh += ss(0.7, 0.8, tw) * (1 - ss(0.9, 0.95, tw)) * 1.5;
+      // estuary: wide mudflats and channels
+      let he = lerp(h, 0.5 - 3 * (tw - 0.9) + 0.08 * n.noise2(x * 0.15, z * 0.15), ss(0.78, 0.9, tw)) - 12 * ss(1.06, 1.3, tw);
+      const hc = ck[0] * hb + ck[1] * hm + ck[2] * hh + ck[3] * he;
+      h = lerp(h, hc, coast);
+    }
+    if (tw > 0.97 && tw < 1.02) h += 0.1 * n.noise2(x * 0.2, z * 0.2);        // tidal-flat ripples
     if (h < -7) h = -7;
     const e = this.half - Math.max(Math.abs(x), Math.abs(z));                  // fade into the mist at the world edge
     h = lerp(-9, h, ss(-2, 12, e));
@@ -127,40 +236,80 @@ export class WorldData {
   /** metres of water above the sea floor here (0 on land) */
   seaDepth(x, z) { return this.tAt(x, z) > 0.95 ? Math.max(0, this.seaLevel - this.heightAt(x, z)) : 0; }
 
-  // ---------------- terrain type ---------------------------------------------------
+  // ---------------- biomes & terrain type ----------------------------------------------
+  /** copy of the soft biome weights at x,z (index with B.xxx) */
+  biomeWeights(x, z, out = new Float32Array(BIOMES.length)) { out.set(this.biomes.weights(x, z)); return out; }
+  biomeAt(x, z) { return BIOMES[this.biomes.at(x, z)]; }
+
+  /** streets: a grid in the suburbs / town */
   isRoad(x, z, margin = 0) {
-    if (this.progress(x, z) > 0.17) return false;
-    const mx = (((x - this.roadOff.x) % 80) + 80) % 80;
-    const mz = (((z - this.roadOff.z) % 80) + 80) % 80;
-    const hw = 4.2 + margin;
-    return mx < hw || mx > 80 - hw || mz < hw || mz > 80 - hw;
+    const w = this.biomes.weights(x, z);
+    const town = w[B.town] > 0.4, urb = w[B.suburb] + w[B.town];
+    if (urb < 0.45) return false;
+    const P = town ? 64 : 92, hw = (town ? 5.0 : 4.2) + margin;
+    const mx = (((x - this.roadOff.x) % P) + P) % P;
+    const mz = (((z - this.roadOff.z) % P) + P) % P;
+    return mx < hw || mx > P - hw || mz < hw || mz > P - hw;
   }
-  /** key of CONFIG-like TERRAIN table */
+  inLot(x, z, margin = 0) {
+    for (const l of this.lots || EMPTY) if (Math.abs(x - l.x) < l.hw + margin && Math.abs(z - l.z) < l.hd + margin) return true;
+    return false;
+  }
+  /** ground type (key of TERRAIN) before puddle rims */
   baseType(x, z) {
     const n = this.n;
-    const tt = this.tAt(x, z);
-    if (tt > 1.0) return 'wet';
-    if (tt < 0.2) {
-      if (this.isRoad(x, z)) return 'road';
-      return n.fbm(x * 0.02 + 8, z * 0.02) > 0.45 ? 'grass' : 'lawn';
+    const tw = this.tAt(x, z);
+    if (tw > 1.0) return 'wet';
+    const w = this.biomes.weights(x, z);
+    let id = 0;
+    for (let i = 1; i < w.length; i++) if (w[i] > w[id]) id = i;
+    switch (BIOMES[id]) {
+      case 'suburb':
+        if (this.isRoad(x, z)) return 'road';
+        return n.fbm(x * 0.02 + 8, z * 0.02) > 0.45 ? 'grass' : 'lawn';
+      case 'town':
+        if (this.isRoad(x, z)) return 'road';
+        if (this.inLot(x, z, 0)) return 'paving';
+        if (this.isRoad(x, z, 2.8)) return 'paving';
+        return n.fbm(x * 0.03 + 4, z * 0.03) > 0.3 ? 'lawn' : 'paving';
+      case 'farm': {
+        const cx = Math.floor(x / 70), cz = Math.floor(z / 70);
+        const hsh = (Math.sin(cx * 127.1 + cz * 311.7 + this.seed * 0.001) * 43758.5453) % 1;
+        if ((((x % 70) + 70) % 70) < 2.2 && hsh > 0) return 'gravel';
+        return Math.abs(hsh) > 0.6 ? 'plough' : 'pasture';
+      }
+      case 'bush': {
+        const r = n.fbm(x * 0.016 + 9, z * 0.016 - 4, 3);
+        if (r > 0.34 && tw > 0.5) return 'rock';
+        const wm = n.fbm(x * 0.012 - 80, z * 0.012 + 30, 3);
+        if (wm > 0.42) return 'mud';
+        const f = n.fbm(x * 0.02 + 50, z * 0.02 - 20, 3);
+        if (f > 0.3) return 'grass';
+        return f < -0.28 ? 'scrub' : 'litter';
+      }
+      case 'riverbank': {
+        const cd = this.creekDist(x, z);
+        if (cd < 4.5) return 'mud';
+        return n.fbm(x * 0.05, z * 0.05) > 0.1 ? 'gravel' : 'bank';
+      }
+      case 'wetland':
+        if (tw > 0.935) return 'wet';
+        return n.fbm(x * 0.03 + 3, z * 0.03 + 11, 2) > 0.2 ? 'mud' : 'swamp';
+      case 'dunes':
+        return n.fbm(x * 0.03, z * 0.03 + 4, 3) > 0.15 ? 'dunegrass' : 'dune';
+      case 'beach':
+        return tw < 0.965 ? (n.fbm(x * 0.05 + 3, z * 0.05 + 11, 2) > 0.5 ? 'rock' : 'sand') : 'wet';
+      case 'headland':
+        if (tw > 0.975) return 'wet';
+        if (tw > 0.93) return 'rock';
+        {
+          const f = n.fbm(x * 0.03 + 7, z * 0.03 - 2, 3);
+          return f > 0.25 ? 'scrub' : f < -0.2 ? 'rock' : 'headland';
+        }
+      case 'estuary':
+        return n.fbm(x * 0.05 + 3, z * 0.05 + 11, 2) > 0.4 ? 'sand' : tw > 0.93 ? 'wet' : 'swamp';
+      default: return 'wet';
     }
-    const wm = n.fbm(x * 0.012 - 80, z * 0.012 + 30, 3);
-    const f = n.fbm(x * 0.008 + 50, z * 0.008 - 20, 3);
-    if (tt < 0.5) {
-      if (wm > 0.3) return 'mud';
-      return f > 0.02 ? 'forest' : 'grass';
-    }
-    if (tt < 0.72) {
-      const r = n.fbm(x * 0.014 + 9, z * 0.014 - 4, 3);
-      if (r > -0.05) return 'rock';
-      if (wm > 0.42) return 'mud';
-      return f > 0.2 ? 'grass' : 'scrub';
-    }
-    if (tt < 0.9) return n.fbm(x * 0.03, z * 0.03 + 4, 3) > 0.35 ? 'scrub' : 'dune';
-    if (tt < 0.965) {
-      return n.fbm(x * 0.05 + 3, z * 0.05 + 11, 2) > 0.38 ? 'rock' : 'sand';
-    }
-    return 'wet';
   }
   typeAt(x, z) {
     let t = this.baseType(x, z);
@@ -169,9 +318,9 @@ export class WorldData {
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
       if (Math.hypot(x - c.x, z - c.z) < c.r * 1.35) {
-        if (t === 'sand' || t === 'dune' || t === 'wet') return 'wet';
-        if (t === 'lawn' || t === 'grass' || t === 'forest' || t === 'scrub' || t === 'mud') return 'mud';
-        break;
+        if (t === 'sand' || t === 'dune' || t === 'dunegrass' || t === 'wet') return 'wet';
+        if (t === 'rock' || t === 'headland' || t === 'road' || t === 'paving' || t === 'gravel') return t;
+        return 'mud';
       }
     }
     return t;
@@ -186,7 +335,7 @@ export class WorldData {
       const w = list[i];
       const lim = w.kind === 'sprinkler' ? w.r : w.r * 0.95;
       if (Math.hypot(x - w.x, z - w.z) < lim) {
-        if (!best || this.cfg.water[w.kind] > this.cfg.water[best.kind]) best = w;
+        if (!best || (this.cfg.water[w.kind] ?? 20) > (this.cfg.water[best.kind] ?? 20)) best = w;
       }
     }
     if (best) return best;
@@ -215,6 +364,7 @@ export class WorldData {
     const w = { kind, x, z, r, H, carve: opts.carve !== false, depth: opts.depth ?? 0.1 };
     this.waters.push(w);
     this.waterHash.add(x, z, r, w);
+    this.centreHash.add(x, z, 0, w);
     if (w.carve) this.carveHash.add(x, z, r * 1.7, w);
     return w;
   }
@@ -222,11 +372,36 @@ export class WorldData {
     const a = this.baseHeight(x + r, z), b = this.baseHeight(x - r, z), c = this.baseHeight(x, z + r), d = this.baseHeight(x, z - r);
     return Math.max(Math.abs(a - b), Math.abs(c - d)) / (2 * r);
   }
+  /** is there NO water centre within distance d? */
   _farFromWater(x, z, d) {
-    for (const w of this.waters) if (Math.abs(w.x - x) < d && Math.abs(w.z - z) < d && Math.hypot(w.x - x, w.z - z) < d) return false;
+    const c = this.centreHash.cell, r = Math.ceil(d / c);
+    const ix = Math.floor(x / c), iz = Math.floor(z / c);
+    for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) {
+      const list = this.centreHash.map.get(this.centreHash.key(ix + a, iz + b));
+      if (!list) continue;
+      for (const w of list) if (Math.hypot(w.x - x, w.z - z) < d) return false;
+    }
     return true;
   }
-  /** random land spot: progress range [t0,t1]; returns null after too many failures */
+  /** a random land spot inside one of the named biomes (dominant weight > minW); null after too many failures */
+  _spotB(names, { minW = 0.55, maxSlope = 0.2, slopeR = 3, minH = 1.0, notRoad = true, tries = 120, edge = 40, rnd = this.rnd } = {}) {
+    const ids = names.map((nm) => B[nm]);
+    for (let i = 0; i < tries; i++) {
+      const x = rnd.range(-this.half + edge, this.half - edge);
+      const z = rnd.range(-this.half + edge, this.half - edge);
+      const w = this.biomes.weights(x, z);
+      let ok = false;
+      for (const id of ids) if (w[id] > minW) { ok = true; break; }
+      if (!ok) continue;
+      if (notRoad && this.isRoad(x, z, 3)) continue;
+      const h = this.baseHeight(x, z);
+      if (h < minH) continue;
+      if (this._slope(x, z, slopeR) > maxSlope) continue;
+      return { x, z, tt: this.tAt(x, z) };
+    }
+    return null;
+  }
+  /** random land spot by progress range (kept for tests / generic use) */
   _spot(t0, t1, { maxSlope = 0.2, slopeR = 3, minH = 1.0, notRoad = true, tries = 80, edge = 40 } = {}) {
     for (let i = 0; i < tries; i++) {
       const x = this.rnd.range(-this.half + edge, this.half - edge);
@@ -243,18 +418,20 @@ export class WorldData {
   }
 
   _placeStart() {
-    // start somewhere in the garden zone, off the road
+    // start in the garden suburb, off the road, on flat ground
     let sx = this.dir.x * this.cStart, sz = this.dir.z * this.cStart;
-    for (let i = 0; i < 60; i++) {
-      const x = sx + this.rnd.range(-18, 18), z = sz + this.rnd.range(-18, 18);
-      if (!this.isRoad(x, z, 12) && this._slope(x, z, 3) < 0.12) { sx = x; sz = z; break; }
+    for (let i = 0; i < 200; i++) {
+      const x = sx + this.rnd.range(-26, 26) , z = sz + this.rnd.range(-26, 26);
+      if (this.isRoad(x, z, 12) || this._slope(x, z, 3) > 0.12 || this.biomes.weights(x, z)[B.suburb] < 0.8 || this.baseHeight(x, z) < 1.5) continue;
+      sx = x; sz = z; break;
     }
     this.start = { x: sx, z: sz };
   }
 
   _placeWater() {
-    const W = this.cfg.water, rnd = this.rnd;
-    const zoneAccept = (tt) => (tt < 0.5 ? 1 : tt < 0.72 ? 0.7 : tt < 0.9 ? 0.35 : 0.4);
+    const W = this.cfg.water, rnd = this.rnd, K = this.areaScale;
+    const accept = { suburb: 1, town: 0.8, farm: 0.8, bush: 0.7, riverbank: 0.4, wetland: 0.05, dunes: 0.12, beach: 0.06, headland: 0.3, estuary: 0.05, sea: 0 };
+    const dominant = (x, z) => { const w = this.biomes.weights(x, z); let id = 0; for (let i = 1; i < w.length; i++) if (w[i] > w[id]) id = i; return BIOMES[id]; };
 
     // A friendly drip tap + puddle near the start so the first seconds teach the idea.
     {
@@ -265,69 +442,90 @@ export class WorldData {
       const px = this.start.x - Math.cos(a) * 14, pz = this.start.z - Math.sin(a) * 14;
       this._addWater('puddle', px, pz, 3.2);
     }
-
-    const put = (kind, count, t0, t1, rr, opts = {}) => {
+    // the creek and its tributary (stream discs along the centre line; they carve the channel)
+    {
+      const lay = (list, r0, r1) => {
+        const hs = list.map((p) => this.baseHeight(p.x, p.z));
+        const N = list.length;
+        for (let i = 0; i < N; i++) {
+          let sum = 0, c = 0;
+          for (let j = -8; j <= 8; j++) { sum += hs[clamp(i + j, 0, N - 1)]; c++; }
+          let H = sum / c - 0.08;
+          const s = i / (N - 1);
+          if (s > 0.8) H = lerp(H, 0.12, ss(0.8, 1.0, s));        // the last stretch settles to sea level
+          list[i].H = H;
+          const p = list[i];
+          if (this.tAt(p.x, p.z) > 0.985) break;
+          const r = lerp(r0, r1, s) * (s > 0.9 ? 1 + (s - 0.9) * 12 : 1);
+          if (i % 2 === 0) this._addWater(s > 0.93 ? 'estuary' : 'stream', p.x, p.z, r, { H, depth: 0.1 });
+        }
+      };
+      lay(this.creek, 2.0, 3.6);
+      lay(this.creekTrib, 1.7, 2.4);
+    }
+    const put = (kind, count, names, rr, opts = {}) => {
       let made = 0;
-      for (let i = 0; i < count * 6 && made < count; i++) {
-        const s = this._spot(t0, t1, { maxSlope: opts.maxSlope ?? 0.1, slopeR: rr[1], minH: opts.minH ?? 1.2 });
+      for (let i = 0; i < count * 8 && made < count; i++) {
+        const s = this._spotB(names, { maxSlope: opts.maxSlope ?? 0.1, slopeR: rr[1], minH: opts.minH ?? 1.0, minW: opts.minW ?? 0.55 });
         if (!s) continue;
-        if (opts.zone && rnd() > zoneAccept(s.tt)) continue;
+        if (opts.zone) { const b = dominant(s.x, s.z); if (rnd() > (accept[b] ?? 0.5)) continue; }
         if (!this._farFromWater(s.x, s.z, opts.spacing ?? 14)) continue;
         const r = rnd.range(rr[0], rr[1]);
-        const tp = this.typeAt(s.x, s.z);
-        if (tp === 'road') continue;
+        if (this.typeAt(s.x, s.z) === 'road') continue;
         this._addWater(kind, s.x, s.z, r, { depth: opts.depth ?? 0.1 });
         made++;
       }
+      return made;
     };
-
-    put('puddle', W.puddleCount, 0.0, 0.9, [2.6, 4.4], { zone: true, spacing: 16 });
-    put('pond', W.pondCount ?? 6, 0.12, 0.7, [6, 9], { spacing: 40, depth: 0.35, maxSlope: 0.07 });
-    put('tidepool', W.tidepoolCount, 0.93, 0.995, [2.6, 4.2], { spacing: 14, minH: 0.25, maxSlope: 0.12 });
-
-    // leaky taps (town) and dripping rock seeps (hills / meadow)
+    const ALL = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'headland'];
+    put('puddle', Math.round(W.puddleCount * K), ALL, [2.6, 4.4], { zone: true, spacing: 16, minW: 0.5 });
+    put('dam', Math.round(8 * K / 4 * 1), ['farm'], [9, 13], { spacing: 60, depth: 0.4, maxSlope: 0.06 });
+    put('pond', Math.round((W.pondCount ?? 6) * K * 0.5), ['bush', 'suburb', 'riverbank'], [5, 8], { spacing: 40, depth: 0.35, maxSlope: 0.07 });
+    put('pond', Math.round(10 * K), ['wetland'], [4, 8], { spacing: 18, depth: 0.3, maxSlope: 0.08, minH: 0.5, minW: 0.5 });
+    put('tidepool', Math.round(W.tidepoolCount * K * 0.8), ['headland'], [2.6, 4.4], { spacing: 12, minH: 0.2, maxSlope: 0.2, minW: 0.3 });
+    put('tidepool', Math.round(W.tidepoolCount * K * 0.15), ['beach', 'estuary'], [2.2, 3.4], { spacing: 25, minH: 0.2, maxSlope: 0.12, minW: 0.3 });
+    // leaky taps in gardens, dripping seeps in the bush and on the headlands, pumps on the farm
     {
-      let made = 0;
-      for (let i = 0; i < 400 && made < W.dripCount; i++) {
-        const town = made < Math.ceil(W.dripCount / 2);
-        const s = town ? this._spot(0.0, 0.18, { maxSlope: 0.12 }) : this._spot(0.25, 0.72, { maxSlope: 0.12 });
-        if (!s || !this._farFromWater(s.x, s.z, 22)) continue;
-        this._addWater('drip', s.x, s.z, 2.3, { depth: 0.1 });
-        this.taps.push({ type: town ? 'tap' : 'seep', x: s.x, z: s.z, rot: rnd() * 6.28 });
-        made++;
+      const total = Math.round(W.dripCount * K);
+      const plan = [['tap', ['suburb'], 0.28], ['seep', ['bush', 'headland'], 0.3], ['pump', ['farm'], 0.14], ['ac', ['town'], 0.28]];
+      for (const [type, names, share] of plan) {
+        let made = 0; const target = Math.round(total * share);
+        for (let i = 0; i < 500 && made < target; i++) {
+          const s = this._spotB(names, { maxSlope: 0.12, tries: 30 });
+          if (!s || !this._farFromWater(s.x, s.z, 20)) continue;
+          if (type === 'ac') { if (this.isRoad(s.x, s.z, 8)) continue; this._addWater('aircon', s.x, s.z, 2.0, { depth: 0.08 }); }
+          else if (type === 'pump') this._addWater('trough', s.x, s.z, 2.2, { depth: 0.1 });
+          else this._addWater('drip', s.x, s.z, 2.3, { depth: 0.1 });
+          this.taps.push({ type, x: s.x, z: s.z, rot: rnd() * 6.28 });
+          made++;
+        }
       }
     }
-
     // sprinklers on lawns (no carving, just a big wet zone)
     {
       let made = 0;
-      // one close to the start
       const a = rnd() * 6.28;
       const first = { x: this.start.x + Math.cos(a) * 24, z: this.start.z + Math.sin(a) * 24 };
       const list = [];
       if (!this.isRoad(first.x, first.z, 8)) list.push(first);
-      for (let i = 0; i < 300 && made + list.length < W.sprinklerCount; i++) {
-        const s = this._spot(0.0, 0.34, { maxSlope: 0.1 });
+      const target = Math.round(W.sprinklerCount * K);
+      for (let i = 0; i < 600 && made + list.length < target; i++) {
+        const s = this._spotB(['suburb', 'farm'], { maxSlope: 0.1, tries: 20 });
         if (!s || !this._farFromWater(s.x, s.z, 24)) continue;
         list.push(s); made++;
       }
-      for (const s of list) {
-        const w = this._addWater('sprinkler', s.x, s.z, 6.5, { carve: false });
-        this.sprinklers.push(w);
-      }
+      for (const s of list) this.sprinklers.push(this._addWater('sprinkler', s.x, s.z, 6.5, { carve: false }));
     }
-
-    // streams: meander downhill-ish, biased toward the sea (a gentle natural hint)
-    for (let k = 0; k < W.streamCount; k++) {
-      const s = this._spot(0.22, 0.62, { maxSlope: 0.3, tries: 200 });
+    // small streams that run toward the coast (a gentle natural hint), ending in the creek or fading out
+    for (let k = 0; k < Math.round(W.streamCount * K * 0.5); k++) {
+      const s = this._spotB(['bush', 'farm'], { maxSlope: 0.3, tries: 60 });
       if (!s) continue;
       let x = s.x, z = s.z;
       let ang = Math.atan2(this.dir.z, this.dir.x) + rnd.range(-0.9, 0.9);
       const pts = [];
-      const len = Math.floor(rnd.range(26, 55));
+      const len = Math.floor(rnd.range(20, 40));
       for (let i = 0; i < len; i++) {
         pts.push({ x, z });
-        // look slightly downhill
         const gx = this.baseHeight(x + 4, z) - this.baseHeight(x - 4, z);
         const gz = this.baseHeight(x, z + 4) - this.baseHeight(x, z - 4);
         const want = Math.atan2(this.dir.z * 0.7 - gz * 0.35, this.dir.x * 0.7 - gx * 0.35);
@@ -337,21 +535,17 @@ export class WorldData {
         if (Math.abs(x) > this.half - 50 || Math.abs(z) > this.half - 50 || this.tAt(x, z) > 0.88) break;
       }
       if (pts.length < 10) continue;
-      // smooth the water heights along the path
       const hs = pts.map((p) => this.baseHeight(p.x, p.z));
+      let last = 99;
       for (let i = 0; i < pts.length; i++) {
         let sum = 0, c = 0;
-        for (let j = -4; j <= 4; j++) { const q = hs[clamp(i + j, 0, pts.length - 1)]; sum += q; c++; }
-        // never flow uphill: cap at previous node height
-        let H = sum / c;
-        if (i > 0) H = Math.min(H, this._lastStreamH);
-        this._lastStreamH = H;
-        this._addWater('stream', pts[i].x, pts[i].z, 1.9, { H, depth: 0.1 });
+        for (let j = -4; j <= 4; j++) { sum += hs[clamp(i + j, 0, pts.length - 1)]; c++; }
+        let H = Math.min(sum / c, last); last = H;
+        this._addWater('stream', pts[i].x, pts[i].z, 1.7, { H, depth: 0.1 });
       }
     }
-
     // rain clouds drifting around
-    for (let i = 0; i < W.rainCloudCount; i++) {
+    for (let i = 0; i < Math.round(W.rainCloudCount * K); i++) {
       const s = this._spot(0.05, 0.85, { maxSlope: 9, minH: -5, notRoad: false, edge: 70 });
       if (!s) continue;
       const a = rnd() * 6.28;
@@ -361,31 +555,20 @@ export class WorldData {
     this.rain.push({ kind: 'rain', x: this.start.x + this.dir.x * 20 + 14, z: this.start.z + this.dir.z * 20 - 14, r: 12, vx: 0.5, vz: 0.3 });
   }
 
-  _placeHouses() {
-    const rnd = this.rnd;
-    for (let i = 0; i < 400 && this.houses.length < 22; i++) {
-      const s = this._spot(0.0, 0.17, { maxSlope: 0.18, slopeR: 5, tries: 20 });
-      if (!s) continue;
-      const w = rnd.range(8, 12), d = rnd.range(7, 10);
-      if (Math.hypot(s.x - this.start.x, s.z - this.start.z) < 16) continue;
-      if (this.isRoad(s.x, s.z, 6 + Math.max(w, d) * 0.5)) continue;
-      if (this.houses.some((h) => Math.hypot(h.x - s.x, h.z - s.z) < 24)) continue;
-      if (this.waters.some((q) => Math.hypot(q.x - s.x, q.z - s.z) < q.r + 9)) continue;
-      const house = { x: s.x, z: s.z, w, d, h: rnd.range(4, 6), y: this.baseHeight(s.x, s.z), color: rnd.pick([0xe8d9c2, 0xd9b99b, 0xc9d6df, 0xefe6a9, 0xd4a5a0, 0xb8c9a3]), roof: rnd.pick([0xa14b3a, 0x5a5f6b, 0x7a4a3a]) };
-      this.houses.push(house);
-      this.colliders.push({ x: s.x, z: s.z, hw: w / 2 + 0.3, hd: d / 2 + 0.3 });
-      this.colHash.add(s.x, s.z, Math.max(w, d), this.colliders[this.colliders.length - 1]);
-    }
-  }
-
-  _addCircle(x, z, r) {
-    const c = { x, z, r };
+  // ---------------- colliders / props ------------------------------------------------
+  _addCircle(x, z, r, extra) {
+    const c = { x, z, r, ...extra };
     this.colliders.push(c);
     this.colHash.add(x, z, r, c);
+    return c;
   }
-
+  _addBox(x, z, hw, hd, extra) {
+    const c = { x, z, hw, hd, ...extra };
+    this.colliders.push(c);
+    this.colHash.add(x, z, Math.max(hw, hd), c);
+    return c;
+  }
   _blocked(x, z, pad = 0) {
-    if (this.isRoad(x, z, 0) && false) return true;
     for (const w of this.waterHash.at(x, z)) if (w.kind !== 'sprinkler' && Math.hypot(x - w.x, z - w.z) < w.r * 1.5 + pad) return true;
     for (const c of this.colHash.at(x, z)) {
       if (c.r !== undefined) { if (Math.hypot(x - c.x, z - c.z) < c.r + pad) return true; }
@@ -394,111 +577,10 @@ export class WorldData {
     return false;
   }
 
-  _placeDecor() {
-    const G = this.cfg.graphics, rnd = this.rnd;
-    const trees = [], rocks = [], grass = [], flowers = [], beach = [], reeds = [];
-    const edge = 30;
-    const rx = () => rnd.range(-this.half + edge, this.half - edge);
-    const away = (x, z) => Math.hypot(x - this.start.x, z - this.start.z) > 7;
-
-    // trees & bushes
-    let tries = 0;
-    while (trees.length < G.treeCount && tries++ < G.treeCount * 25) {
-      const x = rx(), z = rx();
-      const tp = this.baseType(x, z);
-      const tt = this.tAt(x, z);
-      let kind = null, p = 0;
-      switch (tp) {
-        case 'forest': p = 0.55; kind = rnd() < 0.6 ? 'pine' : 'oak'; break;
-        case 'grass': p = 0.05; kind = rnd() < 0.5 ? 'oak' : 'bush'; break;
-        case 'lawn': p = 0.05; kind = rnd() < 0.7 ? 'oak' : 'bush'; break;
-        case 'scrub': p = tt > 0.72 ? 0.07 : 0.12; kind = 'bush'; break;
-        case 'rock': p = tt > 0.85 ? 0 : 0.04; kind = rnd() < 0.5 ? 'pine' : 'bush'; break;
-        case 'mud': p = 0.08; kind = 'bush'; break;
-        case 'sand': p = tt < 0.93 ? 0.03 : 0.0; kind = 'palm'; break;
-        case 'dune': p = 0.01; kind = 'bush'; break;
-        default: p = 0;
-      }
-      if (!kind || rnd() > p) continue;
-      if (!away(x, z) || this.isRoad(x, z, 2) || this._blocked(x, z, 1.2)) continue;
-      const h = this.heightAt(x, z);
-      if (h < 0.9) continue;
-      const scale = kind === 'bush' ? rnd.range(0.7, 1.4) : rnd.range(0.8, 1.7);
-      trees.push({ x, z, y: h, kind, scale, rot: rnd() * 6.28, tint: rnd.range(0.82, 1.1) });
-      if (kind !== 'bush') this._addCircle(x, z, 0.55 * scale);
-    }
-
-    // rocks
-    tries = 0;
-    while (rocks.length < G.rockCount && tries++ < G.rockCount * 40) {
-      const x = rx(), z = rx();
-      const tp = this.baseType(x, z);
-      const tt = this.tAt(x, z);
-      const p = tp === 'rock' ? (tt > 0.9 ? 0.07 : 0.5) : tp === 'scrub' ? 0.05 : tp === 'sand' ? 0.02 : tp === 'grass' || tp === 'mud' ? 0.03 : 0;
-      if (rnd() > p) continue;
-      if (!away(x, z) || this._blocked(x, z, 1)) continue;
-      const h = this.heightAt(x, z);
-      if (h < 0.7) continue;
-      const size = rnd() < 0.12 ? rnd.range(2.2, 4) : rnd.range(0.5, 1.8);
-      rocks.push({ x, z, y: h, size, rot: rnd() * 6.28, sy: rnd.range(0.55, 1.0), tint: rnd.range(0.8, 1.1) });
-      this._addCircle(x, z, size * 0.85);
-      if (size > 2.4 && rnd() < 0.5 && this.cfg.water.dripCount > 0 && this._farFromWater(x, z, 12)) { /* big rocks stay purely scenic */ }
-    }
-
-    // grass tufts and flowers
-    tries = 0;
-    while (grass.length < G.grassCount && tries++ < G.grassCount * 8) {
-      const x = rx(), z = rx();
-      const tp = this.baseType(x, z);
-      const p = tp === 'lawn' ? 0.9 : tp === 'grass' ? 1 : tp === 'forest' ? 0.6 : tp === 'scrub' ? 0.5 : tp === 'dune' ? 0.18 : tp === 'mud' ? 0.15 : 0;
-      if (rnd() > p) continue;
-      if (this.isRoad(x, z, 1)) continue;
-      const h = this.heightAt(x, z);
-      if (h < 0.9) continue;
-      grass.push({ x, z, y: h, s: rnd.range(0.7, 1.5) * (tp === 'dune' ? 1.4 : 1), rot: rnd() * 6.28, dry: tp === 'scrub' || tp === 'dune', tint: rnd.range(0.8, 1.15) });
-    }
-    tries = 0;
-    while (flowers.length < G.flowerCount && tries++ < G.flowerCount * 12) {
-      const x = rx(), z = rx();
-      const tp = this.baseType(x, z);
-      if (tp !== 'lawn' && tp !== 'grass') continue;
-      const h = this.heightAt(x, z);
-      if (h < 1 || this.isRoad(x, z, 1)) continue;
-      flowers.push({ x, z, y: h, color: rnd.pick([0xffe066, 0xff8fa3, 0xffffff, 0xc77dff, 0xff9f45]), s: rnd.range(0.7, 1.2) });
-    }
-
-    // beach bits: shells, seaweed, driftwood
-    for (let i = 0; i < 700 && beach.length < 280; i++) {
-      const x = rx(), z = rx();
-      const tt = this.tAt(x, z);
-      if (tt < 0.9 || tt > 1.0) continue;
-      const h = this.heightAt(x, z);
-      if (h < 0.05) continue;
-      const kind = rnd.pick(['shell', 'shell', 'weed', 'weed', 'wood']);
-      beach.push({ x, z, y: h, kind, rot: rnd() * 6.28, s: rnd.range(0.7, 1.4) });
-    }
-
-    // reeds around water
-    for (const w of this.waters) {
-      if (w.kind === 'sprinkler') continue;
-      if (w.kind === 'stream' && rnd() < 0.6) continue;
-      const n = w.kind === 'pond' ? 12 : w.kind === 'stream' ? 1 : 3;
-      for (let i = 0; i < n; i++) {
-        const a = rnd() * 6.28, d = w.r * rnd.range(1.0, 1.35);
-        const x = w.x + Math.cos(a) * d, z = w.z + Math.sin(a) * d;
-        if (this.baseType(x, z) === 'road') continue;
-        const tp = this.baseType(x, z);
-        if (tp === 'sand' || tp === 'dune' || tp === 'wet') continue;
-        reeds.push({ x, z, y: this.heightAt(x, z), s: rnd.range(0.8, 1.6), rot: rnd() * 6.28 });
-      }
-    }
-    return { trees, rocks, grass, flowers, beach, reeds };
-  }
-
   // ---------------- collisions -----------------------------------------------------
   /** push a circle of radius `rad` at (x,z) out of obstacles; returns {x,z,hit} */
   resolve(x, z, rad, out = { x, z, hit: false }) {
-    out.x = x; out.z = z; out.hit = false;
+    out.x = x; out.z = z; out.hit = false; out.col = null;
     for (let pass = 0; pass < 2; pass++) {
       const list = this.colHash.at(out.x, out.z);
       for (let i = 0; i < list.length; i++) {
@@ -508,7 +590,7 @@ export class WorldData {
           const d = Math.hypot(dx, dz), m = c.r + rad;
           if (d < m) {
             const nx = d > 1e-5 ? dx / d : 1, nz = d > 1e-5 ? dz / d : 0;
-            out.x = c.x + nx * m; out.z = c.z + nz * m; out.hit = true;
+            out.x = c.x + nx * m; out.z = c.z + nz * m; out.hit = true; out.col = c;
           }
         } else {
           const px = clamp(out.x, c.x - c.hw, c.x + c.hw), pz = clamp(out.z, c.z - c.hd, c.z + c.hd);
@@ -520,7 +602,7 @@ export class WorldData {
               const ox = c.hw - Math.abs(out.x - c.x), oz = c.hd - Math.abs(out.z - c.z);
               if (ox < oz) out.x += Math.sign(out.x - c.x || 1) * (ox + rad); else out.z += Math.sign(out.z - c.z || 1) * (oz + rad);
             }
-            out.hit = true;
+            out.hit = true; out.col = c;
           }
         }
       }
@@ -530,14 +612,15 @@ export class WorldData {
     return out;
   }
 
-  /** habitat sampling for predators: returns a random free spot whose terrain type satisfies `ok` */
-  habitatSpot(tMin, tMax, types, minFromStart = 35) {
-    for (let i = 0; i < 400; i++) {
+
+  /** habitat sampling for predators: a free spot inside one of the named biomes (and, optionally, of a ground type) */
+  habitatSpot(biomes, types, minFromStart = 35, minW = 0.5) {
+    const ids = biomes ? biomes.map((n) => B[n]) : null;
+    for (let i = 0; i < 500; i++) {
       const x = this.rnd.range(-this.half + 40, this.half - 40);
       const z = this.rnd.range(-this.half + 40, this.half - 40);
-      const tt = this.tAt(x, z);
-      if (tt < tMin || tt > tMax) continue;
       if (Math.hypot(x - this.start.x, z - this.start.z) < minFromStart) continue;
+      if (ids) { const w = this.biomes.weights(x, z); let ok = false; for (const id of ids) if (w[id] > minW) { ok = true; break; } if (!ok) continue; }
       if (types && !types.includes(this.baseType(x, z))) continue;
       const h = this.heightAt(x, z);
       if (h < 0.3) continue;
@@ -545,5 +628,22 @@ export class WorldData {
       return { x, z };
     }
     return null;
+  }
+  /** a random reachable land point inside a biome (used by tests / teleport hooks): the most "central" of a few tries */
+  findBiomeSpot(name, tries = 4000) {
+    const id = B[name]; let best = null, bw = 0;
+    const rnd = mulberry32(this.seed ^ 0xabcdef);
+    for (let i = 0; i < tries; i++) {
+      const x = rnd.range(-this.half + 30, this.half - 30), z = rnd.range(-this.half + 30, this.half - 30);
+      const w = this.biomes.weights(x, z)[id];
+      if (w <= bw) continue;
+      const h = this.heightAt(x, z);
+      if (name !== 'sea' && h < 0.3) continue;
+      if (name === 'sea' && !this.isSea(x, z)) continue;
+      if (name !== 'sea' && this._blocked(x, z, 1.2)) continue;
+      best = { x, z, w }; bw = w;
+      if (w > 0.97) break;
+    }
+    return best;
   }
 }

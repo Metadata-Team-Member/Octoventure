@@ -428,26 +428,29 @@ export class Predator {
 }
 
 // ---------------------------------------------------------------- spawning / manager
+// where each species lives: weighted lists of biomes (the world is split into 11 distinct biomes)
 const HABITAT = {
-  gull: [{ t: [0.82, 1.0], types: ['sand', 'wet', 'dune'], share: 0.7 }, { t: [0.0, 0.25], types: ['lawn', 'road', 'grass'], share: 0.3 }],
-  cat: [{ t: [0.0, 0.45], types: ['lawn', 'grass', 'road'] }],
-  dog: [{ t: [0.0, 0.5], types: ['lawn', 'grass', 'road', 'forest'] }],
-  fox: [{ t: [0.2, 0.75], types: ['forest', 'grass', 'scrub', 'mud'] }],
-  crab: [{ t: [0.9, 1.0], types: ['sand', 'wet', 'rock'] }],
-  eagle: [{ t: [0.3, 0.85], types: null }],
-  human: [{ t: [0.0, 0.2], types: ['lawn', 'road', 'grass'] }],
+  gull:  [{ b: ['beach', 'estuary', 'headland', 'dunes'], share: 0.65 }, { b: ['town'], share: 0.2 }, { b: ['wetland', 'suburb'], share: 0.15 }],
+  cat:   [{ b: ['suburb'], share: 0.8 }, { b: ['town'], share: 0.2 }],
+  dog:   [{ b: ['suburb'], share: 0.55 }, { b: ['farm'], share: 0.3 }, { b: ['town'], share: 0.15 }],
+  fox:   [{ b: ['bush'], share: 0.45 }, { b: ['farm', 'riverbank'], share: 0.35 }, { b: ['dunes'], share: 0.2 }],
+  crab:  [{ b: ['beach', 'headland'], share: 0.5 }, { b: ['wetland', 'estuary'], share: 0.5 }],
+  eagle: [{ b: ['bush', 'farm', 'riverbank', 'headland'], share: 1 }],
+  human: [{ b: ['suburb', 'town'], share: 0.5 }, { b: ['beach', 'estuary'], share: 0.5 }],
 };
 
 export class PredatorManager {
   constructor(world, scene) {
     this.world = world; this.scene = scene; this.list = [];
     if (!CONFIG.predators.enabled) return;
-    for (const [kind, count] of Object.entries(CONFIG.predators.counts)) {
+    const K = world.areaScale;                // counts in the config are per 800x800 m
+    for (const [kind, per] of Object.entries(CONFIG.predators.counts)) {
       const hab = HABITAT[kind];
+      const count = Math.round(per * K);
       for (let i = 0; i < count; i++) {
         let h = hab[0];
-        if (hab.length > 1) { let r = Math.random(), acc = 0; for (const q of hab) { acc += q.share; if (r <= acc) { h = q; break; } } }
-        const spot = world.habitatSpot(h.t[0], h.t[1], h.types, CONFIG.predators.safeRadiusAtStart);
+        if (hab.length > 1) { let r = world.rnd(), acc = 0; for (const q of hab) { acc += q.share; if (r <= acc) { h = q; break; } } }
+        const spot = world.habitatSpot(h.b, h.types, CONFIG.predators.safeRadiusAtStart);
         if (spot) this.list.push(new Predator(kind, spot.x, spot.z, world, scene));
       }
     }

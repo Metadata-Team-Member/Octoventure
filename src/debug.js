@@ -58,7 +58,11 @@ export function installDebugHooks(game) {
     setMoisture(v) { game.octopus.health = v; },
     begin() { game.begin(); },
     restart() { game.restart(); },
-    teleport(x, z) { const o = game.octopus; o.x = x; o.z = z; o.y = game.world.heightAt(x, z); game.camInit = false; },
+    teleport(x, z) { const o = game.octopus; o.x = x; o.z = z; o.y = game.world.heightAt(x, z); game.camInit = false; game.view.flushAround(x, z, 170); },
+    teleportToBiome(name) { const s = game.world.findBiomeSpot(name); if (!s) return false; this.teleport(s.x, s.z); return true; },
+    get biome() { const o = game.octopus; return game.world.biomeAt(o.x, o.z); },
+    biomeAt(x, z) { return game.world.biomeAt(x, z); },
+    get perf() { const i = game.renderer.info; return { calls: i.render.calls, triangles: i.render.triangles, geometries: i.memory.geometries, chunks: game.view.stats.chunksBuilt, chunksVisible: game.view.stats.chunksVisible, buildMs: game.view.stats.buildMs, genMs: game.genMs }; },
     teleportToOcean(depth = 8) {
       const w = game.world, o = game.octopus;
       // walk forward along the sea direction until we are in the water

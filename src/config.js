@@ -5,10 +5,10 @@
 
 export const CONFIG = {
   // ---- World -------------------------------------------------------
-  worldSize: 800,          // width/depth of the playable square (world units ~ metres)
+  worldSize: 1600,         // width/depth of the playable square in metres (URL: ?size=2400). All counts below are per 800x800 m and scale with the area.
   terrainCell: 2.5,        // terrain grid spacing (smaller = prettier but heavier)
-  startDistance: 0.55,     // how far from the world centre the octopus starts (fraction of half-size)
-  coastDistance: 0.55,     // how far the shoreline is on the opposite side (fraction of half-size)
+  startDistance: 0.42,     // how far from the world centre the octopus starts (fraction of half-size)
+  coastDistance: 0.48,     // how far the shoreline is on the opposite side (fraction of half-size)
   seed: null,              // null = new random world each run; or a number. URL: ?seed=123
 
   // ---- Octopus -----------------------------------------------------
@@ -124,6 +124,16 @@ export const TERRAIN = {
   sand:   { name: 'Dry sand',      color: 0xe6d29a, speed: 0.70, dry: 1.90 },
   dune:   { name: 'Dune sand',     color: 0xdfc27c, speed: 0.60, dry: 2.10 },
   wet:    { name: 'Wet tidal flat', color: 0xa68e62, speed: 0.85, dry: 0.40 },
+  // biome-specific ground
+  pasture:   { name: 'Pasture',        color: 0xb2b352, speed: 1.00, dry: 1.05 },
+  plough:    { name: 'Ploughed soil',  color: 0x7a5233, speed: 0.80, dry: 0.80 },
+  litter:    { name: 'Leaf litter',    color: 0x7b5a3a, speed: 0.92, dry: 0.80 },
+  bank:      { name: 'Creek bank',     color: 0x7f6e4b, speed: 0.85, dry: 0.60 },
+  gravel:    { name: 'Gravel',         color: 0xa39b8c, speed: 0.92, dry: 1.25 },
+  swamp:     { name: 'Swampy mud',     color: 0x4a5a36, speed: 0.60, dry: 0.35 },
+  dunegrass: { name: 'Dune grass',     color: 0xcdc47e, speed: 0.72, dry: 1.70 },
+  headland:  { name: 'Headland rock',  color: 0x5d6068, speed: 0.78, dry: 1.35 },
+  paving:    { name: 'Paving',         color: 0x93918f, speed: 1.10, dry: 2.00 },
 };
 
 /** the active difficulty's multipliers */

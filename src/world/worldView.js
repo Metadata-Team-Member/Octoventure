@@ -1,13 +1,21 @@
 // =====================================================================
 //  WorldView - turns a WorldData into three.js objects and animates the
 //  scenery (water, sprinklers, drips, rain, clouds, wind specks, sea).
+//
+//  The world is 1600 m across (or more), so everything static is CHUNKED:
+//  the map is cut into 100 m chunks, each with its own terrain mesh and
+//  per-kind InstancedMeshes (trees, rocks, grass, props, water ...). Chunks
+//  are built near-first (a few ms per frame), hidden beyond the fog, and the
+//  small stuff (grass, flowers ...) is further culled by distance.
 // =====================================================================
 import * as THREE from 'three';
 import { CONFIG, TERRAIN } from '../config.js';
 import { smoothstep as ss, lerp, clamp } from '../util/rng.js';
-import { tint, merge, at, rockGeometry, treeGeometries, grassGeometry, reedGeometry } from './models.js';
+import { tint, merge, at, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
+import { PROP_GEO, HUE_KINDS, LANDMARK_KINDS } from './props.js';
 
 export const FOG_COLOR = 0xcfe6f2;
+export const CHUNK = 100;
 let _dot;
 /** soft round sprite so particle 'points' are circles, not squares */
 export function dotTexture() {
@@ -37,6 +45,17 @@ function instanced(geo, mat, list, place, color) {
   return mesh;
 }
 
+/** colour of a hue-tinted prop (cars, umbrellas, towels, boat hulls) */
+function hueColor(p, c) {
+  const h = p.hue ?? p.tint ?? 0;
+  const grey = (h * 7) % 1 < 0.3;
+  return c.setHSL(h, grey ? 0.05 : 0.62, grey ? 0.62 : 0.52);
+}
+const coralColor = (o, c) => c.setHSL((0.92 + o.hue * 0.2) % 1, 0.62, 0.56);
+
+// far-distance (m) beyond which a small-stuff mesh is hidden even though its chunk is drawn
+const FAR = { grass: 135, flower: 110, reed: 190, beach: 120, seagrass: 120, reef: 200, drop: 160 };
+
 export class WorldView {
   constructor(world, scene, opts = {}) {
     this.world = world;
@@ -46,49 +65,178 @@ export class WorldView {
     this.disposables = [];
     this.time = 0;
     this.shadows = opts.shadows ?? CONFIG.graphics.shadows;
-    this._buildTerrain();
+    this.stats = { chunksBuilt: 0, chunksTotal: 0, buildMs: 0 };
+    this._initChunks();
     this._buildSea();
-    this._buildWater();
-    this._buildDecor();
-    this._buildHouses();
+    this._buildLandmarks();
     this._buildProps();
     this._buildRain();
     this._buildClouds();
     this._buildWind();
     this._buildTransient();
+    this._buildFish();
+    const s = world.start;
+    this.flushAround(s.x, s.z, 230);
+    this.visRadius = CONFIG.graphics.fogFar + 70;
+    this._cullT = 0;
   }
 
   track(o) { this.disposables.push(o); return o; }
 
-  // ------------------------------------------------------------ terrain
-  _buildTerrain() {
+  // ------------------------------------------------------------ chunk bookkeeping
+  _initChunks() {
+    const w = this.world;
+    this.nch = Math.ceil(CONFIG.worldSize / CHUNK);
+    this.chunks = new Array(this.nch * this.nch).fill(null);
+    this.stats.chunksTotal = this.nch * this.nch;
+    this.buckets = new Map();
+    const d = w.decor;
+    const put = (x, z, cat, sub, item) => {
+      const key = this._key(x, z);
+      let b = this.buckets.get(key); if (!b) { b = {}; this.buckets.set(key, b); }
+      const c = (b[cat] ??= {});
+      (c[sub] ??= []).push(item);
+    };
+    this.landTrees = [];
+    for (const t of d.trees) { if (t.kind === 'norfolk') this.landTrees.push(t); else put(t.x, t.z, 'tree', t.kind, t); }
+    for (const r of d.rocks) put(r.x, r.z, 'rock', 'r', r);
+    for (const g of d.grass) put(g.x, g.z, 'grass', 'g', g);
+    for (const f of d.flowers) put(f.x, f.z, 'flower', 'f', f);
+    for (const r of d.reeds) put(r.x, r.z, 'reed', 'r', r);
+    for (const b of d.beach) put(b.x, b.z, 'beach', b.kind, b);
+    for (const s of d.seagrass) put(s.x, s.z, 'seagrass', 's', s);
+    for (const r of d.reef) put(r.x, r.z, 'reef', r.kind, r);
+    this.landProps = [];
+    for (const p of w.props) { if (LANDMARK_KINDS.has(p.kind)) this.landProps.push(p); else put(p.x, p.z, 'prop', p.kind, p); }
+    for (const q of w.waters) { if (q.kind !== 'sprinkler' && q.kind !== 'rain' && q.kind !== 'sea') put(q.x, q.z, 'water', 'w', q); }
+    // shared geometry & materials
+    const sh = this.shadows;
+    this.vcMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }));
+    this.whiteMat = this.track(new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, roughness: 0.95 }));
+    this.grassMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1, side: THREE.DoubleSide }));
+    this.terrainMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 }));
+    this.waterMat = this.track(new THREE.MeshStandardMaterial({ color: 0x4aa8dc, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const tg = treeGeometries();
+    this.geo = {
+      tree: Object.fromEntries(Object.entries(tg).map(([k, g]) => [k, this.track(g)])),
+      rock: this.track(rockGeometry(0)), grass: this.track(grassGeometry()), reed: this.track(reedGeometry()),
+      flower: this.track(new THREE.IcosahedronGeometry(0.14, 0)),
+      shell: this.track(new THREE.ConeGeometry(0.16, 0.14, 6)), weed: this.track(new THREE.IcosahedronGeometry(0.3, 0)), wood: this.track(new THREE.BoxGeometry(1.6, 0.18, 0.2)),
+      seagrass: this.track(seagrassGeometry()), coral: this.track(coralGeometry()),
+      water: this.track(new THREE.CircleGeometry(1, 22)),
+      prop: {},
+    };
+    this.geo.water.rotateX(-Math.PI / 2);
+    this.tcol = {};
+    for (const k in TERRAIN) this.tcol[k] = new THREE.Color(TERRAIN[k].color);
+    this.shadowKinds = new Set(['house0', 'house1', 'house2', 'shop', 'barn', 'silo', 'shed', 'bin', 'parkedcar', 'lamp', 'shack', 'hull', 'umbrella', 'cairn', 'slab', 'hollowlog', 'birdbath', 'trough']);
+    this._queue = [];
+    this._lastCC = '';
+  }
+  _key(x, z) {
+    const h = this.world.half;
+    const ix = clamp(Math.floor((x + h) / CHUNK), 0, this.nch - 1), iz = clamp(Math.floor((z + h) / CHUNK), 0, this.nch - 1);
+    return iz * this.nch + ix;
+  }
+  _propGeo(kind) {
+    return (this.geo.prop[kind] ??= this.track(PROP_GEO[kind]()));
+  }
+
+  /** build every not-yet-built chunk whose centre is within r metres (synchronous: used at start and on teleports) */
+  flushAround(x, z, r) {
+    const h = this.world.half;
+    for (let k = 0; k < this.chunks.length; k++) {
+      if (this.chunks[k]) continue;
+      const ix = k % this.nch, iz = Math.floor(k / this.nch);
+      const cx = -h + (ix + 0.5) * CHUNK, cz = -h + (iz + 0.5) * CHUNK;
+      if (Math.hypot(cx - x, cz - z) < r) this._buildChunk(ix, iz);
+    }
+  }
+  _chunkCentre(ix, iz) { const h = this.world.half; return [-h + (ix + 0.5) * CHUNK, -h + (iz + 0.5) * CHUNK]; }
+
+  _buildChunk(ix, iz) {
+    const t0 = performance.now();
+    const key = iz * this.nch + ix, h = this.world.half;
+    const grp = new THREE.Group();
+    const x0 = -h + ix * CHUNK, z0 = -h + iz * CHUNK;
+    const [cx, cz] = this._chunkCentre(ix, iz);
+    grp.userData = { cx, cz, items: [] };
+    const add = (mesh, far = 0) => { mesh.userData.far = far; grp.add(mesh); grp.userData.items.push(mesh); return mesh; };
+    grp.add(this._terrainChunk(x0, z0));
+    const b = this.buckets.get(key) || {};
+    const sh = this.shadows;
+    if (b.tree) for (const kind in b.tree) {
+      const m = instanced(this.geo.tree[kind], this.vcMat, b.tree[kind], (o, p, e, s) => { p.set(o.x, o.y - 0.12, o.z); e.set(0, o.rot, 0); s.setScalar(o.scale); }, (o, c) => c.setScalar(o.tint));
+      m.castShadow = sh && kind !== 'bush'; add(m);
+    }
+    if (b.rock) {
+      const m = instanced(this.geo.rock, this.whiteMat, b.rock.r, (o, p, e, s) => { p.set(o.x, o.y + o.size * o.sy * 0.15, o.z); e.set(0, o.rot, 0); s.set(o.size, o.size * o.sy, o.size); },
+        (o, c) => c.set(o.dark ? 0x56595f : 0x8f8d88).multiplyScalar(o.tint));
+      m.castShadow = sh; m.receiveShadow = sh; add(m);
+    }
+    if (b.grass) add(instanced(this.geo.grass, this.grassMat, b.grass.g, (o, p, e, s) => { p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.set(o.s, o.s, o.s); },
+      (o, c) => (o.wet ? c.set(0x4f8a3a) : o.dry ? c.set(0xb8a45a) : c.set(0x6fa83c)).multiplyScalar(o.tint)), FAR.grass);
+    if (b.flower) add(instanced(this.geo.flower, this.whiteMat, b.flower.f, (o, p, e, s) => { p.set(o.x, o.y + 0.38 * o.s, o.z); e.set(0, 0, 0); s.setScalar(o.s); }, (o, c) => c.set(o.color)), FAR.flower);
+    if (b.reed) add(instanced(this.geo.reed, this.vcMat, b.reed.r, (o, p, e, s) => { p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.setScalar(o.s); }), FAR.reed);
+    if (b.beach) {
+      const sp = {
+        shell: [this.geo.shell, (o, p, e, s) => { p.set(o.x, o.y + 0.04, o.z); e.set(0.3, o.rot, 0); s.setScalar(o.s); }, 0xf3d9cf],
+        weed: [this.geo.weed, (o, p, e, s) => { p.set(o.x, o.y + 0.02, o.z); e.set(0, o.rot, 0); s.set(o.s * 1.4, o.s * 0.3, o.s); }, 0x3f5a2c],
+        wood: [this.geo.wood, (o, p, e, s) => { p.set(o.x, o.y + 0.06, o.z); e.set(0, o.rot, 0.1); s.setScalar(o.s * 1.3); }, 0x7a5d44],
+      };
+      for (const kind in b.beach) { const [g, f, col] = sp[kind]; add(instanced(g, this.whiteMat, b.beach[kind], f, (o, c) => c.set(col)), FAR.beach); }
+    }
+    if (b.seagrass) add(instanced(this.geo.seagrass, this.vcMat, b.seagrass.s, (o, p, e, s) => { p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.setScalar(o.s); },
+      (o, c) => c.setHSL(0.27 + (o.rot % 1) * 0.07, 0.55, 0.3)), FAR.seagrass);
+    if (b.reef) {
+      if (b.reef.coral) add(instanced(this.geo.coral, this.vcMat, b.reef.coral, (o, p, e, s) => { p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.setScalar(o.s); }, coralColor), FAR.reef);
+      if (b.reef.rock) add(instanced(this.geo.rock, this.whiteMat, b.reef.rock, (o, p, e, s) => { p.set(o.x, o.y + o.s * 0.2, o.z); e.set(0, o.rot, 0); s.set(o.s, o.s * 0.7, o.s); }, (o, c) => c.set(0x62807c)), FAR.reef);
+    }
+    if (b.prop) for (const kind in b.prop) {
+      const hue = HUE_KINDS.has(kind);
+      const m = instanced(this._propGeo(kind), this.vcMat, b.prop[kind], (o, p, e, s) => { p.set(o.x, o.y, o.z); e.set(0, o.rot, 0); s.setScalar(o.s); },
+        (o, c) => (hue ? hueColor(o, c) : c.setScalar(o.tint)));
+      m.castShadow = sh && this.shadowKinds.has(kind); m.receiveShadow = sh && (kind.startsWith('house') || kind === 'barn'); add(m);
+    }
+    if (b.water) {
+      const colors = { puddle: 0x4aa8dc, pond: 0x2f8fc8, tidepool: 0x57c2d6, stream: 0x5ab6e6, drip: 0x58b0e0, trough: 0x5aa6c8, dam: 0x3d86a8, estuary: 0x4fa3c0, birdbath: 0x6cc0ea, bowl: 0x6cc0ea, aircon: 0x58b0e0, hose: 0x58b0e0, swamp: 0x3f7f78, creek: 0x4ea6d6 };
+      const m = instanced(this.geo.water, this.waterMat, b.water.w, (o, p, e, s) => {
+        p.set(o.x, o.H - 0.02, o.z); e.set(0, (o.x * 7.1 + o.z) % 6.28, 0);
+        const r = o.kind === 'drip' ? o.r * 0.7 : o.kind === 'stream' ? o.r * 1.15 : o.r * 0.96;
+        s.set(r, 1, r * (o.kind === 'puddle' ? 0.82 + ((o.x * 3.3) % 0.2) : 1));
+      }, (o, c) => c.set(colors[o.kind] ?? 0x4aa8dc));
+      m.renderOrder = 2; add(m);
+    }
+    for (const m of grp.userData.items) m.userData.cull = true;
+    this.root.add(grp);
+    this.chunks[key] = grp;
+    this.stats.chunksBuilt++;
+    this.stats.buildMs += performance.now() - t0;
+    return grp;
+  }
+
+  _terrainChunk(x0, z0) {
     const w = this.world, cell = CONFIG.terrainCell, half = w.half;
-    const n = Math.round(CONFIG.worldSize / cell);
-    const stride = n + 1;
-    const pos = new Float32Array(stride * stride * 3);
-    const col = new Float32Array(stride * stride * 3);
-    const tcol = {};
-    for (const k in TERRAIN) tcol[k] = new THREE.Color(TERRAIN[k].color);
-    const fog = new THREE.Color(FOG_COLOR);
-    const foam = new THREE.Color(0xf4fbff);
-    const deep = new THREE.Color(0x1f5f86);
+    const n = Math.round(CHUNK / cell), stride = n + 1;
+    const pos = new Float32Array(stride * stride * 3), col = new Float32Array(stride * stride * 3);
+    const tcol = this.tcol;
+    const fog = this._fogC ??= new THREE.Color(FOG_COLOR), foam = this._foamC ??= new THREE.Color(0xf4fbff), deep = this._deepC ??= new THREE.Color(0x1f5f86);
     const c = new THREE.Color();
     for (let iz = 0; iz <= n; iz++) {
       for (let ix = 0; ix <= n; ix++) {
-        const x = -half + ix * cell, z = -half + iz * cell;
-        const h = w.heightAt(x, z);
+        const x = x0 + ix * cell, z = z0 + iz * cell;
+        const hh = w.heightAt(x, z);
         const i = iz * stride + ix;
-        pos[i * 3] = x; pos[i * 3 + 1] = h; pos[i * 3 + 2] = z;
+        pos[i * 3] = x; pos[i * 3 + 1] = hh; pos[i * 3 + 2] = z;
         const type = w.typeAt(x, z);
-        c.copy(tcol[type]);
+        c.copy(tcol[type] ?? tcol.grass);
         const v = 0.9 + 0.2 * w.n.noise2(x * 0.35, z * 0.35) + 0.06 * w.n.noise2(x * 0.05 + 3, z * 0.05);
         c.multiplyScalar(v);
-        // wet lawn under sprinklers
         for (const q of w.waterHash.at(x, z)) if (q.kind === 'sprinkler' && Math.hypot(x - q.x, z - q.z) < q.r) c.multiplyScalar(0.8);
-        if (h < 0.06 && w.tAt(x, z) > 0.95) {
-          const d = clamp(-h, 0, 5);
+        if (hh < 0.06 && w.tAt(x, z) > 0.95) {
+          const d = clamp(-hh, 0, 5);
           c.copy(tcol.wet).multiplyScalar(0.95).lerp(deep, ss(0, 3.2, d));
-          const f = 1 - Math.abs(h + 0.08) / 0.2;
+          const f = 1 - Math.abs(hh + 0.08) / 0.2;
           if (f > 0) c.lerp(foam, f * 0.55);
         }
         const e = half - Math.max(Math.abs(x), Math.abs(z));
@@ -96,29 +244,73 @@ export class WorldView {
         col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
       }
     }
-    const idx = new Uint32Array(n * n * 6);
+    const idx = new Uint16Array(n * n * 6);
     let k = 0;
     for (let iz = 0; iz < n; iz++) for (let ix = 0; ix < n; ix++) {
       const a = iz * stride + ix, b = a + 1, d = a + stride, e2 = d + 1;
       idx[k++] = a; idx[k++] = d; idx[k++] = b;
       idx[k++] = b; idx[k++] = d; idx[k++] = e2;
     }
-    const geo = this.track(new THREE.BufferGeometry());
+    const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
     geo.computeVertexNormals();
     geo.computeBoundingSphere();
-    const mat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 }));
-    this.terrain = new THREE.Mesh(geo, mat);
-    this.terrain.receiveShadow = this.shadows;
-    this.root.add(this.terrain);
+    const mesh = new THREE.Mesh(geo, this.terrainMat);
+    mesh.receiveShadow = this.shadows;
+    return mesh;
+  }
+
+  /** stream chunks near the player (budgeted) and cull what is out of range */
+  _streamAndCull(dt, px, pz, force) {
+    const h = this.world.half, R = this.visRadius, nch = this.nch;
+    const pix = clamp(Math.floor((px + h) / CHUNK), 0, nch - 1), piz = clamp(Math.floor((pz + h) / CHUNK), 0, nch - 1);
+    // never leave the chunk under/around the player unbuilt
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const ix = pix + dx, iz = piz + dz;
+      if (ix >= 0 && iz >= 0 && ix < nch && iz < nch && !this.chunks[iz * nch + ix]) this._buildChunk(ix, iz);
+    }
+    const cc = pix + ',' + piz;
+    if (cc !== this._lastCC) {
+      this._lastCC = cc;
+      this._queue = [];
+      const rr = Math.ceil((R + 60) / CHUNK);
+      for (let iz = Math.max(0, piz - rr); iz <= Math.min(nch - 1, piz + rr); iz++) for (let ix = Math.max(0, pix - rr); ix <= Math.min(nch - 1, pix + rr); ix++) {
+        if (this.chunks[iz * nch + ix]) continue;
+        const [cx, cz] = this._chunkCentre(ix, iz); const d = Math.hypot(cx - px, cz - pz);
+        if (d < R + 30) this._queue.push({ ix, iz, d });
+      }
+      this._queue.sort((a, b) => b.d - a.d);     // pop() takes the nearest
+    }
+    const t0 = performance.now();
+    while (this._queue.length && performance.now() - t0 < 6) {
+      const q = this._queue.pop();
+      if (!this.chunks[q.iz * nch + q.ix]) this._buildChunk(q.ix, q.iz);
+    }
+    // culling pass (cheap, ~10 Hz)
+    this._cullT -= dt;
+    if (this._cullT > 0 && !force) return;
+    this._cullT = 0.1;
+    const R2 = R * R;
+    let vis = 0;
+    for (const grp of this.chunks) {
+      if (!grp) continue;
+      const u = grp.userData, dx = u.cx - px, dz = u.cz - pz, d2 = dx * dx + dz * dz;
+      const on = d2 < R2;
+      grp.visible = on;
+      if (!on) continue;
+      vis++;
+      const d = Math.sqrt(d2);
+      for (const m of u.items) { const far = m.userData.far; if (far) m.visible = d - 70 < far; }
+    }
+    this.stats.chunksVisible = vis;
   }
 
   // ------------------------------------------------------------ sea
   _buildSea() {
     const w = this.world;
-    const size = 3200;
+    const size = Math.max(6000, CONFIG.worldSize * 3);
     const geo = this.track(new THREE.PlaneGeometry(size, size, 1, 1));
     geo.rotateX(-Math.PI / 2);
     // normal map made of soft noise, scrolled to look like ripples
@@ -144,7 +336,7 @@ export class WorldView {
     this.seaTex = tex;
     const mat = this.track(new THREE.MeshStandardMaterial({ color: 0x2c93c4, roughness: 0.18, metalness: 0.05, normalMap: tex, normalScale: new THREE.Vector2(0.55, 0.55), transparent: true, opacity: 0.72, side: THREE.DoubleSide }));
     const sea = new THREE.Mesh(geo, mat);
-    const centre = w.cCoast - 50 + size / 2;
+    const centre = w.cCoast - 120 + size / 2;
     sea.position.set(w.dir.x * centre, 0, w.dir.z * centre);
     sea.rotation.y = -w.angle;           // local +x now points along the sea direction
     sea.receiveShadow = false;
@@ -152,126 +344,112 @@ export class WorldView {
     this.root.add(sea);
   }
 
-  // ------------------------------------------------------------ puddles / ponds / streams / tide pools
-  _buildWater() {
-    const w = this.world;
-    const discs = w.waters.filter((q) => q.kind !== 'sprinkler' && q.kind !== 'rain' && q.kind !== 'sea');
-    const geo = this.track(new THREE.CircleGeometry(1, 22));
-    geo.rotateX(-Math.PI / 2);
-    const mat = this.track(new THREE.MeshStandardMaterial({ color: 0x4aa8dc, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-    const colors = { puddle: 0x4aa8dc, pond: 0x2f8fc8, tidepool: 0x57c2d6, stream: 0x5ab6e6, drip: 0x58b0e0, trough: 0x5aa6c8, dam: 0x3d86a8, estuary: 0x4fa3c0, birdbath: 0x6cc0ea, bowl: 0x6cc0ea, aircon: 0x58b0e0, hose: 0x58b0e0 };
-    this.waterMesh = instanced(geo, mat, discs, (o, p, e, s) => {
-      p.set(o.x, o.H - 0.02, o.z); e.set(0, (o.x * 7.1 + o.z) % 6.28, 0);
-      const r = o.kind === 'drip' ? o.r * 0.7 : o.kind === 'stream' ? o.r * 1.15 : o.r * 0.96;
-      s.set(r, 1, r * (o.kind === 'puddle' ? 0.82 + ((o.x * 3.3) % 0.2) : 1));
-    }, (o, c) => c.set(colors[o.kind] ?? 0x4aa8dc));
-    this.waterMat = mat;
-    this.waterMesh.renderOrder = 2;
-    this.root.add(this.waterMesh);
-  }
-
-  // ------------------------------------------------------------ trees / rocks / grass ...
-  _buildDecor() {
-    const w = this.world, d = w.decor;
-    const sh = this.shadows;
-    const vcMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }));
-    const tg = treeGeometries();
-    for (const kind of ['pine', 'oak', 'palm', 'bush']) {
-      const list = d.trees.filter((t) => t.kind === kind);
-      if (!list.length) continue;
-      const mesh = instanced(this.track(tg[kind]), vcMat, list, (o, p, e, s) => {
-        p.set(o.x, o.y - 0.12, o.z); e.set(0, o.rot, 0); s.setScalar(o.scale);
-      }, (o, c) => c.setScalar(o.tint));
-      mesh.castShadow = sh && kind !== 'bush'; mesh.receiveShadow = false;
-      this.root.add(mesh);
-    }
-    const rockMat = this.track(new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, roughness: 0.95 }));
-    const rocks = instanced(this.track(rockGeometry(0)), rockMat, d.rocks, (o, p, e, s) => {
-      p.set(o.x, o.y + o.size * o.sy * 0.15, o.z); e.set(0, o.rot, 0); s.set(o.size, o.size * o.sy, o.size);
-    }, (o, c) => c.set(0x8f8d88).multiplyScalar(o.tint));
-    rocks.castShadow = sh; rocks.receiveShadow = sh;
-    this.root.add(rocks);
-
-    const grassMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1, side: THREE.DoubleSide }));
-    const grass = instanced(this.track(grassGeometry()), grassMat, d.grass, (o, p, e, s) => {
-      p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.set(o.s, o.s, o.s);
-    }, (o, c) => (o.dry ? c.set(0xb8a45a) : c.set(0x6fa83c)).multiplyScalar(o.tint));
-    this.root.add(grass);
-    this.grassMesh = grass;
-
-    const flowerMat = this.track(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 }));
-    this.root.add(instanced(this.track(new THREE.IcosahedronGeometry(0.14, 0)), flowerMat, d.flowers, (o, p, e, s) => {
-      p.set(o.x, o.y + 0.38 * o.s, o.z); e.set(0, 0, 0); s.setScalar(o.s);
-    }, (o, c) => c.set(o.color)));
-
-    const reeds = instanced(this.track(reedGeometry()), vcMat, d.reeds, (o, p, e, s) => {
-      p.set(o.x, o.y - 0.05, o.z); e.set(0, o.rot, 0); s.setScalar(o.s);
-    });
-    this.root.add(reeds);
-
-    // beach bits
-    const shell = instanced(this.track(new THREE.ConeGeometry(0.16, 0.14, 6)), flowerMat, d.beach.filter((b) => b.kind === 'shell'), (o, p, e, s) => { p.set(o.x, o.y + 0.04, o.z); e.set(0.3, o.rot, 0); s.setScalar(o.s); }, (o, c) => c.set(0xf3d9cf));
-    const weed = instanced(this.track(new THREE.IcosahedronGeometry(0.3, 0)), flowerMat, d.beach.filter((b) => b.kind === 'weed'), (o, p, e, s) => { p.set(o.x, o.y + 0.02, o.z); e.set(0, o.rot, 0); s.set(o.s * 1.4, o.s * 0.3, o.s); }, (o, c) => c.set(0x3f5a2c));
-    const wood = instanced(this.track(new THREE.BoxGeometry(1.6, 0.18, 0.2)), flowerMat, d.beach.filter((b) => b.kind === 'wood'), (o, p, e, s) => { p.set(o.x, o.y + 0.06, o.z); e.set(0, o.rot, 0.1); s.setScalar(o.s * 1.3); }, (o, c) => c.set(0x7a5d44));
-    this.root.add(shell, weed, wood);
-  }
-
-  _buildHouses() {
+  // ------------------------------------------------------------ landmarks (lighthouse, Norfolk pines, windmills, water tower): always drawn, hazed
+  _buildLandmarks() {
+    this.landMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, fog: false, color: 0xb0b0b0, emissive: 0x606a70 }));
     const g = new THREE.Group();
-    for (const h of this.world.houses) {
-      const grp = new THREE.Group();
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(h.w, h.h + 2, h.d), new THREE.MeshStandardMaterial({ color: h.color, flatShading: true, roughness: 0.9 }));
-      wall.position.y = (h.h - 2) / 2 + 0.0; wall.castShadow = this.shadows; wall.receiveShadow = this.shadows;
-      const roofGeo = new THREE.ConeGeometry(Math.max(h.w, h.d) * 0.78, 2.4, 4);
-      const roof = new THREE.Mesh(roofGeo, new THREE.MeshStandardMaterial({ color: h.roof, flatShading: true, roughness: 0.85 }));
-      roof.rotation.y = Math.PI / 4; roof.scale.set(h.w / Math.max(h.w, h.d), 1, h.d / Math.max(h.w, h.d)); roof.position.y = h.h + 1.1; roof.castShadow = this.shadows;
-      const door = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.4, 0.2), new THREE.MeshStandardMaterial({ color: 0x6b4a33 }));
-      door.position.set(0, 1.2, h.d / 2 + 0.05);
-      grp.add(wall, roof, door);
-      for (const sx of [-1, 1]) {
-        const win = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.3, 0.15), new THREE.MeshStandardMaterial({ color: 0x9fd3ee, roughness: 0.2, emissive: 0x153040 }));
-        win.position.set(sx * h.w * 0.28, 2.6, h.d / 2 + 0.05);
-        grp.add(win);
-      }
-      grp.position.set(h.x, h.y, h.z);
-      grp.rotation.y = 0;
-      g.add(grp);
+    const trees = this.landTrees;
+    if (trees.length) {
+      const m = instanced(this.track(this.geo.tree.norfolk), this.landMat, trees, (o, p, e, s) => { p.set(o.x, o.y - 0.12, o.z); e.set(0, o.rot, 0); s.setScalar(o.scale); }, (o, c) => c.setScalar(o.tint));
+      m.castShadow = this.shadows; g.add(m);
     }
+    for (const p of this.landProps) {
+      const mesh = new THREE.Mesh(this._propGeo(p.kind), this.landMat);
+      mesh.position.set(p.x, p.y, p.z); mesh.rotation.y = p.rot; mesh.scale.setScalar(p.s); mesh.castShadow = this.shadows;
+      g.add(mesh);
+    }
+    this.landmarkGroup = g;
     this.root.add(g);
+  }
+
+  // ------------------------------------------------------------ fish (ambient life in the sea)
+  _buildFish() {
+    const body = merge([at(tint(new THREE.ConeGeometry(0.16, 0.7, 5), 0xffffff), 0, 0, 0, 0, 0, Math.PI / 2), at(tint(new THREE.ConeGeometry(0.2, 0.3, 4), 0xffffff), -0.42, 0, 0, 0, 0, -Math.PI / 2)]);
+    this.fishN = 36;
+    this.fishMesh = new THREE.InstancedMesh(this.track(body), this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.5 })), this.fishN);
+    this.fishMesh.frustumCulled = false; this.fishMesh.count = 0;
+    for (let i = 0; i < this.fishN; i++) this.fishMesh.setColorAt(i, _c.setHSL(0.05 + (i % 3) * 0.14 + (i % 7) * 0.01, 0.6, 0.6));
+    this.root.add(this.fishMesh);
+    this.schools = [];
+    for (let i = 0; i < 4; i++) this.schools.push({ x: 0, z: 0, y: -2, r: 5 + i, a: i * 1.7, ok: false });
+    this._schoolFor = null;
+  }
+  _updateFish(dt, px, pz) {
+    const w = this.world, t = this.time;
+    const near = Math.hypot(px - (this._schoolFor?.x ?? 1e9), pz - (this._schoolFor?.z ?? 1e9)) < 90;
+    if (!near) {
+      this._schoolFor = { x: px, z: pz };
+      for (const s of this.schools) {
+        s.ok = false;
+        for (let k = 0; k < 14; k++) {
+          const a = Math.random() * 6.28, d = 14 + Math.random() * 60;
+          const x = px + Math.cos(a) * d, z = pz + Math.sin(a) * d;
+          if (w.isSea(x, z) && w.heightAt(x, z) < -1.4) { s.x = x; s.z = z; s.y = w.heightAt(x, z) + 0.8 + Math.random() * 1.6; s.ok = true; break; }
+        }
+      }
+    }
+    let n = 0;
+    const per = this.fishN / this.schools.length;
+    for (const s of this.schools) {
+      if (!s.ok) continue;
+      for (let i = 0; i < per; i++) {
+        const a = t * (0.35 + 0.05 * (i % 3)) + i * 0.7 + s.a;
+        const x = s.x + Math.cos(a) * s.r + Math.sin(t * 0.3 + i) * 1.2, z = s.z + Math.sin(a) * s.r + Math.cos(t * 0.27 + i) * 1.2;
+        _v.set(x, s.y + Math.sin(t + i * 2) * 0.35, z); _q.setFromEuler(_e.set(0, -a, 0)); _s.setScalar(0.8 + (i % 4) * 0.12);
+        _m.compose(_v, _q, _s); this.fishMesh.setMatrixAt(n++, _m);
+      }
+    }
+    this.fishMesh.count = n;
+    this.fishMesh.instanceMatrix.needsUpdate = true;
+    this.fishMesh.visible = n > 0;
   }
 
   // ------------------------------------------------------------ taps, seeps, sprinklers, drips
   _buildProps() {
     const w = this.world;
     this.drips = [];
-    const metal = new THREE.MeshStandardMaterial({ color: 0x8a949c, metalness: 0.5, roughness: 0.4 });
-    const stone = new THREE.MeshStandardMaterial({ color: 0x8b8a86, flatShading: true, roughness: 1 });
-    const moss = new THREE.MeshStandardMaterial({ color: 0x5c8a3c, flatShading: true, roughness: 1 });
+    const parts = [];                       // every tap/seep/AC/pump merged into ONE static mesh
+    const P = (g, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => parts.push(at(g, x, y, z, rx, ry, rz, sx, sy, sz));
+    const cylG = (r1, r2, h, hex, seg = 8) => tint(new THREE.CylinderGeometry(r1, r2, h, seg), hex);
+    const boxG = (a, b, c, hex) => tint(new THREE.BoxGeometry(a, b, c), hex);
     for (const t of w.taps) {
       const y = w.heightAt(t.x, t.z);
-      const g = new THREE.Group();
-      let spoutY = 2.2;
       if (t.type === 'tap') {
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 2.0, 8), metal);
-        post.position.y = 1.0;
-        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.8, 8), metal);
-        arm.rotation.z = Math.PI / 2; arm.position.set(0.35, 2.05, 0);
-        const knob = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.04, 6, 10), new THREE.MeshStandardMaterial({ color: 0xd24a3a }));
-        knob.position.set(0, 2.2, 0); knob.rotation.x = Math.PI / 2;
-        g.add(post, arm, knob);
-        g.position.set(t.x - 0.35, y - 0.05, t.z);
+        P(cylG(0.12, 0.14, 2.0, 0x8a949c), t.x - 0.35, y + 0.95, t.z);
+        P(cylG(0.09, 0.09, 0.8, 0x8a949c), t.x, y + 2.0, t.z, 0, 0, Math.PI / 2);
+        P(tint(new THREE.TorusGeometry(0.18, 0.04, 6, 10), 0xd24a3a), t.x - 0.35, y + 2.15, t.z, Math.PI / 2);
         this._dripSpot(t.x, t.z, 2.0, y);
+      } else if (t.type === 'ac') {
+        // a wall-mounted air-con unit on a bracket, dripping condensate
+        P(boxG(1.3, 0.9, 0.55, 0xc9ced3), t.x, y + 2.4, t.z, 0, t.rot);
+        P(boxG(1.1, 0.5, 0.06, 0x7d858c), t.x, y + 2.4, t.z + 0.3, 0, t.rot);
+        P(boxG(0.14, 2.0, 0.14, 0x8a949c), t.x - 0.5, y + 1.0, t.z - 0.1);
+        P(boxG(0.14, 2.0, 0.14, 0x8a949c), t.x + 0.5, y + 1.0, t.z - 0.1);
+        this._dripSpot(t.x, t.z, 1.95, y);
+      } else if (t.type === 'pump') {
+        // a bore pump: blue cylinder + spout over a trough
+        P(cylG(0.35, 0.4, 1.4, 0x2f6aa8, 10), t.x, y + 0.7, t.z);
+        P(cylG(0.1, 0.1, 1.0, 0x8a949c), t.x + 0.5, y + 1.3, t.z, 0, 0, Math.PI / 2);
+        P(cylG(0.2, 0.2, 0.3, 0x1c1c1e, 8), t.x, y + 1.5, t.z);
+        this._dripSpot(t.x + 0.9, t.z, 1.2, y);
       } else {
-        const rock = new THREE.Mesh(rockGeometry(0), stone);
-        rock.scale.set(2.2, 1.7, 1.8); rock.position.y = 1.2; rock.rotation.y = t.rot;
-        const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8, 0), moss);
-        m.scale.set(1.2, 0.5, 1); m.position.set(0.2, 2.3, 0);
-        g.add(rock, m);
-        g.position.set(t.x - 0.9, y - 0.2, t.z);
+        const rock = tint(rockGeometry(0), 0x8b8a86);
+        P(rock, t.x - 0.9, y + 1.0, t.z, 0, t.rot, 0, 2.2, 1.7, 1.8);
+        P(tint(new THREE.IcosahedronGeometry(0.8, 0), 0x5c8a3c), t.x - 0.7, y + 2.1, t.z, 0, 0, 0, 1.2, 0.5, 1);
         this._dripSpot(t.x, t.z, 2.1, y);
       }
-      g.traverse((o) => { if (o.isMesh) o.castShadow = this.shadows; });
-      this.root.add(g);
+    }
+    // sprinkler posts
+    this.sprays = [];
+    for (const sp of w.sprinklers) {
+      const y = w.heightAt(sp.x, sp.z);
+      P(cylG(0.16, 0.2, 0.5, 0x8a949c), sp.x, y + 0.2, sp.z);
+      P(cylG(0.07, 0.07, 0.4, 0xe0b020, 6), sp.x, y + 0.6, sp.z);
+      this.sprays.push({ x: sp.x, y: y + 0.7, z: sp.z, reach: sp.r * 0.95, phase: Math.random() });
+    }
+    if (parts.length) {
+      const m = new THREE.Mesh(this.track(merge(parts)), this.vcMat);
+      m.castShadow = this.shadows; this.root.add(m);
     }
     // drop particles
     const total = this.drips.length * 3;
@@ -288,20 +466,7 @@ export class WorldView {
     this.rippleMesh.count = total; this.rippleMesh.frustumCulled = false;
     this.root.add(this.rippleMesh);
 
-    // sprinklers
     this.sprinkleN = 140;
-    const sg = new THREE.Group();
-    this.sprays = [];
-    for (const s of w.sprinklers) {
-      const y = w.heightAt(s.x, s.z);
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.5, 8), metal);
-      base.position.set(s.x, y + 0.2, s.z);
-      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.4, 6), new THREE.MeshStandardMaterial({ color: 0xe0b020 }));
-      head.position.set(s.x, y + 0.6, s.z);
-      sg.add(base, head);
-      this.sprays.push({ x: s.x, y: y + 0.7, z: s.z, reach: s.r * 0.95, phase: Math.random() });
-    }
-    this.root.add(sg);
     const pts = new Float32Array(this.sprays.length * this.sprinkleN * 3);
     const pg = this.track(new THREE.BufferGeometry());
     pg.setAttribute('position', new THREE.BufferAttribute(pts, 3));
@@ -430,6 +595,16 @@ export class WorldView {
     this.sea.material.opacity = 0.72;
     this.sea.position.y = w.seaLevel;
     this._updateTransient();
+    if (playerPos) {
+      this._streamAndCull(dt, playerPos.x, playerPos.z);
+      this._updateFish(dt, playerPos.x, playerPos.z);
+    }
+    // landmarks sit in the haze: tint them with the fog colour and dim them at night
+    if (this.scene.fog) {
+      this.landMat.emissive.copy(this.scene.fog.color).multiplyScalar(0.55);
+      const lum = 0.2 + 0.5 * clamp((this.scene.fog.color.r + this.scene.fog.color.g + this.scene.fog.color.b) / 2.2, 0, 1);
+      this.landMat.color.setScalar(lum);
+    }
     this.waterMat.emissive?.setHex(0x0a2a3c);
     this.waterMat.emissiveIntensity = 0.25 + 0.08 * Math.sin(t * 2);
 
@@ -491,7 +666,12 @@ export class WorldView {
     this.rainPoints.geometry.attributes.position.needsUpdate = true;
 
     // sky clouds
-    for (const m of this.skyClouds) { m.position.x += dt * 2.5; if (m.position.x > 700) m.position.x = -700; }
+    if (playerPos) for (const m of this.skyClouds) {
+      m.position.x += dt * 2.5;
+      // keep the cloud deck around the player (wraps within +-700 m)
+      if (m.position.x - playerPos.x > 700) m.position.x -= 1400; else if (m.position.x - playerPos.x < -700) m.position.x += 1400;
+      if (m.position.z - playerPos.z > 700) m.position.z -= 1400; else if (m.position.z - playerPos.z < -700) m.position.z += 1400;
+    }
 
     // wind specks: float around the player, blowing from the sea toward the land
     if (this.windPoints.visible && playerPos) {
