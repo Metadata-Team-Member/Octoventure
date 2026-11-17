@@ -18,6 +18,7 @@ import { ICON_IDS } from '../src/ui/icons.js';
 import { Levels, BADGES, xpForLevel, levelOf, perks, XP } from '../src/systems/levels.js';
 import { Journal, ENTRIES, TABS, RARE, ENTRY_IDS } from '../src/systems/journal.js';
 import { inkDeter, inkUnder, cloudCovers, INK_NEAR, INK_AQUA_NEAR, INK_BLIND, INK_AQUA_BLIND, INK_BIRD_RANGE, AQUA, FLYERS } from '../src/systems/ink.js';
+import { Music, ROOT, MOOD } from '../src/systems/music.js';
 import { SAVE_VERSION, SAVE_KEY, LEGACY_KEYS, validateSave, migrate, readSaveText, encodeCode, decodeCode, loadSave, writeSave, clearSave, MIGRATIONS, exploreCell, unpackCell } from '../src/systems/save.js';
 
 let checks = 0;
@@ -618,6 +619,20 @@ for (const seed of [1, 42, 2026]) {
   const ring = Array.from({ length: 30 }, (_, i) => ({ x: Math.cos(i) * 0.4, z: Math.sin(i) * 0.4, r: 0.4 }));
   for (let k = 0; k < 60; k++) separate(ring, { passes: 3 });
   ok(minGap(ring) > 0.9, `a crowd of 30 settles without overlap (min gap ${minGap(ring).toFixed(2)})`);
+}
+
+
+{ // adaptive music: every place has a mood, and hunt tension only follows a real hunt
+  ok(BIOMES.every((n) => ROOT[n] > 0 && MOOD[n] && MOOD[n].ratio && MOOD[n].fifth), 'every biome has a root and a mood');
+  const m = new Music();
+  const o = { x: 0, z: 0 };
+  ok(m.huntLevel(null, o) === 0 && m.huntLevel([], o) === 0, 'no predators means no hunt layer');
+  ok(m.huntLevel([{ state: 'idle', x: 0, z: 0 }, { state: 'alert', x: 0, z: 0 }], o) === 0, 'idle or alert animals do not raise the hunt layer');
+  ok(m.huntLevel([{ state: 'chase', x: 0, z: 0 }], o) === 1, 'a chase on top of the octopus is full tension');
+  ok(m.huntLevel([{ state: 'swoop', x: 25, z: 0 }], o) === 0.5, 'hunt tension falls off with distance');
+  ok(m.huntLevel([{ state: 'dive', x: 50, z: 0 }], o) === 0, 'a hunt 50 m away is silent');
+  ok(m.huntLevel([{ state: 'wander', x: 0, z: 0 }, { state: 'pounce', x: 10, z: 0 }], o) > 0.79, 'the nearest hunting predator wins');
+  ok(m.enabled === true && m.toggle() === false && m.toggle() === true, 'the score can be toggled off and on');
 }
 
 console.log(`unit checks passed (${checks} assertions).`);

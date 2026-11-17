@@ -20,6 +20,7 @@
     "test": "npm run unit && npm run placement && npm run build && npm run smoke && npm run features && npm run satchel && npm run saves && npm run levels && npm run combat && npm run packs",
     "combat": "node scripts/combat.mjs",
     "packs": "node scripts/packs.mjs",
+    "music": "node scripts/music-smoke.mjs",
     "wander": "node scripts/wander.mjs"
   },
   "type": "module",
