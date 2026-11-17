@@ -91,7 +91,7 @@ export class Game {
     this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
     // saves are for the real game: a fixed ?seed= / ?daily world (tests, sharing a link) never reads or overwrites the one in the browser
     this.saveEnabled = !params.has('seed') && !params.has('daily') && !params.has('nosave');
-    this.satchelOpen = false;
+    this.satchelOpen = false; this._suspendTick = false;
     this.satchel = new Satchel(this.hud.el.satchel, this);
     this.tideClock = new Clock(this.hud.el.clock);
     this.plankton = new Plankton(this.scene);
@@ -279,7 +279,7 @@ void main(){
   }
   closeSatchel() {
     if (!this.satchelOpen) return false;
-    this.satchelOpen = false; this.satchel.close(); this.hud.setSatchelVisible(false);
+    this.satchelOpen = false; this._suspendTick = false; this.satchel.close(); this.hud.setSatchelVisible(false);
     const i = this.input;
     const needLock = i.lockSupported && i.everLocked && i._mock == null && !i.lockFailed;
     if (needLock) {
@@ -398,7 +398,7 @@ void main(){
     this.updateSeaMoment(dt);
     this.shimmer.update(dt, o);
     this.seaBeat.update(dt, o, world.seaLevel);
-    if (playing) this.critters.update(dt, o, world.night);
+    if (playing) this.critters.update(dt, o, world.night, world.raining ? (this.env?.rain || 1) : 0);
     if (playing) this.updateJournal();
     this.plankton?.update(dt, { night: world.night, biome: world.biomeAt(o.x, o.z), o, seaLevel: world.seaLevel });
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);
@@ -591,6 +591,7 @@ void main(){
   tick = () => {
     const dt = Math.min(0.05, this.clock.getDelta());
     this.fps = lerp(this.fps, 1 / Math.max(dt, 1e-4), 0.05);
+    if (this._suspendTick) { this.render(); this.frame++; this.raf = requestAnimationFrame(this.tick); return; }
     if (!this.paused) this.update(dt);
     else {
       const gp = this.input.pad.poll(dt);
@@ -617,6 +618,8 @@ void main(){
 
   /** advance the simulation without rendering (used by tests / debug) */
   advance(seconds, step = 1 / 30) {
-    for (let t = 0; t < seconds; t += step) this.update(step);
+    this._suspendTick = true;
+    try { for (let t = 0; t < seconds; t += step) this.update(step); }
+    finally { this._suspendTick = false; this.clock.getDelta(); }   // drop wall time so the next tick does not also apply it
   }
 }

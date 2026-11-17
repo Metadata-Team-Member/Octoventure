@@ -148,3 +148,15 @@ Octopus alone: 226 -> 17 draw calls. Triangles are unchanged (~1.7-2.0 M incl. s
 ## Bioluminescent plankton (t254u)
 `systems/plankton.js`. A pooled Points cloud (280 specks, additive, no lights) in the sea and the estuary at night. The field follows the octopus; swimming through it spins and brightens the specks for a moment. Hidden by day and on land.
 
+
+## Harmless critters (t255u) - SPOILERS
+`systems/critters.js`. Soft-toon instanced pools with outlines (except ants, which are too small). Existing kinds were given eyes and clearer idle motion: skinks bask flat then dart, ants march between nest and food (and pack up in heavy rain), dragonflies hover and zip (and startle further off), ghost crabs sidle, come a little closer, then dash down a burrow.
+
+Four new harmless kinds, each with a journal entry:
+- **Frog** (wetland, rainforest, riverbank, estuary): hops, sits at the water's edge, plops in when startled; livelier in the rain and at dusk.
+- **Hermit crab** (beach, dunes, estuary): sidles with a borrowed shell, tucks in when the octopus comes close.
+- **Butterfly** (bush, rainforest, wetland, farm, suburb, riverbank, dunes): flutters and lands; hides at night and in the rain.
+- **Fairy-wren** (bush, farm, suburb, wetland, rainforest, riverbank): hops and pecks, short flits, flies up when startled; sleeps at night.
+
+None can be hurt or killed. Pools stay small and recycle around the player.
+
