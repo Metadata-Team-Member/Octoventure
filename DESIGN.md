@@ -74,7 +74,9 @@ Tab opens a paused panel (`ui/satchel.js`, `ui/icons.js`): left the items found 
 
 **v3 -> v4 (t250u).** Adds `fx.lethal` (a readied lethal venom dose) and `lv.st.kills` / `lv.st.bigKill`. `MIGRATIONS[3]` sets `lethal: false`; missing kill tallies load as 0.
 
-**v4 -> v5 (t254u).** Adds `journal { seen:[ids], tab }`. `MIGRATIONS[4]` starts an older save with an empty journal on the bag tab; already-held items are filled in on load (`Journal.syncItems`). The key stays `octo.save.v2`. Current `SAVE_VERSION` is 5.
+**v4 -> v5 (t254u).** Adds `journal { seen:[ids], tab }`. `MIGRATIONS[4]` starts an older save with an empty journal on the bag tab; already-held items are filled in on load (`Journal.syncItems`). The key stays `octo.save.v2`.
+
+**v5 -> v6.** Adds `decor` (things set around dens) and `carry` (an item held in the arms, or null). `MIGRATIONS[5]` starts an older save with an empty ring and nothing carried. Current `SAVE_VERSION` is 6.
 
 **v2 -> v3 (t241u).** Adds `lv {xp, b:[badge ids], st:{cells, biomes:[names], sea, babies, gathered, crafted, madeAll, shells, nightSwim, rainDance, storm, escapes}}`. `MIGRATIONS[2]` starts an older save at level 1 with what it already did (explored cells, babies, sea, shells) counted towards the badges; badges already deserved are granted quietly on load (no shimmer). The key stays `octo.save.v2`.
 
@@ -207,3 +209,16 @@ None can be hurt or killed. Pools stay small and recycle around the player.
 | wander desktop mean / p99 / worst frame | 427 / 495 / 1626 ms | 192 / 256 / 897 ms |
 | wander mobile mean / p99 / worst frame | 128 / 188 / 482 ms | 71 / 132 / 267 ms |
 | heap after the walk (after GC) desktop / mobile | 36.0 / 40.6 MB | 43.1 / 41.5 MB |
+
+## A den you can dress (no prompts)
+
+Drag an item off the satchel (release it outside the panel) and the octopus carries it. Stand still within 3.4 m of a den and it is set on the ring around the den, facing the way you were looking. Walk into a piece to pick it up again. Hold camouflage while touching it to turn it an eighth. Opening the satchel puts a carried piece back in the bag. At most 8 pieces per den, 24 in all. When a fourth den replaces the oldest, that den's pieces return to the bag.
+
+The map page grows a quiet home row (den icon, then the things around it) and dots the pieces on the chart. No words.
+
+After at least one baby has been rescued, a little one visits a den that has three or more pieces, while you are nearby, and plays. Four pieces earns the "A home" badge. Play continues.
+
+Saved as `decor` and `carry` on save v6 (`MIGRATIONS[5]`). Older saves load with an empty home.
+
+Try: place a den (V), open the satchel, drag a pebble off the panel, stand beside the den. Or `__game.give('pebble'); __game.carryItem('pebble'); __game.dropDecor()`.
+

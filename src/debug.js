@@ -195,6 +195,11 @@ export function installDebugHooks(game) {
     get shimmerActive() { return game.shimmer.active > 0; },
     get seaBeatActive() { return game.seaBeat.active; },
     get critters() { return game.critters.counts(); },
+    carryItem(id) { return game.decor.beginCarry(id); },
+    get carrying() { return game.decor?.carry || null; },
+    get decorPieces() { return (game.decor?.list || []).map((p) => ({ id: p.id, x: p.x, z: p.z, rot: p.rot })); },
+    dropDecor() { return game.decor.dropHere(); },
+    nudgeDecor() { return game.decor.list.length ? game.decor.nudge(0) : false; },
     terrainTypes: Object.keys(TERRAIN),
     game,
   };

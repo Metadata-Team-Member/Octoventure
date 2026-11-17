@@ -31,6 +31,7 @@ import { Levels } from './systems/levels.js';
 import { Shimmer } from './systems/shimmer.js';
 import { SeaBeat } from './systems/seabeat.js';
 import { Critters } from './systems/critters.js';
+import { Decor } from './systems/decor.js';
 import { TOON } from './world/toon.js';
 import { TIER, PEOPLE, BITE, killTier, nipsFor, killXP, lethal } from './systems/combat.js';
 import { BIOMES } from './world/biomes.js';
@@ -105,6 +106,7 @@ export class Game {
     this.satchel = new Satchel(this.hud.el.satchel, this);
     this.tideClock = new Clock(this.hud.el.clock);
     this.plankton = new Plankton(this.scene);
+    this.decor = new Decor(this);
     this.seaMoment = null;
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -191,7 +193,7 @@ void main(){
   // ------------------------------------------------------------------ worlds
   newWorld(seed, save = null) {
     const hadWorld = this.hadWorld;
-    if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); this.critters?.dispose(); }
+    if (this.view) { this.decor?.clear(); this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); this.critters?.dispose(); }
     // ONE fixed world for everyone (CONFIG.worldSeed); ?seed= is a dev/debug override only. Each new game starts somewhere else in it.
     const dbg = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
     const s = seed ?? dbg ?? CONFIG.worldSeed;
@@ -299,6 +301,7 @@ void main(){
   /** Tab: the game stops completely (nothing dries, nothing moves) while the satchel is open */
   openSatchel() {
     if (this.state !== 'playing' || this.satchelOpen) return false;
+    if (this.decor?.carry) this.decor.stow();
     this.satchelOpen = true; this._reLock = null;
     this.hud.setPauseVisible(false);
     this.satchel.open(); this.hud.setSatchelVisible(true);
@@ -373,6 +376,7 @@ void main(){
     const wasCamo = o.camoWanted, wasHealth = o.health, wasWater = o.waterKind;
     if (this.state === 'menu') { o.update(dt, control, world); }
     else o.update(dt, control, world);
+    if (playing) this.decor?.update(dt);
 
     if (playing) {
       this.runTime += dt;
