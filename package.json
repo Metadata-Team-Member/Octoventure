@@ -17,8 +17,10 @@
     "saves": "node scripts/saves.mjs",
     "levels": "node scripts/levels.mjs",
     "perf": "node scripts/perf.mjs",
-    "test": "npm run unit && npm run placement && npm run build && npm run smoke && npm run features && npm run satchel && npm run saves && npm run levels && npm run combat",
-    "combat": "node scripts/combat.mjs"
+    "test": "npm run unit && npm run placement && npm run build && npm run smoke && npm run features && npm run satchel && npm run saves && npm run levels && npm run combat && npm run packs",
+    "combat": "node scripts/combat.mjs",
+    "packs": "node scripts/packs.mjs",
+    "wander": "node scripts/wander.mjs"
   },
   "type": "module",
   "dependencies": {

@@ -160,3 +160,31 @@ Four new harmless kinds, each with a journal entry:
 
 None can be hurt or killed. Pools stay small and recycle around the player.
 
+
+## Soft & friendly pass (t256u / t257u)
+**Research takeaways** (Animal Crossing: New Horizons, A Short Hike, Alba: A Wildlife Adventure, Tunic, Fortnite, Rocket League, Ooblets):
+- *Symbolised shapes, not detail* (ACNH's art director calls it "kigōka"): chunky rounded silhouettes with clear readable masses; detail is thrown away on purpose so things read instantly. Trees are a few puffy clustered blobs, darker underneath and lighter on top.
+- *Soft continuous surfaces at low polycounts*: Alba keeps assets "proudly low poly" but transfers smooth normals so shapes read soft; Tunic builds tufts and bushes from very few vertices. So: smooth shading on low/medium-poly meshes and bevelled edges, never razor facets or knife-thin blades.
+- *Gradients for form*: Alba stretches UVs over a colour gradient to define shadow; we bake a base-dark -> tip-light vertex gradient (cheap fake AO) into foliage, grass and reeds.
+- *Warm, saturated-but-soft palette*: light warm, shade cool, never black; soft shadows and restrained AO (ACNH).
+- *Bouncy secondary motion is the cheapest delight*: Tunic's grass bending as you pass and the bounce of the fox's hair; Fortnite / Rocket League use squash-and-stretch and anticipation so motion reads at a glance.
+- *Readable outlines on actors only* (A Short Hike's soft outline): kept from t248u - octopus, babies and creatures.
+- *Grass as rounded clumps / patterned ground*, not dense sharp blades (ACNH draws most grass into the ground pattern; tufts are rounded clumps).
+
+**What changed**
+- Every world material is smooth-shaded now (was flat-shaded facets everywhere). `models.js` gains `smooth()`, `puff()` (smooth icosphere), `rbox()` (bevelled box), `tintGrad()` (vertical colour gradient) and `blade()` (a bent ribbon with a rounded tip and up-and-out normals).
+- Trees: cones are gone - rounded cedar tiers, puffy oak / gum / paperbark / mangrove crowns, drooping willow lobes, two-lobed palm fronds with coconuts, Norfolk pine tiers as soft discs. A cheaper LOD set (detail-0 puffs, fewer trunk sides) is swapped in for chunks > 150 m away. The tree-integrity audit still proves every part touches the trunk.
+- Grass / reeds / seagrass: tufts of six wide bent round-tipped blades with a base-dark gradient; cattail reeds; ribbon seagrass; capsule coral. Grass sways in a travelling breeze and *parts* around the camera -> octopus line and out of the lens (vertex bend, `applyBend` in fade.js) instead of relying only on the dither stipple.
+- Rocks: subdivided, softly lumpy pebbles and boulders, flatter underneath. Fish are soft ovals.
+- Props: every box is bevelled; fences are round posts with soft caps and round rails; logs have pale cut ends; umbrella gets a finial.
+- Houses: plinth, gable roof of two soft overhanging slabs with a round ridge cap, gutters and a downpipe, framed windows with sills, mullions and flower boxes, a framed door with a knob and a front step, a capped chimney (~2000 triangles, instanced).
+- Cars: toy-like - bevelled body and cabin, fat wheels with hubcaps, round headlights (a subtle face), bumpers and tail lights.
+- Predators: bevelled boxes, capsule limbs, blunted cones, rounder spheres; each body part's static pieces are baked into one vertex-coloured mesh (shared cached geometry), roughly 3-4x fewer draw calls per animal.
+- Predator motion: idle look-arounds, sniff / peck dips and breathing; banking into turns; footfall squash; a wind-up (draw back + squash) before each ground strike, a long stretch on the strike and a step back afterwards; birds flick their wings up before a swoop; perched birds look about; fleeing animals run head-low; leavers glance back once, then go.
+
+**Groups (t257u)** - SPOILERS
+- `util/separate.js`: boids-style separation on a spatial hash (3D for birds in the air) runs every frame over all predators (same species included) and over all critters (predators are immovable obstacles for critters). Pushes are checked against walls and water.
+- At most two animals strike at once; the others hold a personal slot on a ring around the octopus and edge round it until it's their turn.
+- Camouflage: hunters get confused, then each searches its *own* spot 2.5-7.5 m around the last sighting (gulls glide down there and preen), then leaves in its own direction. Gulls circle at their own radius / direction. Birds sharing a perch tree sit on their own branch offsets.
+- Tests: `npm run packs` (5 stacked gulls through attack + camo, a mixed pack of 7, a shared perch tree, every predator's approach -> anticipation -> strike -> recovery -> camo break-off, stacked critters).
+- Map (satchel): `ui/map.js` - kelp paper, watercolour washes sampled every 25 m with soft blended edges, a blobby soft fog-of-war mask, doodled biome icons, dens, puddles and found babies, a dotted wander-trail (saved, pen lifts over jumps), an octopus compass rose and hand-lettered, slightly curved names placed so they never overlap. The sea is neither drawn nor named until it has been found.
