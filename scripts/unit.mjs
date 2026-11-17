@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE, LORE, loreOf } from '../src/systems/items.js';
 import { GATHER_COUNT, GATHER_KINDS, HABITAT, BIOME_MATERIALS } from '../src/world/gather.js';
 import { mulberry32 } from '../src/util/rng.js';
+import { separate, minGap } from '../src/util/separate.js';
 import { ICON_IDS } from '../src/ui/icons.js';
 import { Levels, BADGES, xpForLevel, levelOf, perks, XP } from '../src/systems/levels.js';
 import { Journal, ENTRIES, TABS, RARE, ENTRY_IDS } from '../src/systems/journal.js';
@@ -602,6 +603,21 @@ for (const seed of [1, 42, 2026]) {
   const c = exploreCell(120, -40), u = unpackCell(c);
   ok(u.ix === 1 && u.iz === -1, 'explored cells pack and unpack as 100 m tiles');
   ok(RARE.includes('jar') && RARE.includes('fungi'), 'rare collection portraits are defined');
+}
+
+{ // t257u group separation: a flock stacked on one spot spreads out; immovable agents stay put; no allocation surprises
+  const flock = Array.from({ length: 6 }, () => ({ x: 5, z: 5, y: 2, r: 0.5 }));
+  ok(minGap(flock) === 0, 'a stacked flock starts fully overlapped');
+  for (let k = 0; k < 40; k++) separate(flock, { passes: 3 });
+  ok(minGap(flock) > 0.95, `a stacked flock of gulls spreads apart (min gap ${minGap(flock).toFixed(2)})`);
+  const rock = { x: 0, z: 0, r: 1, w: 0 }, pup = { x: 0.3, z: 0, r: 0.5 };
+  for (let k = 0; k < 10; k++) separate([rock, pup]);
+  ok(rock.x === 0 && rock.z === 0 && Math.hypot(pup.x, pup.z) > 1.45, 'weight 0 agents are never pushed; the other one moves away');
+  const far = [{ x: 0, z: 0, r: 0.5 }, { x: 40, z: 40, r: 0.5 }];
+  ok(separate(far) === 0 && far[0].x === 0 && far[1].x === 40, 'distant animals are left alone');
+  const ring = Array.from({ length: 30 }, (_, i) => ({ x: Math.cos(i) * 0.4, z: Math.sin(i) * 0.4, r: 0.4 }));
+  for (let k = 0; k < 60; k++) separate(ring, { passes: 3 });
+  ok(minGap(ring) > 0.9, `a crowd of 30 settles without overlap (min gap ${minGap(ring).toFixed(2)})`);
 }
 
 console.log(`unit checks passed (${checks} assertions).`);

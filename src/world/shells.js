@@ -50,8 +50,10 @@ export function scallop(variant = 0) {
     c = under ? mix(PEARL, CREAM, s) : c.multiplyScalar(1 + growth);
     return { p: [rr * Math.sin(phi), y, rr * Math.cos(phi) - R * 0.45], c };
   };
-  const top = surface(14, 72, fan(false)), bot = surface(14, 72, fan(true));
-  const rim = surface(1, 72, (u, v) => {                                    // closes the gap between the two sheets along the outer edge
+  // t256u audit: these were 14x72 sheets (4200 tris a shell, ~half of every frame's triangles on a beach). 4 columns per rib
+  // still reads as ribbed at 20 cm scale; the underside lies on the sand so it gets very few rows.
+  const top = surface(8, 36, fan(false)), bot = surface(3, 36, fan(true));
+  const rim = surface(1, 36, (u, v) => {                                    // closes the gap between the two sheets along the outer edge
     const a = fan(false)(1, v), b = fan(true)(1, v); return { p: u ? b.p : a.p, c: u ? b.c : a.c };
   });
   const ear = (sx) => at(tint(new THREE.BoxGeometry(0.07, 0.03, 0.05), 0xf0dfcc), sx * 0.06, 0.022, -R * 0.45 + 0.03, 0, sx * -0.35, 0);
@@ -60,7 +62,7 @@ export function scallop(variant = 0) {
 
 /** turban / conch: a tube that spirals up and shrinks (3 whorls), flared aperture, spiral colour bands and fine ridges. ~0.4 wide. */
 export function turban() {
-  const turns = 3.2, nu = Math.round(turns * 16), nv = 14, q = 0.52;
+  const turns = 3.2, nu = Math.round(turns * 10), nv = 10, q = 0.52;
   const geo = surface(nu, nv, (u, v) => {
     const th = u * turns * Math.PI * 2, g = Math.pow(q, th / (Math.PI * 2)), a = v * Math.PI * 2;
     const flare = 1 + 0.45 * Math.exp(-th * 1.6);
@@ -81,7 +83,7 @@ export function turban() {
 /** cowrie: a glossy, humped oval with a toothed slit along the underside; sits tilted so the slit shows. ~0.4 long. */
 export function cowrie() {
   const a = 0.21, b = 0.135, c = 0.15;
-  const body = surface(14, 20, (u, v) => {
+  const body = surface(10, 16, (u, v) => {
     const lat = u * Math.PI, lon = v * Math.PI * 2;
     const x = Math.cos(lat), y = Math.sin(lat) * Math.cos(lon), z = Math.sin(lat) * Math.sin(lon);
     const hump = 1 + 0.12 * Math.max(0, y);
@@ -93,7 +95,7 @@ export function cowrie() {
     return { p, c: col };
   }, true);
   const parts = [body, at(tint(new THREE.SphereGeometry(1, 8, 4), 0x6a4a3a), 0, -b * 0.88, 0, 0, 0, 0, a * 0.82, 0.012, 0.022)];
-  for (let i = -5; i <= 5; i++) for (const s of [-1, 1]) parts.push(at(tint(new THREE.BoxGeometry(0.014, 0.012, 0.032), 0xf7ece0), i * 0.032, -b * 0.84, s * 0.036, 0.25 * s, 0, 0));
+  for (let i = -2.5; i <= 2.5; i++) for (const s of [-1, 1]) parts.push(at(tint(new THREE.BoxGeometry(0.02, 0.012, 0.032), 0xf7ece0), i * 0.058, -b * 0.84, s * 0.036, 0.25 * s, 0, 0));
   const g = merge(parts); g.rotateX(-1.15); return g;
 }
 

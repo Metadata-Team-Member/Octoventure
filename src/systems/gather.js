@@ -11,7 +11,7 @@ import { toonMat } from '../world/toon.js';
 import { buildGatherGeos } from '../world/gatherModels.js';
 import { seat, instanceSpec, geoHeight } from '../world/placement.js';
 
-const _m = new THREE.Matrix4(), _a = new THREE.Matrix4(), _b = new THREE.Matrix4(), _zero = new THREE.Matrix4().makeScale(0, 0, 0), _c = new THREE.Color();
+const _m = new THREE.Matrix4(), _a = new THREE.Matrix4(), _b = new THREE.Matrix4(), _zero = new THREE.Matrix4().makeScale(0, 0, 0);
 const POOL = 90, CELL = 20;
 const CRITTER = { crab: 26, shrimp: 22 };
 const TAU = Math.PI * 2;

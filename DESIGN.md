@@ -188,3 +188,22 @@ None can be hurt or killed. Pools stay small and recycle around the player.
 - Camouflage: hunters get confused, then each searches its *own* spot 2.5-7.5 m around the last sighting (gulls glide down there and preen), then leaves in its own direction. Gulls circle at their own radius / direction. Birds sharing a perch tree sit on their own branch offsets.
 - Tests: `npm run packs` (5 stacked gulls through attack + camo, a mixed pack of 7, a shared perch tree, every predator's approach -> anticipation -> strike -> recovery -> camo break-off, stacked critters).
 - Map (satchel): `ui/map.js` - kelp paper, watercolour washes sampled every 25 m with soft blended edges, a blobby soft fog-of-war mask, doodled biome icons, dens, puddles and found babies, a dotted wander-trail (saved, pen lifts over jumps), an octopus compass rose and hand-lettered, slightly curved names placed so they never overlap. The sea is neither drawn nor named until it has been found.
+
+**Audit & performance (t256u)**
+- Biggest find: the beach / decor seashells were 14x72-cell parametric sheets - 4200 triangles a scallop (turban 1428, cowrie 872), drawn ~234 times each including ~140 zero-scaled pool slots - about half of every frame's triangles. Now 888 / 640 / 512 triangles and the instanced draw count only covers pool slots actually in use.
+- Far tree LODs: palms 5 single-lobe fronds (580 -> 200 tris), willows 6 lobes (240 -> 160); coral capsules lighter (380 -> 260).
+- Separation bug: an *exactly* stacked pair whose radii summed to <= 1 never split (the overlap was computed against a fake distance of 1). Fixed, with unit tests.
+- Dead code: an unused `instanced()` helper, ~25 unused imports / locals (eslint `no-unused-vars` is clean). Storm-bird count no longer allocates per frame; predator geometry is cached and shared and static parts are baked.
+- Measured with `scripts/perf.mjs` (6 biomes, SwiftShader, so ms are relative only) and `scripts/wander.mjs` (600-frame 900 m walk across chunk boundaries):
+
+| average of 6 biomes | before (f1e1bc3) | after |
+|---|---|---|
+| desktop draw calls | 187 | 180 |
+| desktop triangles | 1.91 M | 0.77 M |
+| desktop frame (software GL) | 510 ms | 229 ms |
+| mobile draw calls | 182 | 176 |
+| mobile triangles | 1.89 M | 0.68 M |
+| mobile frame (software GL) | 144 ms | 80 ms |
+| wander desktop mean / p99 / worst frame | 427 / 495 / 1626 ms | 192 / 256 / 897 ms |
+| wander mobile mean / p99 / worst frame | 128 / 188 / 482 ms | 71 / 132 / 267 ms |
+| heap after the walk (after GC) desktop / mobile | 36.0 / 40.6 MB | 43.1 / 41.5 MB |

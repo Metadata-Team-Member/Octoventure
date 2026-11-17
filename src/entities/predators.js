@@ -133,13 +133,13 @@ export const SPECIES = {
       const snout = box(0.38, 0.3, 0.6, light); snout.position.set(0, -0.12, 0.45); head.add(snout);
       const nose = sph(0.1, black); nose.position.set(0, 0.0, 0.78); head.add(nose);
       for (const s of [-1, 1]) {
-        const ear = box(0.14, 0.5, 0.3, dark); ear.position.set(s * 0.42, 0.1, -0.05); ear.rotation.z = s * 0.4; head.add(ear);
+        const ear = sph(0.2, dark, 0.4, 1.35, 0.8); ear.position.set(s * 0.42, 0.05, -0.05); ear.rotation.z = s * 0.4; head.add(ear);     // soft floppy ear
         const eye = sph(0.07, black); eye.position.set(s * 0.2, 0.15, 0.42); head.add(eye);
       }
       g.add(head);
       for (const [x, z] of [[-0.35, 0.85], [0.35, 0.85], [-0.35, -0.85], [0.35, -0.85]]) { const leg = pivot(cyl(0.14, 0.11, 1.1, fur, 5), x, 1.1, z); leg.children[0].position.y = -0.55; g.add(leg); legs.push(leg); }
       const tail = new THREE.Group(); tail.position.set(0, 1.6, -1.35);
-      const t1 = cone(0.12, 0.9, fur, 5); t1.position.y = 0.4; t1.rotation.x = -0.5; tail.add(t1); g.add(tail);
+      const t1 = cyl(0.1, 0.07, 0.9, fur); t1.position.y = 0.4; t1.rotation.x = -0.5; tail.add(t1); g.add(tail);
       return { g, legs, head, tail };
     },
   },
@@ -161,8 +161,8 @@ export const SPECIES = {
       g.add(head);
       for (const [x, z] of [[-0.25, 0.75], [0.25, 0.75], [-0.25, -0.75], [0.25, -0.75]]) { const leg = pivot(cyl(0.1, 0.08, 0.95, black, 5), x, 0.95, z); leg.children[0].position.y = -0.48; g.add(leg); legs.push(leg); }
       const tail = new THREE.Group(); tail.position.set(0, 1.15, -1.5);
-      const tb = cone(0.3, 1.5, fur, 6); tb.rotation.x = -Math.PI / 2 - 0.3; tb.position.set(0, 0.1, -0.7); tail.add(tb);
-      const tt = cone(0.18, 0.5, white, 6); tt.rotation.x = -Math.PI / 2 - 0.3; tt.position.set(0, 0.0, -1.45); tail.add(tt);
+      const tb = sph(0.3, fur, 1, 1, 2.5); tb.rotation.x = 0.3; tb.position.set(0, 0.15, -0.75); tail.add(tb);     // bushy brush, not a spike
+      const tt = sph(0.2, white, 1, 1, 1.5); tt.rotation.x = 0.3; tt.position.set(0, 0.38, -1.5); tail.add(tt);
       g.add(tail);
       return { g, legs, head, tail };
     },

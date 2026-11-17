@@ -7,7 +7,7 @@
 //  `world.gates`, `world.temp`) so the octopus / predators / views only need the world.
 // =====================================================================
 import { CONFIG } from '../config.js';
-import { mulberry32, clamp, lerp, smoothstep as ss, damp } from '../util/rng.js';
+import { mulberry32, clamp, smoothstep as ss, damp } from '../util/rng.js';
 
 export const WEATHER = {
   clear:    { heat: 0, rain: 0, dark: 0 },
@@ -65,7 +65,7 @@ export class Environment {
   }
 
   update(dt) {
-    const E = CONFIG.env, w = this.world;
+    const E = CONFIG.env;
     if (!this.frozen) {
       this.t = (this.t + dt / E.dayLength) % 1;
       this.abs += dt;

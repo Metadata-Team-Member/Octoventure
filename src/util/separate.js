@@ -36,9 +36,11 @@ export function separate(agents, { cell = 3, passes = 2, slack = 1.0, apply = nu
           const d2 = ox * ox + oz * oz + oy * oy;
           if (d2 >= min * min) continue;
           pairs++;
-          let d = Math.sqrt(d2);
+          const dist = Math.sqrt(d2);
+          let d = dist;
           if (d < 1e-4) { const t = (i * 7.31 + j * 3.17) % 6.2832; ox = Math.cos(t); oz = Math.sin(t); oy = 0; d = 1; }  // exactly stacked: split on a stable pseudo-random axis
-          const over = min - Math.min(d, min), wa = a.w ?? 1, wb = b.w ?? 1, sum = wa + wb || 1;
+          // the real overlap (an exact stack used to get 0 here and never split apart)
+          const over = min - dist, wa = a.w ?? 1, wb = b.w ?? 1, sum = wa + wb || 1;
           const ux = ox / d, uz = oz / d, uy = oy / d;
           const ka = over * (wa / sum), kb = over * (wb / sum);
           if (apply) { if (ka) apply(a, -ux * ka, -uz * ka, -uy * ka); if (kb) apply(b, ux * kb, uz * kb, uy * kb); }

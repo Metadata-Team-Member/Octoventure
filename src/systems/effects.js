@@ -7,8 +7,7 @@ import { CONFIG } from '../config.js';
 import { dotTexture } from '../world/worldView.js';
 import { clamp } from '../util/rng.js';
 
-const _Y = new THREE.Vector3(0, 1, 0), _X = new THREE.Vector3(1, 0, 0), _qp = new THREE.Quaternion();
-const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _s = new THREE.Vector3();
 
 export class Effects {
   constructor(world, scene) {

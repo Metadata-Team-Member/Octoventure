@@ -116,7 +116,7 @@ export class Satchel {
   }
 
   render() {
-    const g = this.game, keep = this.root.querySelector(':focus')?.dataset;
+    const keep = this.root.querySelector(':focus')?.dataset;
     this.renderPortrait();
     this.syncTab();
     this.renderBag();
@@ -267,7 +267,7 @@ export class Satchel {
   }
   babyPortrait(id) {
     let h = 0; for (let i = 0; i < id.length; i++) h = (h * 33 + id.charCodeAt(i)) >>> 0;
-    const hue = h % 40, a = 24 + (h % 8);
+    const a = 24 + (h % 8);
     return `<svg viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="14" rx="8" ry="7" fill="hsl(32,${a}%,${48 + (h % 10)}%)"/><circle cx="13" cy="13" r="1.1" fill="#1a1a1a"/><circle cx="19" cy="13" r="1.1" fill="#1a1a1a"/><g fill="none" stroke="hsl(205,80%,60%)" stroke-width="1.1">${[[12,12],[20,12],[16,10],[14,16],[18,16]].map(([x,y]) => `<circle cx="${x}" cy="${y}" r="1.4"/>`).join('')}</g></svg>`;
   }
 

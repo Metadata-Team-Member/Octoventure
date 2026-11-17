@@ -12,11 +12,11 @@ import * as THREE from 'three';
 import { toonMat } from './toon.js';
 import { CONFIG, TERRAIN } from '../config.js';
 import { smoothstep as ss, lerp, clamp } from '../util/rng.js';
-import { tint, merge, at, puff, rbox, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
+import { tint, merge, at, puff, rbox, rockGeometry } from './models.js';
 import { HUE_KINDS, LANDMARK_KINDS } from './props.js';
 import { buildGeoLib } from './geoLib.js';
 import { applyFade, applyBend } from './fade.js';
-import { seat, instanceSpec, geoFor, geoHeight, waterDisc, discMatrix, fitDisc, ringMin } from './placement.js';
+import { seat, instanceSpec, geoHeight, waterDisc, discMatrix, fitDisc, ringMin } from './placement.js';
 
 export const FOG_COLOR = 0xcfe6f2;
 export const CHUNK = 100;
@@ -43,22 +43,6 @@ export function dotTexture() {
   return _dot;
 }
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color();
-
-function instanced(geo, mat, list, place, color) {
-  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, list.length));
-  mesh.count = list.length;
-  list.forEach((o, i) => {
-    place(o, _v, _e, _s);
-    _q.setFromEuler(_e);
-    _m.compose(_v, _q, _s);
-    mesh.setMatrixAt(i, _m);
-    if (color) { color(o, _c); mesh.setColorAt(i, _c); }
-  });
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  mesh.computeBoundingSphere();
-  return mesh;
-}
 
 /** like instanced(), but every instance is seated on the terrain by placement.js (base on the ground, tilted/sunk as the category needs) */
 function instancedSeat(world, geo, mat, list, cat, sub, color) {
@@ -145,7 +129,6 @@ export class WorldView {
     // far (generated) regions feed the same buckets as they appear
     w.regions.onGenerate((reg) => this._ingest(reg));
     // shared geometry & materials
-    const sh = this.shadows;
     this.vcMat = this.track(toonMat({ vertexColors: true, roughness: 0.9 }));
     this.whiteMat = this.track(toonMat({ color: 0xffffff, roughness: 0.95 }));
     this.grassMat = this.track(toonMat({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }));
@@ -286,7 +269,7 @@ export class WorldView {
     const n = Math.round(CHUNK / cell), stride = n + 1;
     const pos = new Float32Array(stride * stride * 3), col = new Float32Array(stride * stride * 3);
     const tcol = this.tcol;
-    const fog = this._fogC ??= new THREE.Color(FOG_COLOR), foam = this._foamC ??= new THREE.Color(0xf4fbff), deep = this._deepC ??= new THREE.Color(0x1f5f86);
+    const foam = this._foamC ??= new THREE.Color(0xf4fbff), deep = this._deepC ??= new THREE.Color(0x1f5f86);
     const c = new THREE.Color();
     for (let iz = 0; iz <= n; iz++) {
       for (let ix = 0; ix <= n; ix++) {
@@ -573,7 +556,7 @@ export class WorldView {
     this.root.add(this.rainPoints);
     this.rainSeeds = new Float32Array(this.rainN * 3);
     for (let i = 0; i < this.rainSeeds.length; i++) this.rainSeeds[i] = Math.random();
-    for (const c of w.rain) {
+    for (let i = 0; i < w.rain.length; i++) {
       const m = new THREE.Mesh(cgeo, cmat);
       m.castShadow = false; this.root.add(m);
       this.clouds.push(m);

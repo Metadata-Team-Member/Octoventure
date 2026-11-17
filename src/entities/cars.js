@@ -8,7 +8,6 @@
 import * as THREE from 'three';
 import { toonMat } from '../world/toon.js';
 import { CONFIG } from '../config.js';
-import { clamp } from '../util/rng.js';
 import { PROP_GEO, CAR_SCALE } from '../world/props.js';
 
 export class CarManager {

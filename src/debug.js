@@ -164,7 +164,7 @@ export function installDebugHooks(game) {
       const w = game.world;
       for (const c of w.colliders) {
         if (!c.climb || (kind && c.kind !== kind)) continue;
-        let dx = 0, dz = 1, depth, near;
+        let dx = 0, dz = 1, depth;
         if (c.r !== undefined) { dx = 1; dz = 0; depth = c.r; } else if (c.hw >= c.hd) { depth = c.hd; } else { dx = 1; dz = 0; depth = c.hw; }
         const sx = c.x - dx * (depth + 2.5), sz = c.z - dz * (depth + 2.5), ex = c.x + dx * (depth + 2.5), ez = c.z + dz * (depth + 2.5);
         if (w.resolve(sx, sz, 0.8).hit || w.resolve(ex, ez, 0.8).hit || w.heightAt(sx, sz) < 0.5 || w.heightAt(ex, ez) < 0.5) continue;

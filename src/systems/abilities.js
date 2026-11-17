@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { toonMat } from '../world/toon.js';
 import { seat } from '../world/placement.js';
 import { USABLE, FX } from './items.js';
-import { clamp, lerp } from '../util/rng.js';
+import { lerp } from '../util/rng.js';
 
 const _m = new THREE.Matrix4();
 const flip = (g) => { const c = g.clone(); c.rotateX(Math.PI); c.computeBoundingBox(); c.translate(0, -c.boundingBox.min.y, 0); return c; };

@@ -11,7 +11,7 @@ import { buildShellGeos } from '../world/geoLib.js';
 import { seat, instanceSpec, geoHeight, shellScale, shellKind, fitDisc } from '../world/placement.js';
 import { dotTexture, haloTexture } from '../world/worldView.js';
 import { CONFIG } from '../config.js';
-import { clamp, lerp, smoothstep as ss } from '../util/rng.js';
+import { clamp, smoothstep as ss } from '../util/rng.js';
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _c = new THREE.Color();
 
@@ -37,13 +37,14 @@ export class Collectibles {
     this.geos = buildShellGeos();
     // natural, matte-to-satin shell (no metal): the colours are baked into the vertices, instances only vary the tone a little
     this.mat = toonMat({ vertexColors: true, roughness: 0.62, metalness: 0, side: THREE.DoubleSide });
-    this.meshes = {}; this.counts = { c: 0, t: 0, k: 0 }; this.free = { c: [], t: [], k: [] };
+    this.meshes = {}; this.counts = { c: 0, t: 0, k: 0 }; this.free = { c: [], t: [], k: [] }; this.base = {};
     const POOL = 140;
     for (const k of ['c', 't', 'k']) {
       const n = list.filter((_, i) => shellKind(i) === k).length;
       const m = new THREE.InstancedMesh(this.geos[k], this.mat, n + POOL); m.count = n + POOL; m.frustumCulled = false; this.meshes[k] = m; this.root.add(m);
       _m.makeScale(0, 0, 0);
-      for (let j = 0; j < POOL; j++) { m.setMatrixAt(n + j, _m); this.free[k].push(n + j); }
+      for (let j = POOL - 1; j >= 0; j--) { m.setMatrixAt(n + j, _m); this.free[k].push(n + j); }   // lowest slot pops first
+      this.base[k] = n; m.count = n;                // t256u audit: only draw pool slots in use (was all 140 zero-scaled ones too)
     }
     this.mesh = this.meshes.c;
     const pal = [0xffffff, 0xfff3ea, 0xf8e6dc, 0xf3ecf6, 0xfaf0d8, 0xe9dccb];
@@ -141,6 +142,15 @@ export class Collectibles {
         this.meshes[sh.k].instanceMatrix.needsUpdate = true;
       }
     }
+    this.fitCounts();
+  }
+  /** draw count = home shells + the highest pool slot in use */
+  fitCounts() {
+    for (const k in this.meshes) {
+      let top = this.base[k];
+      for (const sh of this.active) if (sh.k === k && sh.slot >= top) top = sh.slot + 1;
+      this.meshes[k].count = top;
+    }
   }
   release(sh) {
     this.active.delete(sh);
@@ -154,7 +164,6 @@ export class Collectibles {
   }
 
   update(dt, o, runTime, ctx = {}) {
-    const w = this.world;
     // ---- shells: silent pick-up, quietly adds armour
     this.actT -= dt; if (this.actT <= 0) { this.actT = 0.5; this.streamShells(o); }
     if (o.alive && !o.tunnel) {

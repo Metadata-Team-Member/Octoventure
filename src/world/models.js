@@ -121,14 +121,18 @@ export function treeGeometries(lod = false) {
   const palmParts = [];
   for (let i = 0; i < 4; i++) palmParts.push(at(tint(cyl(0.2 - i * 0.02, 0.25 - i * 0.02, 1.0), i % 2 ? 0x9a7b4f : 0xa88a5c), -0.0 + i * 0.07, 0.5 + i * 0.95, 0, 0, 0, -0.07 - i * 0.02));
   const cx = 0.24, cy = 3.75;
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + 0.3, col = i % 2 ? 0x3f9b4a : 0x2f8a44;
-    const inner = at(leaf(puff(1, 0), col, 0x5cb85e), 0.75, 0.15, 0, 0, 0, 0.35, 0.85, 0.09, 0.26);
-    const knot = at(tint(puff(0.14, 0), col), 1.33, 0.36, 0, 0, 0, 0, 1, 0.7, 1);                       // the bend in the frond, joins the two lobes
-    const outer = at(leaf(puff(1, 0), col, 0x56b058), 1.87, 0.1, 0, 0, 0, -0.45, 0.75, 0.08, 0.22);   // droops from the bend
-    for (const g of [inner, knot, outer]) { at(g, 0, 0, 0, 0, a, 0); at(g, cx, cy, 0); palmParts.push(g); }
+  const NF = lod ? 5 : 7;                                         // far palms: fewer fronds, one lobe each, no knot (t256u audit)
+  for (let i = 0; i < NF; i++) {
+    const a = (i / NF) * Math.PI * 2 + 0.3, col = i % 2 ? 0x3f9b4a : 0x2f8a44;
+    const lobes = lod
+      ? [at(leaf(puff(1, 0), col, 0x5cb85e), 1.2, 0.12, 0, 0, 0, 0.12, 1.3, 0.09, 0.3)]
+      : [at(leaf(puff(1, 0), col, 0x5cb85e), 0.75, 0.15, 0, 0, 0, 0.35, 0.85, 0.09, 0.26),
+        at(tint(puff(0.14, 0), col), 1.33, 0.36, 0, 0, 0, 0, 1, 0.7, 1),                       // the bend in the frond, joins the two lobes
+        at(leaf(puff(1, 0), col, 0x56b058), 1.87, 0.1, 0, 0, 0, -0.45, 0.75, 0.08, 0.22)];  // droops from the bend
+    for (const g of lobes) { at(g, 0, 0, 0, 0, a, 0); at(g, cx, cy, 0); palmParts.push(g); }
   }
-  palmParts.push(at(tint(pf(0.17), 0x6a4a26), cx + 0.15, cy - 0.15, 0.1), at(tint(pf(0.16), 0x5a3b1e), cx - 0.1, cy - 0.18, 0.14), at(tint(pf(0.16), 0x6a4a26), cx, cy - 0.17, -0.16));
+  // coconuts are tiny: always detail 0
+  if (!lod) palmParts.push(at(tint(puff(0.17, 0), 0x6a4a26), cx + 0.15, cy - 0.15, 0.1), at(tint(puff(0.16, 0), 0x5a3b1e), cx - 0.1, cy - 0.18, 0.14), at(tint(puff(0.16, 0), 0x6a4a26), cx, cy - 0.17, -0.16));
   palmParts.push(at(tint(pf(0.3), 0x3a8a40), cx, cy + 0.05, 0));
   const palm = merge(palmParts);
   const bush = merge([
@@ -170,8 +174,9 @@ export function treeGeometries(lod = false) {
   const mangrove = merge(mangParts);
   // --- weeping willow: short trunk, round crown, a curtain of long soft drooping lobes (was sharp downward cones)
   const willParts = [at(tint(cyl(0.25, 0.42, 2.2), 0x5e4a30), 0, 1.1, 0), at(leaf(pf(1.9), 0x7aa246, 0x9cc45e), 0, 3.4, 0, 0, 0, 0, 1.2, 0.8, 1.2)];
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
+  const NW = lod ? 6 : 10;
+  for (let i = 0; i < NW; i++) {
+    const a = (i / NW) * Math.PI * 2;
     willParts.push(at(leaf(puff(1, 0), i % 2 ? 0x76a046 : 0x8bb454, i % 2 ? 0x8eb85a : 0xa2c86a), Math.cos(a) * 1.9, 2.5, Math.sin(a) * 1.9, 0, 0, 0, 0.42, 1.45, 0.42));
   }
   const willow = merge(willParts);
@@ -222,7 +227,7 @@ export function coralGeometry() {
   const parts = [at(tint(puff(0.32, 1), 0xdddddd), 0, 0.12, 0, 0, 0, 0, 1, 0.55, 1)];
   for (let i = 0; i < 5; i++) {
     const a = i * 1.26, L = 0.8 + (i % 2) * 0.4;
-    parts.push(at(tintGrad(new THREE.CapsuleGeometry(0.12, L, 2, 6), 0xcccccc, 0xffffff), Math.cos(a) * 0.3, 0.75, Math.sin(a) * 0.3, Math.sin(a) * 0.45, 0, -Math.cos(a) * 0.45));
+    parts.push(at(tintGrad(new THREE.CapsuleGeometry(0.12, L, 1, 6), 0xcccccc, 0xffffff), Math.cos(a) * 0.3, 0.75, Math.sin(a) * 0.3, Math.sin(a) * 0.45, 0, -Math.cos(a) * 0.45));
   }
   return merge(parts);
 }
