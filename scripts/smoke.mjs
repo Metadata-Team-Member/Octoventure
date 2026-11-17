@@ -143,6 +143,7 @@ ok(chroma[100] > chroma[50] && chroma[50] > chroma[5] && chroma[5] < chroma[100]
 const spd = await page.evaluate(() => {
   const G = window.__game, g = G.game, w = g.world;
   G.clearPredators(); G.setHealth(100);
+  G.setWeather('clear'); g.env.rain = 0; w.temp.length = 0;          // a passing shower leaves puddles: measure land on dry land
   g.input.keys.add('KeyW');
   G.teleport(w.start.x, w.start.z); G.advance(0.6);
   const land = { speed: G.speed, terrain: G.terrain };

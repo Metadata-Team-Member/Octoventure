@@ -143,7 +143,7 @@ function trees(ctx) {
 function rocks(ctx) {
   const { w, rnd, reg, sk, K, G } = ctx;
   const target = Math.round(G.rockCount * K);
-  const P = { suburb: 0.002, town: 0, farm: 0.02, bush: 0.07, riverbank: 0.15, wetland: 0, dunes: 0.01, beach: 0.02, headland: 0.5, estuary: 0.01 };
+  const P = { suburb: 0.002, town: 0, farm: 0.02, bush: 0.07, riverbank: 0.15, wetland: 0, dunes: 0.01, beach: 0.02, headland: 0.5, estuary: 0.01, desert: 0.05, rainforest: 0.06 };
   let tries = 0, n = 0;
   while (n < target && tries++ < target * 40) {
     const [x, z] = pt(rnd, sk, 4);
@@ -155,8 +155,13 @@ function rocks(ctx) {
     if (w._blocked(x, z, 1) || w.isRoad(x, z, 1)) continue;
     const hh = w.heightAt(x, z);
     if (hh < 0.7) continue;
-    const size = rnd() < (b === 'headland' ? 0.25 : 0.12) ? rnd.range(2.2, 4) : rnd.range(0.5, 1.8);
-    reg.decor.rocks.push({ x, z, y: hh, size, rot: rnd() * 6.28, sy: rnd.range(0.55, 1.0), tint: rnd.range(0.8, 1.1), dark: b === 'headland' });
+    if (b === 'desert' && rnd() < 0.45) {                     // termite mounds: tall, narrow, red earth (t241u)
+      const size = rnd.range(0.35, 0.75);
+      reg.decor.rocks.push({ x, z, y: hh, size, rot: rnd() * 6.28, sy: rnd.range(2.4, 4.2), tint: rnd.range(0.85, 1.05), red: true, mound: true });
+      w._addCircle(x, z, size * 0.85, { kind: 'rock' }); n++; continue;
+    }
+    const size = rnd() < (b === 'headland' ? 0.25 : 0.12) ? rnd.range(2.2, 4) : b === 'desert' ? rnd.range(0.3, 0.9) : rnd.range(0.5, 1.8);
+    reg.decor.rocks.push({ x, z, y: hh, size, rot: rnd() * 6.28, sy: rnd.range(0.55, 1.0), tint: rnd.range(0.8, 1.1), dark: b === 'headland', red: b === 'desert' });
     w._addCircle(x, z, size * 0.85, { kind: 'rock' });
     n++;
   }
@@ -164,7 +169,7 @@ function rocks(ctx) {
 function ground(ctx) {
   const { w, rnd, reg, sk, K, G } = ctx;
   const grass = reg.decor.grass, flowers = reg.decor.flowers;
-  const P = { lawn: 0.9, grass: 1, pasture: 1, litter: 0.38, scrub: 0.5, dunegrass: 0.8, dune: 0.15, swamp: 0.3, mud: 0.12, bank: 0.4, gravel: 0.05, forest: 0.6, headland: 0.1, rock: 0.04 };
+  const P = { lawn: 0.9, grass: 1, pasture: 1, litter: 0.38, scrub: 0.5, dunegrass: 0.8, dune: 0.15, swamp: 0.3, mud: 0.12, bank: 0.4, gravel: 0.05, forest: 0.6, headland: 0.1, rock: 0.04, spinifex: 0.9, redsand: 0.12, gibber: 0.05, fern: 1, mossy: 0.7 };
   let tries = 0;
   const gt = Math.round(G.grassCount * K);
   while (grass.length < gt && tries++ < gt * 8) {
@@ -175,8 +180,8 @@ function ground(ctx) {
     const hh = w.heightAt(x, z);
     if (hh < 0.9) continue;
     const harsh = w.harshAt(x, z);
-    const dry = tp === 'scrub' || tp === 'dune' || tp === 'dunegrass' || tp === 'pasture' && rnd() < 0.4 || tp === 'litter' || rnd() < harsh * 0.85;
-    grass.push({ x, z, y: hh, s: rnd.range(0.7, 1.5) * GRASS_SCALE * (tp === 'dune' || tp === 'dunegrass' ? 1.4 : 1), rot: rnd() * 6.28, dry, tint: rnd.range(0.8, 1.15), wet: tp === 'swamp' });
+    const dry = tp === 'spinifex' || tp === 'redsand' || tp === 'gibber' || tp === 'scrub' || tp === 'dune' || tp === 'dunegrass' || tp === 'pasture' && rnd() < 0.4 || tp === 'litter' || rnd() < harsh * 0.85;
+    grass.push({ x, z, y: hh, s: rnd.range(0.7, 1.5) * GRASS_SCALE * (tp === 'dune' || tp === 'dunegrass' ? 1.4 : tp === 'spinifex' ? 1.3 : tp === 'fern' ? 1.35 : 1), rot: rnd() * 6.28, dry, tint: rnd.range(0.8, 1.15), wet: tp === 'swamp' });
   }
   tries = 0;
   const ft = Math.round(G.flowerCount * K);

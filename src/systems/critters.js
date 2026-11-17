@@ -1,9 +1,10 @@
 // =====================================================================
 //  Ambient critters (t241u): harmless life going about its business near the octopus. Skinks bask and dart away, ant trails march
 //  across the ground, dragonflies hover over damp places. Which ones appear depends on the biome under them (desert and bush skinks,
-//  rainforest dragonflies, ...). Skinks and dragonflies tuck themselves away at night.
+//  rainforest dragonflies, ...). Skinks and dragonflies tuck themselves away at night. Ghost crabs (t251u) scuttle sideways over the
+//  beach, dunes, estuary and headland sand day and night and pop down a burrow when the octopus comes close.
 //
-//  Performance: three InstancedMeshes (3 draw calls in total), small fixed pools recycled around the player, all scratch objects
+//  Performance: four InstancedMeshes (4 draw calls in total), small fixed pools recycled around the player, all scratch objects
 //  preallocated (no per-frame allocation), ground heights for an ant trail sampled once when it is placed.
 // =====================================================================
 import * as THREE from 'three';
@@ -12,7 +13,8 @@ import { tint, merge, at } from '../world/models.js';
 const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank']);
 const ANT_B = new Set(['desert', 'bush', 'suburb', 'farm', 'town', 'dunes', 'rainforest']);
 const FLY_B = new Set(['wetland', 'riverbank', 'estuary', 'rainforest', 'farm']);
-const NS = 10, NT = 6, PER = 22, NF = 8, R_FAR = 46;
+const CRAB_B = new Set(['beach', 'dunes', 'estuary', 'headland']);
+const NS = 10, NT = 6, PER = 22, NF = 8, NC = 8, R_FAR = 46;
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _zero = new THREE.Vector3(0, 0, 0);
 
 function skinkGeo() {
@@ -39,15 +41,30 @@ function flyGeo() {
   ]);
 }
 
+function crabGeo() {
+  const legs = [];
+  for (let i = 0; i < 4; i++) for (const sd of [-1, 1]) legs.push(at(tint(new THREE.BoxGeometry(0.11, 0.012, 0.014), 0xd9c9a3), sd * 0.085, 0.03, -0.04 + i * 0.027, 0, 0, sd * -0.5));
+  return merge([
+    at(tint(new THREE.SphereGeometry(1, 7, 5), 0xe6d6b0), 0, 0.045, 0, 0, 0, 0, 0.075, 0.032, 0.06),     // pale sandy carapace
+    at(tint(new THREE.CylinderGeometry(0.006, 0.006, 0.05, 4), 0xcbb98f), -0.03, 0.08, 0.045),           // eye stalks
+    at(tint(new THREE.CylinderGeometry(0.006, 0.006, 0.05, 4), 0xcbb98f), 0.03, 0.08, 0.045),
+    at(tint(new THREE.SphereGeometry(0.011, 5, 4), 0x1a1a1a), -0.03, 0.107, 0.045),
+    at(tint(new THREE.SphereGeometry(0.011, 5, 4), 0x1a1a1a), 0.03, 0.107, 0.045),
+    at(tint(new THREE.BoxGeometry(0.035, 0.025, 0.04), 0xf0e2c0), -0.07, 0.04, 0.07), at(tint(new THREE.BoxGeometry(0.025, 0.02, 0.03), 0xf0e2c0), 0.06, 0.04, 0.07),
+    ...legs,
+  ]);
+}
+
 export class Critters {
   constructor(world, scene) {
     this.world = world; this.scene = scene;
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.8 });
     const mk = (geo, n) => { const m = new THREE.InstancedMesh(geo, this.mat, n); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; for (let i = 0; i < n; i++) { _m.compose(_p.set(0, -999, 0), _q.identity(), _zero); m.setMatrixAt(i, _m); } scene.add(m); return m; };
-    this.skMesh = mk(skinkGeo(), NS); this.antMesh = mk(antGeo(), NT * PER); this.flyMesh = mk(flyGeo(), NF);
+    this.skMesh = mk(skinkGeo(), NS); this.antMesh = mk(antGeo(), NT * PER); this.flyMesh = mk(flyGeo(), NF); this.crMesh = mk(crabGeo(), NC);
     this.sk = Array.from({ length: NS }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, run: 0, walk: 0, t: Math.random() * 5 }));
     this.tr = Array.from({ length: NT }, () => ({ on: false, x: 0, z: 0, a: 0, len: 3, hs: new Float32Array(9), ph: Math.random() }));
     this.fl = Array.from({ length: NF }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, g: 0, t: 0, h: 0 }));
+    this.cr = Array.from({ length: NC }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, dir: 1, t: 0, run: 0, dig: 0 }));
     this.slot = 0; this.T = 0;
   }
   /** a random ground spot 8..34 m from the player whose biome allows `set` (null if none on this try) */
@@ -59,7 +76,7 @@ export class Critters {
   }
   respawn(o, night) {
     // one pool slot per call, round-robin across the three kinds
-    const k = this.slot++ % (NS + NT + NF), w = this.world;
+    const k = this.slot++ % (NS + NT + NF + NC), w = this.world;
     const far = (c) => !c.on || Math.abs(c.x - o.x) > R_FAR || Math.abs(c.z - o.z) > R_FAR;
     if (k < NS) {
       const c = this.sk[k]; if (!far(c) && !(night > 0.6)) return;
@@ -71,6 +88,10 @@ export class Critters {
       c.on = false; const s = this.spot(o, ANT_B); if (!s) return;
       c.on = true; c.x = s[0]; c.z = s[1]; c.a = Math.random() * 6.28; c.len = 2.5 + Math.random() * 2.5;
       for (let i = 0; i < 9; i++) { const f = i / 8 - 0.5; c.hs[i] = w.heightAt(c.x + Math.cos(c.a) * f * c.len, c.z + Math.sin(c.a) * f * c.len); }
+    } else if (k >= NS + NT + NF) {
+      const c = this.cr[k - NS - NT - NF]; if (!far(c) && c.dig < 1) return;
+      c.on = false; const s = this.spot(o, CRAB_B); if (!s) return;
+      c.on = true; c.x = s[0]; c.z = s[1]; c.y = w.heightAt(c.x, c.z); c.h = Math.random() * 6.28; c.dir = Math.random() < 0.5 ? -1 : 1; c.t = 0; c.run = 0; c.dig = 0;
     } else {
       const c = this.fl[k - NS - NT]; if (!far(c) && !(night > 0.6)) return;
       c.on = false; if (night > 0.6) return;
@@ -123,8 +144,27 @@ export class Critters {
       _q.setFromEuler(_e.set(0, c.h, Math.sin(this.T * 40 + i) * 0.05)); _m.compose(_p.set(c.x, c.y + Math.sin(this.T * 3 + i) * 0.04, c.z), _q, _s.set(1, 1, 1)); this.flyMesh.setMatrixAt(i, _m);
     }
     this.flyMesh.instanceMatrix.needsUpdate = true;
+    // ---- ghost crabs: sideways scuttles, then a dash and down a burrow when the octopus comes close
+    for (let i = 0; i < NC; i++) {
+      const c = this.cr[i];
+      if (!c.on) { _m.compose(_p.set(0, -999, 0), _q.identity(), _zero); this.crMesh.setMatrixAt(i, _m); continue; }
+      const dx = c.x - o.x, dz = c.z - o.z, d2 = dx * dx + dz * dz;
+      if (d2 < 7 && c.run <= 0 && c.dig === 0) { c.run = 0.7; c.h = Math.atan2(dx, dz) - c.dir * Math.PI / 2; }
+      let sp = 0;
+      if (c.run > 0) { c.run -= dt; sp = 3.6; if (c.run <= 0) c.dig = 0.001; }
+      else if (c.dig > 0) { c.dig = Math.min(1, c.dig + dt * 2.5); }
+      else { c.t -= dt; if (c.t <= 0) { c.t = 0.6 + Math.random() * 2.4; if (Math.random() < 0.3) c.dir = -c.dir; if (Math.random() < 0.3) c.h += (Math.random() - 0.5) * 1.5; } if (c.t > 1.2) sp = 0.9; }
+      if (sp > 0) {      // crabs walk sideways: move along the body's local x axis
+        const mx = Math.cos(c.h) * c.dir, mz = -Math.sin(c.h) * c.dir;
+        const nx = c.x + mx * sp * dt, nz = c.z + mz * sp * dt;
+        if (!w.waterAt?.(nx, nz) && !w._blocked?.(nx, nz, 0.15)) { c.x = nx; c.z = nz; c.y = w.heightAt(nx, nz); } else c.dir = -c.dir;
+      }
+      const bob = sp > 0 ? Math.abs(Math.sin(this.T * 38 + i)) * 0.012 : 0, sink = c.dig * 0.14;
+      _q.setFromEuler(_e.set(0, c.h, 0)); _m.compose(_p.set(c.x, c.y + bob - sink, c.z), _q, _s.set(1, 1, 1)); this.crMesh.setMatrixAt(i, _m);
+    }
+    this.crMesh.instanceMatrix.needsUpdate = true;
   }
   /** how many of each are out right now (tests) */
-  counts() { return { skinks: this.sk.filter((c) => c.on).length, trails: this.tr.filter((c) => c.on).length, flies: this.fl.filter((c) => c.on).length }; }
-  dispose() { for (const m of [this.skMesh, this.antMesh, this.flyMesh]) { m.geometry.dispose(); this.scene.remove(m); } this.mat.dispose(); }
+  counts() { return { skinks: this.sk.filter((c) => c.on).length, trails: this.tr.filter((c) => c.on).length, flies: this.fl.filter((c) => c.on).length, crabs: this.cr.filter((c) => c.on && c.dig < 1).length }; }
+  dispose() { for (const m of [this.skMesh, this.antMesh, this.flyMesh, this.crMesh]) { m.geometry.dispose(); this.scene.remove(m); } this.mat.dispose(); }
 }

@@ -17,7 +17,7 @@ await page.waitForFunction(() => window.__game && window.__game.frame > 3, { tim
 await page.click('#play');
 let fails = 0;
 const check = (c, m) => { console.log((c ? 'PASS  ' : 'FAIL  ') + m); if (!c) fails++; };
-const names = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'wetland', 'dunes', 'beach', 'headland', 'estuary', 'sea'];
+const names = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'wetland', 'dunes', 'beach', 'headland', 'estuary', 'sea', 'desert', 'rainforest'];
 for (const name of names) {
   const r = await page.evaluate(async (name) => {
     const G = window.__game, g = G.game;
@@ -49,7 +49,7 @@ for (const [a, b] of pairs) {
     g.input.pitch = 0.42; g.input.zoom = 0.5;
     G.advance(1.2);
     await new Promise((r) => setTimeout(r, 900));
-    const w = g.world, o = G.pos, ww = Array.from(w.biomes.weights(e.x, e.z)), q0 = Array.from(w.biomes.weights(o.x, o.z)), ia = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'wetland', 'dunes', 'beach', 'headland', 'estuary', 'sea'];
+    const w = g.world, o = G.pos, ww = Array.from(w.biomes.weights(e.x, e.z)), q0 = Array.from(w.biomes.weights(o.x, o.z)), ia = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'wetland', 'dunes', 'beach', 'headland', 'estuary', 'sea', 'desert', 'rainforest'];
     const near = (nm) => { const i = ia.indexOf(nm); return { mid: ww[i], here: q0[i] }; };
     // the ground types on both sides of the line, in a 120 m strip across the blend: both biomes' ground must show up, intermixed
     const types = {}; for (let d = -45; d <= 45; d += 3) { const t = w.typeAt(e.x + e.dx * d, e.z + e.dz * d); types[t] = (types[t] || 0) + 1; }

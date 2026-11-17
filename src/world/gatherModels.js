@@ -188,7 +188,22 @@ export const propagule = () => merge([
   at(paint(sph(1, 7, 5), (x, y) => mixC(0x7a5a2c, 0xa88650, y * 0.5 + 0.5)), -0.15, 0.03, 0, 0, 0, 0, 0.04, 0.034, 0.034),
 ]);
 
-export const GATHER_MODELS = { crab, shrimp, snail, mussel, kelp, lettuce, sponge, coral: coralBit, shellhalf, pebble, moss, coconut, cap, jar, urchin, worm, beetle, spawn, propagule };
+/** t241u: a lump of red ochre (desert) */
+export const ochre = () => merge([
+  at(paint(rockGeometry(2), (x, y) => mixC(0x8e3a1e, 0xd0683a, (y + 1) * 0.45)), 0, 0.05, 0, 0, 0.3, 0, 0.12, 0.08, 0.1),
+  at(paint(rockGeometry(3), (x, y) => mixC(0xa0482a, 0xe08a50, (y + 1) * 0.4)), 0.12, 0.03, 0.05, 0, 1.1, 0, 0.06, 0.045, 0.055),
+]);
+/** t241u: a little cluster of pale ghost fungi (rainforest; they glow faintly) */
+export const fungi = () => {
+  const parts = [];
+  [[0, 0, 1], [0.07, 0.03, 0.8], [-0.06, 0.04, 0.7], [0.02, -0.07, 0.6]].forEach(([x, z, k]) => {
+    parts.push(at(tint(new THREE.CylinderGeometry(0.012 * k, 0.016 * k, 0.09 * k, 6), 0xe8efe0), x, 0.045 * k, z));
+    parts.push(at(paint(sph(1, 9, 5), (px, py) => mixC(0xcfe9c0, 0xf4fff0, py * 0.5 + 0.5)), x, 0.09 * k, z, 0, 0, 0, 0.055 * k, 0.025 * k, 0.055 * k));
+  });
+  return merge(parts);
+};
+
+export const GATHER_MODELS = { crab, shrimp, snail, mussel, kelp, lettuce, sponge, coral: coralBit, shellhalf, pebble, moss, coconut, cap, jar, urchin, worm, beetle, spawn, propagule, ochre, fungi };
 export function buildGatherGeos() { const o = {}; for (const k in GATHER_MODELS) o[k] = GATHER_MODELS[k](); return o; }
 /** how each kind sits: tilt to the slope (0..1) */
-export const GATHER_TILT = { crab: 0.5, shrimp: 0.3, snail: 0.6, mussel: 0.8, kelp: 0, lettuce: 0.7, sponge: 0.2, coral: 0.2, shellhalf: 1, pebble: 1, moss: 0.6, coconut: 1, cap: 1, jar: 0.8, urchin: 0.6, worm: 0.9, beetle: 0.5, spawn: 0.7, propagule: 1 };
+export const GATHER_TILT = { crab: 0.5, shrimp: 0.3, snail: 0.6, mussel: 0.8, kelp: 0, lettuce: 0.7, sponge: 0.2, coral: 0.2, shellhalf: 1, pebble: 1, moss: 0.6, coconut: 1, cap: 1, jar: 0.8, urchin: 0.6, worm: 0.9, beetle: 0.5, spawn: 0.7, propagule: 1, ochre: 1, fungi: 0.5 };

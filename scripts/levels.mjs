@@ -1,5 +1,5 @@
 // Levels, badges, day/night and weather in the running game (headless Chrome). Run after `npm run build`:   node scripts/levels.mjs
-//   SHOTS=1 also writes screenshots to /workspace/octo-v6-*.png
+//   SHOTS=1 also writes screenshots to $SHOTDIR (default: the system temp dir) as octo-*.png
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -21,7 +21,7 @@ await page.click('#play');
 const E = (f, ...a) => page.evaluate(f, ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const frames = async (n) => { const f0 = await E(() => window.__game.frame); await page.waitForFunction((t) => window.__game.frame >= t, { timeout: 120000 }, f0 + n); };
-const shot = async (name) => { if (SHOTS) await page.screenshot({ path: `/workspace/octo-v6-${name}.png` }); };
+const shot = async (name) => { if (SHOTS) await page.screenshot({ path: `${process.env.SHOTDIR || (await import('node:os')).tmpdir()}/octo-${name}.png` }); };
 await E(() => { const G = window.__game; G.clearPredators(); G.freezeTime(true); G.setTime(0.42); G.setWeather('clear'); });
 await sleep(400);
 
@@ -72,6 +72,21 @@ await sleep(400);
   const h = await E(() => { const G = window.__game, g = G.game; G.setWeather('clear'); g.env.rain = 0; g.env.heat = 0; g.env.apply(); const a = g.world.dryMult; G.setWeather('heatwave'); g.env.heat = 1; g.env.apply(); return { a, b: g.world.dryMult }; });
   ok(h.b > h.a * 1.3, 'a hot spell dries the octopus faster');
   await E(() => { const G = window.__game, g = G.game; G.setWeather('clear'); g.env.heat = 0; g.env.apply(); });
+}
+// ---- new biomes, critters and the sea arrival (t241u)
+{
+  const b = await E(() => { const G = window.__game; const r = {}; for (const n of ['desert', 'rainforest']) { r[n] = G.teleportToBiome(n) && G.biomeAt(G.game.octopus.x, G.game.octopus.z) === n; G.advance(0.6); r[n + 'Badge'] = G.levels.badges.has(n); } return r; });
+  ok(b.desert && b.rainforest, 'the red desert and the rainforest gully exist in the one world');
+  ok(b.desertBadge && b.rainforestBadge, 'visiting them earns their badges');
+  const c = await E(() => { const G = window.__game; G.teleportToBiome('desert'); G.advance(6); return G.critters; });
+  ok(c.skinks > 0 && c.trails > 0, `harmless critters live around the octopus (desert: ${c.skinks} skinks, ${c.trails} ant trails)`);
+  const f = await E(() => { const G = window.__game; G.teleportToBiome('wetland'); G.advance(8); return G.critters; });
+  ok(f.flies > 0, `dragonflies hover over the wetland (${f.flies})`);
+  const cb = await E(() => { const G = window.__game; G.teleportToBiome('beach'); G.advance(10); return G.critters; });
+  ok(cb.crabs > 0, `ghost crabs scuttle over the beach (${cb.crabs})`);
+  const s = await E(() => { const G = window.__game, g = G.game; g.progress.seaReached = false; G.teleportToOcean(4); G.advance(0.4); const a = { sea: g.progress.seaReached, beat: G.seaBeatActive, badge: g.levels.badges.has('sea'), state: g.state }; G.advance(8); a.after = G.seaBeatActive; a.state2 = g.state; return a; });
+  ok(s.sea && s.beat && s.badge, 'reaching the sea plays the underwater moment and earns the sea badge');
+  ok(!s.after && s.state2 === 'playing', 'then play simply continues');
 }
 ok(problems.length === 0, `no page errors${problems.length ? ': ' + problems.join(' | ') : ''}`);
 await browser.close();

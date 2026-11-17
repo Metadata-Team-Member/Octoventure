@@ -70,12 +70,13 @@ There is **no HUD, timer, tutorial, markers or hint text**. Everything is read f
 * **Abilities found by playing:** squeeze through drains, pipes, culverts and fence holes (walk into the mouth); hide in tins, shells, logs and under slabs; ink cloud in water blinds attackers; venom bite scares one off; climb fences and walls.
 * **Little octopuses** are hiding around the world; finding one plays a small scene. Nothing is counted on screen.
 * **The sea** is somewhere in the one world, no compass or map (you start at a different place each game, so its direction is never a given); clues: sand and dunes, gulls and surf, pale haze, a sea breeze, streams drifting to the coast, Norfolk pines, a lighthouse. **Reaching it does not end the game**: you can swim, dive (look down), explore the reef and rock pools and walk back inland. Dying (0 health) stops the octopus and offers **Restart game**.
-* The world has 11 biomes: suburb, town, farm, bush, riverbank, wetland, dunes, beach, headland, estuary and the sea.
+* The world has 13 biomes: suburb, town, farm, bush, riverbank, wetland, dunes, beach, headland, estuary, red desert, rainforest gully and the sea.
 
 ## Features
-* One fixed world: a 1600 x 1600 m map with 11 biomes that blend into each other over tens of metres (the ground, trees, rocks and props of both mix and thin out) and simply never ends: beyond it the land (and the coast) keep going, generated on demand and streamed in 100 m chunks of instanced geometry; mesh-exact ground heights, everything seated on the terrain (an automated audit checks every object over the one world, its far tiles and a few debug worlds).
-* Day/night cycle, weather (clear, heatwave, rain, storm), tides, wind and dew; per-biome lighting.
-* Spatial WebAudio (surf, wind, gulls, magpies, kookaburras, engines, horns, ground thumps, squelching footsteps, heartbeat when nearly dry), droplets, wet tentacle trails with sucker dots, camera shake on lunges and heavy footsteps.
+* One fixed world: a 1600 x 1600 m map with 13 biomes that blend into each other over tens of metres (the ground, trees, rocks and props of both mix and thin out) and simply never ends: beyond it the land (and the coast) keep going, generated on demand and streamed in 100 m chunks of instanced geometry; mesh-exact ground heights, everything seated on the terrain (an automated audit checks every object over the one world, its far tiles and a few debug worlds).
+* Day/night cycle with stars, moon and night glow, weather (clear, heatwave, rain, storm), tides, wind and dew; per-biome lighting.
+* Small harmless wildlife going about its day (skinks, ant trails, dragonflies, ghost crabs).
+* Spatial WebAudio (surf, wind, gulls, magpies, kookaburras, engines, horns, ground thumps, squelching footsteps, heartbeat when nearly dry, a soft splash and bubbles as you slip into water, muffled sound under it), droplets, camera shake on lunges and heavy footsteps.
 * Difficulty (gentle / normal / harsh) and the daily start are chosen from the pause menu only.
 * Gamepad support (standard mapping).
 

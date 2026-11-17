@@ -117,10 +117,11 @@ let before;
   const shook = await E(() => document.getElementById('code-in').classList.contains('shake') && window.__game.seed !== undefined);
   ok(shook, 'a wrong code just shakes the box (no message)');
   await E((c) => { const i = document.getElementById('code-in'); i.value = c; i.dispatchEvent(new Event('paste')); }, code);
-  await page.waitForFunction((s) => window.__game.seed === s, { timeout: 60000 }, keep.seed);
+  // the seed is the same before and after (one world), so wait for the rebuild itself: loading gone and the octopus back where it was
+  await page.waitForFunction((k) => { const g = window.__game.game; return g.world.seed === k.seed && document.getElementById('loading').hidden && Math.abs(g.octopus.x - k.x) < 0.5 && g.state === 'playing'; }, { timeout: 60000 }, keep).catch(() => {});
   await sleep(300);
   const p = await E(() => { const g = window.__game.game, o = g.octopus; return { seed: g.world.seed, x: o.x, z: o.z, crab: g.inv.count('crab'), state: g.state, paused: g.paused, loading: !document.getElementById('loading').hidden }; });
-  ok(p.seed === keep.seed && Math.abs(p.x - keep.x) < 0.5 && p.crab === keep.crab && p.state === 'playing' && !p.loading, 'a pasted code rebuilds that world and carries on');
+  ok(p.seed === keep.seed && Math.abs(p.x - keep.x) < 0.5 && p.crab === keep.crab && p.state === 'playing' && !p.loading, `a pasted code rebuilds that world and carries on (${JSON.stringify({ keep, p })})`);
 }
 
 // ================================================================ a save from the previous (per-seed world) game is carried into the one world

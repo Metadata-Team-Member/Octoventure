@@ -471,31 +471,19 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.fade, 'camera occluder fade is compiled into the grass, tree and prop materials');
 }
 
-// ================================================================ wet trail: tentacle drag marks, fading
+// ================================================================ no ground marks (t246u: removed, they read as car tracks)
 {
   const r = await E(async () => {
-    const G = window.__game, g = G.game, o = g.octopus, fx = g.fx, out = {};
+    const G = window.__game, g = G.game, o = g.octopus, fx = g.fx;
     if (G.paused) g.setPaused(false);
     G.teleport(g.world.start.x, g.world.start.z); G.advance(0.2);
-    o.wetness = 1; o.hp = 100;
+    const before = g.scene.children.length;
     G.pressKey('KeyW');
-    for (let i = 0; i < 90; i++) { o.wetness = 1; G.advance(0.05); }
+    for (let i = 0; i < 60; i++) { o.wetness = 1; G.advance(0.05); }
     G.releaseKey('KeyW');
-    const A = fx.printAlpha.array;
-    out.marks = Array.from(A).filter((a) => a > 0.05).length;
-    const geo = fx.printMesh.geometry; geo.computeBoundingBox();
-    out.w = geo.boundingBox.max.x - geo.boundingBox.min.x; out.l = geo.boundingBox.max.z - geo.boundingBox.min.z;
-    out.round = geo.type === 'CircleGeometry';
-    out.verts = geo.attributes.position.count;
-    G.advance(0.3);
-    const a0 = Math.max(...A);
-    G.advance(12);                      // fades away completely
-    out.fadedTo = Math.max(...A); out.a0 = a0;
-    return out;
+    return { has: 'printMesh' in fx || 'prints' in fx, grew: g.scene.children.length - before };
   });
-  ok(r.marks >= 3, `walking while wet leaves drag marks (${r.marks} live)`);
-  ok(!r.round && r.verts > 100 && r.w < 0.6 && r.l >= 0.9, `marks are thin multi-arm strokes with sucker dots, not footprints (${r.verts} verts, ${r.w.toFixed(2)} wide x ${r.l.toFixed(2)} long)`);
-  ok(r.fadedTo === 0, `the marks fade away completely (peak ${r.a0.toFixed(2)} -> ${r.fadedTo})`);
+  ok(!r.has && r.grew <= 0, `walking while wet leaves no trail or footprint marks (fx marks: ${r.has}, scene +${r.grew})`);
 }
 
 // ================================================================ pause screen lists the controls; nowhere else

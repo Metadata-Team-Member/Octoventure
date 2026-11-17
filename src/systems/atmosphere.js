@@ -117,25 +117,24 @@ export class Atmosphere {
     const day = env.daylight, night = env.night;
     // ---- sky palette -------------------------------------------------------------------
     const dusk = clamp(1 - Math.abs(env.sunElev) / 0.32, 0, 1) * (1 - env.dark * 0.6);   // golden hour around sunrise / sunset
-    const set = (k) => {
-      const dayMix = (a) => PAL.day[k].clone().lerp(PAL.heat[k], env.heat * 0.85);
-      const c = dayMix().lerp(PAL.dusk[k], dusk * 0.9);
-      c.lerp(PAL.night[k], night);
-      c.lerp(PAL.storm[k].clone().multiplyScalar(0.35 + 0.65 * day), env.dark * 0.9);
-      return c;
+    // (t241u optimisation: no Color allocations per frame - two scratch colours reused)
+    const st = this._stC ??= new THREE.Color();
+    const set = (k, c) => {
+      c.copy(PAL.day[k]).lerp(PAL.heat[k], env.heat * 0.85).lerp(PAL.dusk[k], dusk * 0.9).lerp(PAL.night[k], night);
+      c.lerp(st.copy(PAL.storm[k]).multiplyScalar(0.35 + 0.65 * day), env.dark * 0.9);
     };
-    this.top.copy(set('top')); this.mid.copy(set('mid')); this.hor.copy(set('hor'));
+    set('top', this.top); set('mid', this.mid); set('hor', this.hor);
     // salt haze when near the coast (the old hint)
-    if (CONFIG.hints.saltHaze) this.hor.lerp(C(0xc4f0f4).multiplyScalar(0.25 + 0.75 * day), prox * prox * 0.7 * (1 - night * 0.6));
+    if (CONFIG.hints.saltHaze) this.hor.lerp(st.set(0xc4f0f4).multiplyScalar(0.25 + 0.75 * day), prox * prox * 0.7 * (1 - night * 0.6));
     // lightning
     this.flash = env.lightning;
-    if (this.flash > 0) { this.top.lerp(C(0xdfe8ff), this.flash * 0.5); this.mid.lerp(C(0xeef2ff), this.flash * 0.6); this.hor.lerp(C(0xffffff), this.flash * 0.6); }
+    if (this.flash > 0) { this.top.lerp(st.set(0xdfe8ff), this.flash * 0.5); this.mid.lerp(st.set(0xeef2ff), this.flash * 0.6); this.hor.lerp(st.set(0xffffff), this.flash * 0.6); }
     // underwater: the camera is below the (moving) sea surface
     const wantUnder = camera.position.y < w.seaLevel - 0.05 && w.tAt(camera.position.x, camera.position.z) > 0.9 ? 1 : 0;
     this.under += (wantUnder - this.under) * (1 - Math.exp(-8 * dt));
     const u = this.under;
-    const fogCol = this.hor.clone();
-    if (u > 0.01) fogCol.lerp(UNDER.clone().lerp(UNDER_DEEP, clamp(-(camera.position.y - w.seaLevel) / 8 + 0.2, 0, 0.8)).multiplyScalar(0.4 + 0.6 * day), u);
+    const fogCol = (this._fogC ??= new THREE.Color()).copy(this.hor);
+    if (u > 0.01) fogCol.lerp(st.copy(UNDER).lerp(UNDER_DEEP, clamp(-(camera.position.y - w.seaLevel) / 8 + 0.2, 0, 0.8)).multiplyScalar(0.4 + 0.6 * day), u);
     fogCol.lerp(this.bTint, 0.07 * day);
     if (this.harsh > 0.01 && u < 0.5) fogCol.lerp(HAZE, 0.3 * this.harsh * day * (1 - u));
     g.scene.fog.color.copy(fogCol);
@@ -150,17 +149,17 @@ export class Atmosphere {
     const a = (env.t - 0.25) * Math.PI * 2;
     const sx = Math.cos(a) * 0.85, sy = Math.sin(a), sz = 0.38;
     this.sunDir.set(sx, sy, sz).normalize();
-    const moonDir = new THREE.Vector3(-sx, -sy, -sz).normalize();
+    const moonDir = (this._moonDir ??= new THREE.Vector3()).set(-sx, -sy, -sz).normalize();
     const above = env.sunElev > -0.04;
-    const lightDir = above ? this.sunDir.clone() : moonDir.clone();
+    const lightDir = (this._lightDir ??= new THREE.Vector3()).copy(above ? this.sunDir : moonDir);
     lightDir.y = Math.max(lightDir.y, 0.28);                 // keep shadows sane near the horizon
     this.lightDir = lightDir.normalize();
-    const sunCol = SUN_DAY.clone().lerp(SUN_LOW, dusk);
+    const sunCol = (this._sunC ??= new THREE.Color()).copy(SUN_DAY).lerp(SUN_LOW, dusk);
     const sunI = 2.6 * day * (1 - env.dark * 0.85) * (1 + env.heat * 0.15);
     const moonI = 0.9 * night * (1 - env.dark * 0.6);
     g.sun.color.copy(sunCol.lerp(MOON, night));
     g.sun.intensity = (sunI + moonI) * (1 - u * 0.55) + this.flash * 2.5;
-    g.hemi.color.copy(HEMI_SKY_DAY).lerp(HEMI_SKY_NIGHT, night).lerp(C(0xe8a070), dusk * 0.35);
+    g.hemi.color.copy(HEMI_SKY_DAY).lerp(HEMI_SKY_NIGHT, night).lerp(st.set(0xe8a070), dusk * 0.35);
     g.hemi.color.multiply(this.bTint);
     g.sun.color.lerp(this.bTint, 0.35 * day);
     g.hemi.groundColor.copy(HEMI_GR_DAY).lerp(HEMI_GR_NIGHT, night);
@@ -176,7 +175,7 @@ export class Atmosphere {
     const vis = clamp(1 - env.dark * 1.2, 0, 1) * (1 - u);
     this.sunSprite.material.opacity = ss(-0.05, 0.1, env.sunElev) * vis;
     this.sunGlow.material.opacity = ss(-0.1, 0.2, env.sunElev) * 0.3 * vis * (1 + dusk);
-    this.sunSprite.material.color.set(0xfff2c8).lerp(C(0xff9a55), dusk);
+    this.sunSprite.material.color.set(0xfff2c8).lerp(SUN_LOW, dusk);
     this.moonSprite.material.opacity = ss(0.0, 0.25, -env.sunElev) * vis;
     this.starMat.opacity = ss(0.05, 0.8, night) * (1 - env.dark) * (1 - u);
 

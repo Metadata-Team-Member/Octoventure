@@ -191,7 +191,7 @@ export class WorldData {
     const u = this.lateral(x, z);
     const hills = ss(0.46, 0.6, tw);
     const amp = w[B.suburb] * 0.8 + w[B.town] * 0.45 + w[B.farm] * 1.9 + w[B.bush] * (3.4 + 5.2 * hills) + w[B.riverbank] * 1.6 +
-      w[B.wetland] * 0.5 + w[B.dunes] * 2.4 + w[B.beach] * 0.9 + w[B.headland] * 7.5 + w[B.estuary] * 0.3 + w[B.sea] * 0.8;
+      w[B.wetland] * 0.5 + w[B.dunes] * 2.4 + w[B.beach] * 0.9 + w[B.headland] * 7.5 + w[B.estuary] * 0.3 + w[B.sea] * 0.8 + w[B.desert] * 1.6 + w[B.rainforest] * (3.4 + 5.2 * hills);   // a rainforest gully keeps the bush hills' shape
     const low = w[B.wetland] + w[B.estuary];
     const cd = this.creekDist(x, z);
     // (the fine ground ripple is ironed out along the creek bed, so the water surface never hangs over a bump)
@@ -385,6 +385,12 @@ export class WorldData {
           const f = n.fbm(x * 0.03 + 7, z * 0.03 - 2, 3);
           return f > 0.25 ? 'scrub' : f < -0.2 ? 'rock' : 'headland';
         }
+      case 'desert': {
+        const f = n.fbm(x * 0.02 + 31, z * 0.02 - 17, 3);
+        return f > 0.3 ? 'gibber' : f < -0.22 ? 'spinifex' : 'redsand';
+      }
+      case 'rainforest':
+        return n.fbm(x * 0.03 - 41, z * 0.03 + 5, 3) > 0.05 ? 'mossy' : 'fern';
       case 'estuary':
         return n.fbm(x * 0.05 + 3, z * 0.05 + 11, 2) > 0.4 ? 'sand' : tw > 0.93 ? 'wet' : 'swamp';
       default: return 'wet';
@@ -582,7 +588,12 @@ export class WorldData {
           const p = list[i];
           if (this.tAt(p.x, p.z) > 0.985) break;
           const r = lerp(r0, r1, s) * (s > 0.9 ? 1 + (s - 0.9) * 12 : 1);
-          if (i % 2 === 0) this._addWater(s > 0.93 ? 'estuary' : 'stream', p.x, p.z, r, { H, depth: 0.1 });
+          if (i % 2 === 0) {
+            // t241u: a stream disc never hangs over a dip in its rim (the window average can sit above a local hollow)
+            let Hd = H;
+            if (s <= 0.93) { for (let k = 0; k < 8; k++) { const a = k * 0.785; Hd = Math.min(Hd, this.baseHeight(p.x + Math.cos(a) * r * 1.15, p.z + Math.sin(a) * r * 1.15) - 0.06); } }
+            this._addWater(s > 0.93 ? 'estuary' : 'stream', p.x, p.z, r, { H: Hd, depth: 0.1 });
+          }
         }
       };
       lay(this.creek, 2.0, 3.6);
@@ -675,7 +686,12 @@ export class WorldData {
           const c = this.centreHash.cell, ix = Math.floor(pts[i].x / c), iz = Math.floor(pts[i].z / c), rr = Math.ceil(14 / c);       // every pool within reach, not just those whose own cells touch this one
           for (let a = -rr; a <= rr && !hit; a++) for (let b = -rr; b <= rr && !hit; b++) for (const q of this.centreHash.map.get(this.centreHash.key(ix + a, iz + b)) || EMPTY) if (STILL.has(q.kind) && Math.hypot(q.x - pts[i].x, q.z - pts[i].z) < q.r * 1.7 + 3.2) { hit = true; break; }
         }
-        if (!hit && this._slope(pts[i].x, pts[i].z, 2) < 0.16) this._addWater('stream', pts[i].x, pts[i].z, 1.7, { H, depth: 0.1 });      // (and none on a steep bank: its disc would hang over the slope)
+        if (!hit && this._slope(pts[i].x, pts[i].z, 2) < 0.14) {
+          // never let the disc hang over a dip in its rim (t241u: found by the placement audit once the new biomes shifted the RNG)
+          const px = pts[i].x, pz = pts[i].z; let rim = this.baseHeight(px, pz);
+          for (let k = 0; k < 8; k++) { const a = k * 0.785; rim = Math.min(rim, this.baseHeight(px + Math.cos(a) * 1.9, pz + Math.sin(a) * 1.9)); }
+          this._addWater('stream', px, pz, 1.7, { H: Math.min(H, rim + 0.02), depth: 0.1 });      // (and none on a steep bank: its disc would hang over the slope)
+        }      // (and none on a steep bank: its disc would hang over the slope)
       }
     }
     // rain clouds drifting around

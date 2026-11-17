@@ -27,6 +27,10 @@ export const RECIPES = [
   { id: 'mimic-moss', out: 'mimic', in: { sponge: 1, moss: 1 } },             // sea + bushland
   { id: 'tonic', out: 'tonic', in: { urchin: 1, propagule: 1 } },             // rocky headland + mangroves
   { id: 'meal', out: 'meal', in: { worm: 1, spawn: 1 } },                     // farmland + wetland
+  { id: 'mimic-ochre', out: 'mimic', in: { ochre: 1, sponge: 1 } },          // t241u: desert + sea
+  { id: 'shield-ochre', out: 'shield', in: { ochre: 2, shellhalf: 1 } },     // desert + beach
+  { id: 'tonic-fungi', out: 'tonic', in: { fungi: 1, kelp: 1 } },            // rainforest + sea
+  { id: 'meal-fungi', out: 'meal', in: { fungi: 1, worm: 1 } },              // rainforest + farmland
 ];
 
 /** how long each effect lasts (s) and how strong it is */

@@ -74,7 +74,7 @@ await sleep(500);
     out.slotsAfter = G.inv.slots().map((s) => s.id).join();
     return out;
   });
-  ok(r.kinds === 19, `all 19 gatherable kinds exist in the world (${r.kinds})`);
+  ok(r.kinds === 21, `all 21 gatherable kinds exist in the world (${r.kinds})`);
   ok(r.slot >= 0 && r.got && r.count === 1, 'walking over a kelp frond picks it up (it is shown first, then taken)');
   ok(r.anims >= 1 && r.animsAfter === 0, 'a small pick-up animation plays and then ends');
   ok(r.text, 'picking something up shows no text and no pop-up');
@@ -88,7 +88,7 @@ await sleep(500);
     }
     return res;
   });
-  ok(Object.values(k).every((v) => v === 1), 'every still kind is picked up by touch: ' + JSON.stringify(k));
+  ok(Object.values(k).every((v) => v >= 1), 'every still kind is picked up by touch (a close neighbour may come along too): ' + JSON.stringify(k));
   // critters
   const c = await E(() => {
     const G = window.__game, g = G.game, o = g.octopus, out = {};
@@ -133,7 +133,7 @@ await sleep(500);
   // clicking in the panel
   await E(() => { const G = window.__game; G.game.inv.reset(); G.give('crab', 1); G.give('shellhalf', 1); G.game.openSatchel(); });
   const cl = await E(() => { const rows = [...document.querySelectorAll('.sat-recipes .rec')]; return { n: rows.length, no: rows.filter((x) => x.classList.contains('no')).length, can: rows.filter((x) => !x.classList.contains('no')).length, text: document.getElementById('satchel').innerText.trim() }; });
-  ok(cl.n === 3 && cl.can === 1 && cl.no === 2 && cl.text.replace(/[\d\s]/g, '') === '', `panel shows picture recipes only, the unaffordable ones greyed (${cl.n} rows, ${cl.can} ready, text "${cl.text}")`);
+  ok(cl.n === 4 && cl.can === 1 && cl.no === 3 && cl.text.replace(/[\d\s]/g, '') === '', `panel shows picture recipes only, the unaffordable ones greyed (${cl.n} rows, ${cl.can} ready, text "${cl.text}")`);
   await page.click('.sat-recipes .rec:not(.no)'); await sleep(100);
   const cr = await E(() => { const G = window.__game; return { feast: G.inv.count('feast'), crab: G.inv.count('crab') }; });
   ok(cr.feast === 1 && cr.crab === 0, 'clicking a ready recipe crafts it');
@@ -275,7 +275,7 @@ const fresh = () => E(() => { const G = window.__game, g = G.game, o = g.octopus
     await sleep(200);
     const L = await E(() => { const p = document.querySelector('.sat-panel').getBoundingClientRect(), r = document.querySelector('.sat-recipes'); return { top: p.top, bottom: p.bottom, left: p.left, right: p.right, vw: innerWidth, vh: innerHeight, scroll: r.scrollHeight - r.clientHeight, slots: document.querySelectorAll('.sat-bag .slot:not(.empty)').length, recs: document.querySelectorAll('.sat-recipes .rec').length }; });
     ok(L.top >= 0 && L.bottom <= L.vh && L.left >= 0 && L.right <= L.vw && L.scroll <= 1 && L.slots === 29 && L.recs >= 11, `layout ${w}x${h}: panel fits the screen (${Math.round(L.bottom - L.top)}px tall), ${L.slots} items, ${L.recs} recipes, no scrolling`);
-    if (w === 1440) await page.screenshot({ path: '/workspace/octo-v4-craft.png' });
+    if (w === 1440) await page.screenshot({ path: `${process.env.SHOTDIR || (await import('node:os')).tmpdir()}/octo-craft.png` });
     await E(() => { const G = window.__game; G.game.closeSatchel(); G.game.setPaused(false); });
   }
 }

@@ -105,7 +105,7 @@ export function installDebugHooks(game) {
     teleportToOcean(depth = 8) {
       const w = game.world, o = game.octopus;
       // walk forward along the sea direction until we are in the water
-      for (let d = 0; d < 1200; d += 1) {
+      for (let d = 0; d < 6000; d += d < 1200 ? 1 : 4) {          // random starts can be far inland: look a long way
         const x = o.x + w.dir.x * d, z = o.z + w.dir.z * d;
         if (w.isSea(x, z)) { this.teleport(x + w.dir.x * depth, z + w.dir.z * depth); return true; }
       }
@@ -184,6 +184,8 @@ export function installDebugHooks(game) {
     giveXP(n) { game.levels.add(n); },
     did(kind, arg) { game.levels.did(kind, arg); },
     get shimmerActive() { return game.shimmer.active > 0; },
+    get seaBeatActive() { return game.seaBeat.active; },
+    get critters() { return game.critters.counts(); },
     terrainTypes: Object.keys(TERRAIN),
     game,
   };

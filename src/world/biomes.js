@@ -12,7 +12,7 @@
 // =====================================================================
 import { smoothstep as ss, clamp } from '../util/rng.js';
 
-export const BIOMES = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'wetland', 'dunes', 'beach', 'headland', 'estuary', 'sea'];
+export const BIOMES = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'wetland', 'dunes', 'beach', 'headland', 'estuary', 'sea', 'desert', 'rainforest'];   // (t241u: desert + rainforest appended so older placement stays put)
 export const B = Object.fromEntries(BIOMES.map((n, i) => [n, i]));
 export const NB = BIOMES.length;
 
@@ -29,6 +29,8 @@ export const BIOME_INFO = {
   headland:  { label: 'Rocky headland',      tint: 0xd5dfee, fog: 0.9,  amb: { surf: 1.0, wind: 0.8, gulls: 0.5 } },
   estuary:   { label: 'Estuary & jetty',     tint: 0xd9efee, fog: 0.8,  amb: { gulls: 1.0, babble: 0.5, surf: 0.4 } },
   sea:       { label: 'Open sea',            tint: 0xc4e8f4, fog: 1.0,  amb: { surf: 1.0 } },
+  desert:    { label: 'Red desert',          tint: 0xffd2a8, fog: 1.2,  amb: { wind: 1.0 } },
+  rainforest:{ label: 'Rainforest gully',    tint: 0xbfe0b0, fog: 0.55, amb: { birds: 1.0, babble: 0.5, frogs: 0.3 } },
 };
 
 export const COAST_KINDS = ['beach', 'mangrove', 'headland', 'estuary'];
@@ -98,6 +100,14 @@ export class BiomeField {
     w[B.suburb] = urban * (1 - townMask);
     w[B.farm] = farm;
     w[B.bush] = bush;
+    // ---- t241u: a red desert on the harsh inland side (far from the sea, out where the streets end) and rainforest gullies
+    // tucked into the bush hills. Both are noise patches with wide smooth edges, so you see one country hand over to the next.
+    const dn = n.fbm(x * 0.0026 + 701, z * 0.0026 - 313, 3);
+    const desert = ss(0.08, 0.28, dn) * (1 - ss(-0.04, 0.06, tb)) * Math.max(ss(-0.04, -0.16, tw), ss(-40, 80, out));   // never in the home suburbs of the original map
+    if (desert > 0) { const k = 1 - desert; w[B.town] *= k; w[B.suburb] *= k; w[B.farm] *= k; w[B.bush] *= k; w[B.desert] = desert; }
+    const rn = n.fbm(x * 0.0042 - 333, z * 0.0042 + 77, 3);
+    const rain = ss(-0.12, 0.08, rn) * ss(0.36, 0.45, tb) * (1 - ss(0.55, 0.62, tb));   // (kept back from the coast)
+    if (rain > 0) { const k = 1 - rain; w[B.bush] *= k; w[B.farm] *= k; w[B.town] *= k; w[B.suburb] *= k; w[B.rainforest] = rain; }
     // ---- coast -------------------------------------------------------------------------
     const coast = ss(0.64, 0.74, tw);
     if (coast > 0) {

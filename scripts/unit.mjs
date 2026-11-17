@@ -6,11 +6,10 @@ import { PROP_GEO } from '../src/world/props.js';
 import { CONFIG, TERRAIN } from '../src/config.js';
 import { dailySeed, perthDate } from '../src/util/daily.js';
 import { Progress } from '../src/systems/progress.js';
-import { TRAIL, trailGeometry } from '../src/systems/trail.js';
 import { PARTS, treeGeometries } from '../src/world/models.js';
 import { treeConnectivity } from '../src/world/treeCheck.js';
 import { waterDisc } from '../src/world/placement.js';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE } from '../src/systems/items.js';
 import { GATHER_COUNT, GATHER_KINDS, HABITAT, BIOME_MATERIALS } from '../src/world/gather.js';
 import { mulberry32 } from '../src/util/rng.js';
@@ -188,14 +187,16 @@ ok(perthDate(new Date('2026-11-16T17:00:00Z')) === '2026-11-17', 'Perth date rol
 { const au = readFileSync(new URL('../src/audio.js', import.meta.url), 'utf8') + readFileSync(new URL('../src/systems/atmosphere.js', import.meta.url), 'utf8') + readFileSync(new URL('../src/world/biomes.js', import.meta.url), 'utf8');
   ok(!/cicada/i.test(au), 'no cicada sound code anywhere in audio / atmosphere / biome ambience');
   ok(/birds/.test(au) && /wind/.test(au) && /surf|wave/.test(au), 'the other ambient sounds are still there'); }
-// wet trail: thin tentacle drag marks (wavy arms + small sucker dots), not footprints
-{ const g = trailGeometry(); g.computeBoundingBox(); const b = g.boundingBox;
-  ok(g.type === 'BufferGeometry' && g.attributes.position.count > TRAIL.arms * 20, 'trail geometry has several arms plus dots');
-  ok(b.max.x - b.min.x < 0.6 && b.max.x - b.min.x > TRAIL.spread, 'trail is a narrow fan of arms (not a foot-sized blob)');
-  ok(b.max.z - b.min.z > 0.9 && b.max.z <= 1e-6, 'trail marks are long drag strokes, one stamp per segment');
-  ok(Math.abs(b.max.y - b.min.y) < 1e-6, 'trail is flat on the ground');
-  const fx = readFileSync(new URL('../src/systems/effects.js', import.meta.url), 'utf8');
-  ok(!/CircleGeometry/.test(fx), 'no round footprint geometry left in effects'); }
+// no ground marks at all (t246u: the trail read as car tracks): no trail module, no print/footprint/stamp mesh in effects
+{ const fx = readFileSync(new URL('../src/systems/effects.js', import.meta.url), 'utf8');
+  ok(!existsSync(new URL('../src/systems/trail.js', import.meta.url)), 'the trail module is gone');
+  ok(!/print|trail|CircleGeometry|footstep/i.test(fx.replace(/\(No ground trail\/footprints: removed in t246u\.\)/, '')), 'effects draws no trail / footprint marks'); }
+// water entry (t246u): a soft splash with bubbles, not a hard thud; the world goes muffled under water
+{ const au = readFileSync(new URL('../src/audio.js', import.meta.url), 'utf8');
+  const sp = au.slice(au.indexOf('  splash('), au.indexOf('  submerge('));
+  ok(/bubbles\(/.test(sp) && /highpass/.test(sp) && !/this\.noise\(/.test(sp), 'water entry = airy spray + plip + bubbles (no raw noise hit)');
+  ok(!/swish\([^)]*,\s*([1-4]\d{2}|[1-9]\d)\s*,/.test(sp), 'no low-frequency thump in the splash');
+  ok(/this\.lp\b/.test(au) && /submerge\(\)/.test(au) && /surface\(\)/.test(au), 'master lowpass muffles the world under water, with going-under / surfacing sounds'); }
 // trees: every primitive overlaps the rest, so canopies / fronds / branches are always attached to the trunk
 { PARTS.on = true; const T = treeGeometries(); PARTS.on = false;
   ok(Object.keys(T).length >= 9, 'all tree kinds built');
@@ -287,7 +288,7 @@ for (const seed of [1, 42, 2026]) {
   const w = worlds[2026], w2 = new WorldData(2026);
   ok(w.gather.length === w2.gather.length && w.gather.every((g, i) => g.id === w2.gather[i].id && g.kind === w2.gather[i].kind && g.x === w2.gather[i].x && g.z === w2.gather[i].z), 'gatherables are reproducible (same ids, kinds and positions)');
   const kinds = {}; for (const g of w.gather) kinds[g.kind] = (kinds[g.kind] || 0) + 1;
-  ok(GATHER_KINDS.length === 19 && GATHER_KINDS.every((k) => kinds[k] > 0), `all 19 kinds are scattered (${JSON.stringify(kinds)})`);
+  ok(GATHER_KINDS.length === 21 && GATHER_KINDS.every((k) => kinds[k] > 0), `all 21 kinds are scattered (${JSON.stringify(kinds)})`);
   const K = w.areaScale;
   ok(GATHER_KINDS.every((k) => kinds[k] >= GATHER_COUNT[k] * K * 0.4), 'every kind reaches at least 40% of its target density');
   ok(new Set(w.gather.map((g) => g.id)).size === w.gather.length && w.gather.every((g) => /^o\d+$/.test(g.id)), 'item ids are unique and stable (o0, o1 ...)');
@@ -307,7 +308,7 @@ for (const seed of [1, 42, 2026]) {
   ok(C.regions.list.flatMap((r) => r.shells).every((s) => typeof s.id === 'string'), 'far shells carry stable ids too');
 }
 {
-  ok(ALL_ITEMS.length === RAW.length + MADE.length && RAW.length === 19 && MADE.length === 10, '19 gathered things and 10 made ones');
+  ok(ALL_ITEMS.length === RAW.length + MADE.length && RAW.length === 21 && MADE.length === 10, '21 gathered things and 10 made ones');
   ok(ALL_ITEMS.every((id) => ICON_IDS.includes(id)), 'every item has a pictogram');
   ok(RECIPES.every((r) => ALL_ITEMS.includes(r.out) && Object.keys(r.in).every((k) => RAW.includes(k))), 'recipes make known items from raw things');
   ok(MADE.every((m) => RECIPES.some((r) => r.out === m)) && MADE.every((m) => USABLE.has(m)), 'every made item has a recipe and can be used');

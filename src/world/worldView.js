@@ -218,7 +218,7 @@ export class WorldView {
       m.castShadow = sh && kind !== 'bush'; add(m);
     }
     if (b.rock) {
-      const m = instancedSeat(this.world, this.geo.rock, this.whiteMat, b.rock.r, 'rock', 'r', (o, c) => c.set(o.dark ? 0x56595f : 0x8f8d88).multiplyScalar(o.tint));
+      const m = instancedSeat(this.world, this.geo.rock, this.whiteMat, b.rock.r, 'rock', 'r', (o, c) => c.set(o.mound ? 0xb5623a : o.red ? 0x8e4630 : o.dark ? 0x56595f : 0x8f8d88).multiplyScalar(o.tint));
       m.castShadow = sh; m.receiveShadow = sh; add(m);
     }
     if (b.grass) add(instancedSeat(this.world, this.geo.grass, this.grassMat, b.grass.g, 'grass', 'g',

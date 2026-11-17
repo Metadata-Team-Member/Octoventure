@@ -17,7 +17,10 @@ export class GameAudio {
       if (!AC) return;
       this.ctx = new AC();
       const c = this.ctx;
-      this.master = c.createGain(); this.master.gain.value = CONFIG.audio.volume; this.master.connect(c.destination);
+      this.master = c.createGain(); this.master.gain.value = CONFIG.audio.volume;
+      // t246u: everything passes through one lowpass that closes when the octopus goes under (muffled underwater world)
+      this.lp = c.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 18000; this.lp.Q.value = 0.5;
+      this.master.connect(this.lp); this.lp.connect(c.destination); this.under = false;
       const len = c.sampleRate * 2, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
       let last = 0;
       for (let i = 0; i < len; i++) { const w = R() * 2 - 1; last = (last + 0.04 * w) / 1.04; d[i] = last * 6; }
@@ -74,6 +77,8 @@ export class GameAudio {
     if (k.cam) this.setListener(k.cam);
     const gate = CONFIG.hints.gullSounds ? 1 : 0;
     const under = k.swim > 0.5 ? 0.45 : 1;                  // muffled under water
+    const sub = (k.swim ?? 0) > 0.5;
+    if (sub !== this.under) { this.under = sub; this.lp.frequency.setTargetAtTime(sub ? 750 : 18000, now, sub ? 0.08 : 0.18); if (sub) this.submerge(); else this.surface(); }
     const coast = k.coast ?? 0;
     this.wind.g.gain.setTargetAtTime((0.035 + 0.05 * Math.sin(this.t * 0.3) ** 2 + 0.08 * (A.wind || 0)) * under, now, 0.4);
     // surf: loud near the coast, also a bed in the coastal biomes
@@ -122,6 +127,24 @@ export class GameAudio {
     const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
     const g = c.createGain(); g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     s.connect(f); f.connect(g); g.connect(dest || this.master); s.start(t0, R()); s.stop(t0 + dur);
+  }
+  /** shaped noise burst with a soft attack (no click): type lowpass/highpass/bandpass */
+  swish(dur, freq, vol, type = 'bandpass', q = 0.7, attack = 0.012, delay = 0, freqEnd = 0) {
+    if (!this.ctx || this.muted) return;
+    this.note('noise');
+    const c = this.ctx, t0 = c.currentTime + delay;
+    const s = c.createBufferSource(); s.buffer = this.noiseBuf;
+    const f = c.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(freq, t0); f.Q.value = q;
+    if (freqEnd) f.frequency.exponentialRampToValueAtTime(freqEnd, t0 + dur);
+    const g = c.createGain(); g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + attack); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t0, R() * 1.5); s.stop(t0 + dur + 0.02);
+  }
+  /** bubbles: short sine blips that glide UP in pitch (how a real bubble sounds), scattered over `span` seconds */
+  bubbles(n = 6, span = 0.7, vol = 0.03, lo = 380, delay = 0) {
+    for (let i = 0; i < n; i++) {
+      const f = lo * (1 + R() * 1.4), d = 0.04 + R() * 0.05;
+      this.tone(f, d, 'sine', vol * (0.5 + R() * 0.6), f * (0.6 + R() * 0.8), delay + R() * span);
+    }
   }
   note(kind) { this.count = (this.count || 0) + 1; }
   at(x, y, z) { const p = this.panner(x, y, z); setTimeout(() => { try { p.disconnect(); } catch (e) { /* gone */ } }, 4000); return p; }
@@ -180,12 +203,28 @@ export class GameAudio {
   craft() { if (!this.ctx) return; this.tone(523, 0.22, 'sine', 0.05, 0, 0); this.tone(784, 0.3, 'sine', 0.045, 0, 0.09); }
   use(id) { if (!this.ctx) return; this.tone(id === 'feast' || id === 'mussel' || id === 'moss' ? 330 : 196, 0.16, 'triangle', 0.06, 60, 0); this.tone(660, 0.18, 'sine', 0.025, 0, 0.06); }
   babyTell(x, y, z) { if (!this.ctx) return; const d = this.at(x, y, z); this.tone(760, 0.12, 'sine', 0.03, 380, 0, d); this.tone(1020, 0.1, 'sine', 0.022, 300, 0.11, d); }
-  splash() { this.noise(0.35, 1400, 0.25); }
+  /** entering water (t246u: was a hard filtered-noise hit that sounded like a door shutting). Now a soft natural splash:
+   *  a bright airy spray (highpass hiss with a gentle attack), a light wet "plip" (a quick upward-gliding sine, like a drop),
+   *  and a little string of bubbles. No low thud. Puddles are quieter and shorter than ponds / the sea. */
+  splash(kind = 'pond', speed = 4) {
+    if (!this.ctx || this.muted) return;
+    const small = kind === 'puddle' || kind === 'storm', k = clamp(0.55 + speed / 14, 0.5, 1.1) * (small ? 0.55 : 1);
+    this.swish(0.32 * (small ? 0.7 : 1), 5200, 0.06 * k, 'highpass', 0.5, 0.015, 0, 2600);
+    this.swish(0.22, 1700, 0.035 * k, 'bandpass', 0.9, 0.01, 0.02, 900);
+    this.tone(520 + R() * 120, 0.07, 'sine', 0.035 * k, 700, 0.01);
+    this.bubbles(small ? 3 : 7, small ? 0.35 : 0.8, 0.022 * k, 420, 0.08);
+  }
+  /** going under: a soft whoomp of water closing overhead (lowpassed, gentle attack) and bubbles rising past */
+  submerge() { this.swish(0.6, 900, 0.05, 'lowpass', 0.5, 0.06, 0, 300); this.bubbles(8, 1.1, 0.02, 260, 0.05); }
+  /** coming back up: a light drip and a breath of air */
+  surface() { this.swish(0.25, 3800, 0.03, 'highpass', 0.5, 0.02); this.tone(700 + R() * 200, 0.06, 'sine', 0.025, 600, 0.12); }
   alert() { this.tone(520, 0.12, 'square', 0.08); this.tone(780, 0.16, 'square', 0.08, 0, 0.1); }
   camo(on) { this.tone(on ? 260 : 420, 0.3, 'sine', 0.1, on ? 220 : -200); }
   hurt() { this.noise(0.18, 300, 0.3); this.tone(160, 0.25, 'sawtooth', 0.15, -80); }
   die() { this.tone(300, 0.9, 'triangle', 0.2, -230); }
   /** first time in the sea: a soft swell of surf and a gentle two-note sigh */
-  seaArrival() { this.noise(3.2, 600, 0.18); this.tone(392, 2.2, 'sine', 0.07, 0, 0.1); this.tone(587, 2.6, 'sine', 0.06, 0, 0.9); }
+  seaArrival() { this.noise(3.2, 600, 0.18); this.tone(392, 2.2, 'sine', 0.07, 0, 0.1); this.tone(587, 2.6, 'sine', 0.06, 0, 0.9);
+    // t241u: a soft swell of music - a slow rising chord that hangs in the water
+    [196, 294, 392, 494, 587, 784].forEach((f, i) => this.tone(f, 4.2 - i * 0.3, 'sine', 0.035, 0, 0.4 + i * 0.45)); this.tone(98, 5.5, 'triangle', 0.03, 0, 0.2); }
   win() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.5, 'triangle', 0.18, 0, i * 0.16)); }
 }

@@ -25,10 +25,12 @@ import { Inventory, FX } from './systems/items.js';
 import { Satchel } from './ui/satchel.js';
 import { Levels } from './systems/levels.js';
 import { Shimmer } from './systems/shimmer.js';
+import { SeaBeat } from './systems/seabeat.js';
+import { Critters } from './systems/critters.js';
 import { BIOMES } from './world/biomes.js';
 import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell } from './systems/save.js';
 import { clamp, damp, lerp, mulberry32 } from './util/rng.js';
-const _fadeT = new THREE.Vector3();
+const _fadeT = new THREE.Vector3(), _camOff = new THREE.Vector3(), _camWant = new THREE.Vector3();   // (t241u: camera scratch, no per-frame allocation)
 
 const CAUSE = { dry: 'The octopus dried out', gull: 'Pecked by a seagull', cat: 'Caught by a cat', dog: 'Chased down by a dog', fox: 'Caught by a fox', crab: 'Pinched by a crab', eagle: 'Snatched by an eagle', human: 'Picked up by a person', car: 'Hit by a car', magpie: 'Swooped by a magpie', kookaburra: 'Swooped by a kookaburra' };
 
@@ -75,6 +77,7 @@ export class Game {
     this.inv.onCraft = (r, all) => this.levels.did('craft', { all });
     this.levels = new Levels(); this.levels.allBiomes = BIOMES.length; this.freshBadges = new Set();
     this.shimmer = new Shimmer(this.scene);
+    this.seaBeat = new SeaBeat(this.scene);
     this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
     // saves are for the real game: a fixed ?seed= / ?daily world (tests, sharing a link) never reads or overwrites the one in the browser
     this.saveEnabled = !params.has('seed') && !params.has('daily') && !params.has('nosave');
@@ -164,7 +167,7 @@ void main(){
   // ------------------------------------------------------------------ worlds
   newWorld(seed, save = null) {
     const hadWorld = this.hadWorld;
-    if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); }
+    if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); this.critters?.dispose(); }
     // ONE fixed world for everyone (CONFIG.worldSeed); ?seed= is a dev/debug override only. Each new game starts somewhere else in it.
     const dbg = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
     const s = seed ?? dbg ?? CONFIG.worldSeed;
@@ -189,6 +192,7 @@ void main(){
     this.gather = new Gatherer(this.world, this.scene, this.audio);
     this.gather.onPick = (g) => { this.inv.add(g.kind); this.audio.gather(g.x, g.y, g.z); this.levels.did('gather'); };
     this.abilities = new Abilities(this, this.gather);
+    this.critters = new Critters(this.world, this.scene);
     this.world.scent = []; this.lastScent = null;
     this.runTime = 0; this.deadShown = false; this.threat = 0;
     this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
@@ -356,7 +360,7 @@ void main(){
       if (o.health < wasHealth - 4 && wasHealth - o.health > dt * 30) this.audio.hurt();
       if (o.camoWanted && !wasCamo) { this.audio.camo(true); }
       if (!o.camoWanted && wasCamo) { this.audio.camo(false); }
-      if (o.waterKind && o.waterKind !== wasWater) this.audio.splash();
+      if (o.waterKind && !wasWater) this.audio.splash(o.waterKind, o.speed);       // only when coming in from dry land (not puddle -> stream hand-overs)
       this.updateLevels(dt);
       if (!o.alive) this.onDeath();
       else if (world.isSea(o.x, o.z) && o.y < world.seaLevel - 0.2 && this.progress.markSea(this.runTime)) this.onSeaReached();
@@ -372,6 +376,8 @@ void main(){
 
     this.updateSeaMoment(dt);
     this.shimmer.update(dt, o);
+    this.seaBeat.update(dt, o, world.seaLevel);
+    if (playing) this.critters.update(dt, o, world.night);
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);
     this.updateCamera(dt);
     this.updateAtmosphere(dt);
@@ -457,6 +463,7 @@ void main(){
   onSeaReached() {
     this.levels.did('sea');
     this.seaMoment = { t: 0, dur: 7 };
+    this.seaBeat.start(this.octopus, this.world.seaLevel);
     this.audio.seaArrival();
   }
   updateSeaMoment(dt) {
@@ -482,10 +489,10 @@ void main(){
     const dist = clamp(C.distance + this.input.zoom, C.minDistance, C.maxDistance) * k;
     const yaw = this.input.yaw + (this.panYaw || 0), pitch = this.input.pitch;
     const tx = o.x, ty = o.y + 0.9 * k, tz = o.z;
-    const off = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(dist);
+    const off = _camOff.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(dist);
     // swimming at depth: the camera drops down beside the octopus so the water is visible around it
     const dv = o.dive || 0;
-    const want = new THREE.Vector3(tx + off.x, ty + C.height * 0.4 * k + off.y * (1 - dv * 0.8) - dv * 0.5 * k, tz + off.z);
+    const want = _camWant.set(tx + off.x, ty + C.height * 0.4 * k + off.y * (1 - dv * 0.8) - dv * 0.5 * k, tz + off.z);
     const gy = this.world.heightAt(want.x, want.z);
     if (want.y < gy + 0.9 * k) want.y = gy + 0.9 * k;
     if (!this.camInit || snap) { this.camPos.copy(want); this.camInit = true; }
