@@ -20,7 +20,7 @@ function babyGeometry() {
   const parts = [at(tint(new THREE.SphereGeometry(0.2, 10, 8), 0xe3b04a), 0, 0.28, 0, 0, 0, 0, 1, 1.15, 1)];
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
-    parts.push(at(tint(new THREE.ConeGeometry(0.06, 0.34, 5), 0xd9a63f), Math.cos(a) * 0.18, 0.08, Math.sin(a) * 0.18, Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9));
+    parts.push(at(tint(new THREE.CapsuleGeometry(0.045, 0.26, 2, 6), 0xd9a63f), Math.cos(a) * 0.18, 0.08, Math.sin(a) * 0.18, Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9));
   }
   for (const [x, y, z] of [[0.13, 0.4, 0.1], [-0.13, 0.4, 0.1], [0.0, 0.5, -0.1], [0.16, 0.27, -0.06], [-0.16, 0.27, -0.06]]) parts.push(at(tint(new THREE.TorusGeometry(0.045, 0.014, 5, 8), 0x1a6aff), x, y, z, 0, Math.atan2(x, z), 0));
   for (const x of [-0.08, 0.08]) parts.push(at(tint(new THREE.SphereGeometry(0.045, 6, 5), 0xffffff), x, 0.34, 0.17), at(tint(new THREE.SphereGeometry(0.02, 5, 4), 0x111111), x, 0.34, 0.205));
@@ -62,7 +62,7 @@ export class Collectibles {
     this.active = new Set(); this.actT = 0;
     // ---- babies
     this.babyGeo = babyGeometry();
-    this.babyMat = toonMat({ vertexColors: true, flatShading: true, roughness: 0.4, emissive: 0x0a3a9a, emissiveIntensity: 0.0 });
+    this.babyMat = toonMat({ vertexColors: true, roughness: 0.4, emissive: 0x0a3a9a, emissiveIntensity: 0.0 });
     this.fx = [];                 // running rescue animations
     this.dotMat = new THREE.PointsMaterial({ size: 6, sizeAttenuation: false, map: dotTexture(), transparent: true, depthWrite: false, vertexColors: true });
     this.hearts = 0;

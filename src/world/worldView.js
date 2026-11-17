@@ -12,10 +12,10 @@ import * as THREE from 'three';
 import { toonMat } from './toon.js';
 import { CONFIG, TERRAIN } from '../config.js';
 import { smoothstep as ss, lerp, clamp } from '../util/rng.js';
-import { tint, merge, at, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
+import { tint, merge, at, puff, rbox, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
 import { HUE_KINDS, LANDMARK_KINDS } from './props.js';
 import { buildGeoLib } from './geoLib.js';
-import { applyFade } from './fade.js';
+import { applyFade, applyBend } from './fade.js';
 import { seat, instanceSpec, geoFor, geoHeight, waterDisc, discMatrix, fitDisc, ringMin } from './placement.js';
 
 export const FOG_COLOR = 0xcfe6f2;
@@ -85,6 +85,8 @@ function hueColor(p, c) {
 const coralColor = (o, c) => c.setHSL((0.92 + o.hue * 0.2) % 1, 0.62, 0.56);
 
 // far-distance (m) beyond which a small-stuff mesh is hidden even though its chunk is drawn
+/** chunks whose centre is further than this draw their trees with the low-detail geometry */
+const LOD_DIST = 150;
 const FAR = { grass: 135, flower: 110, reed: 190, beach: 120, seagrass: 120, reef: 200, drop: 160 };
 
 export class WorldView {
@@ -144,16 +146,18 @@ export class WorldView {
     w.regions.onGenerate((reg) => this._ingest(reg));
     // shared geometry & materials
     const sh = this.shadows;
-    this.vcMat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 0.9 }));
-    this.whiteMat = this.track(toonMat({ color: 0xffffff, flatShading: true, roughness: 0.95 }));
-    this.grassMat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 1, side: THREE.DoubleSide }));
-    for (const m of [this.vcMat, this.whiteMat, this.grassMat]) applyFade(m);   // occluders dither away between the camera and the octopus
-    this.terrainMat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 }));
+    this.vcMat = this.track(toonMat({ vertexColors: true, roughness: 0.9 }));
+    this.whiteMat = this.track(toonMat({ color: 0xffffff, roughness: 0.95 }));
+    this.grassMat = this.track(toonMat({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }));
+    for (const m of [this.vcMat, this.whiteMat, this.grassMat]) applyFade(m);
+    applyBend(this.grassMat);                     // t256u: tufts sway in the wind and part around the camera line instead of only dithering   // occluders dither away between the camera and the octopus
+    this.terrainMat = this.track(toonMat({ vertexColors: true, roughness: 0.95, metalness: 0 }));   // smooth (was flat-shaded facets)
     this.waterMat = this.track(toonMat({ color: 0x4aa8dc, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     this.lib = buildGeoLib();                       // the same geometry the placement audit uses
     const L = this.lib;
     this.geo = {
       tree: Object.fromEntries(Object.entries(L.tree).map(([k, g]) => [k, this.track(g)])),
+      treeLod: Object.fromEntries(Object.entries(L.treeLod).map(([k, g]) => [k, this.track(g)])),
       rock: this.track(L.rock), grass: this.track(L.grass), reed: this.track(L.reed), flower: this.track(L.flower),
       shell: this.track(L.shell), weed: this.track(L.weed), wood: this.track(L.wood),
       seagrass: this.track(L.seagrass), coral: this.track(L.coral),
@@ -228,6 +232,7 @@ export class WorldView {
     if (b.tree) for (const kind in b.tree) {
       const m = instancedSeat(this.world, this.geo.tree[kind], this.vcMat, b.tree[kind], 'tree', kind, (o, c) => c.setScalar(o.tint));
       m.castShadow = sh && kind !== 'bush'; add(m);
+      m.userData.lod = [this.geo.tree[kind], this.geo.treeLod[kind]];       // far chunks swap to the cheap version (cull pass)
     }
     if (b.rock) {
       const m = instancedSeat(this.world, this.geo.rock, this.whiteMat, b.rock.r, 'rock', 'r', (o, c) => c.set(o.mound ? 0xb5623a : o.red ? 0x8e4630 : o.dark ? 0x56595f : 0x8f8d88).multiplyScalar(o.tint));
@@ -365,7 +370,10 @@ export class WorldView {
       if (!on) continue;
       vis++;
       const d = Math.sqrt(d2);
-      for (const m of u.items) { const far = m.userData.far; if (far) m.visible = d - 70 < far; }
+      for (const m of u.items) {
+        const far = m.userData.far; if (far) m.visible = d - 70 < far;
+        const lod = m.userData.lod; if (lod) m.geometry = lod[d > LOD_DIST ? 1 : 0];
+      }
     }
     this.stats.chunksVisible = vis;
   }
@@ -410,7 +418,7 @@ export class WorldView {
 
   // ------------------------------------------------------------ landmarks (lighthouse, Norfolk pines, windmills, water tower): always drawn, hazed
   _buildLandmarks() {
-    this.landMat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 0.9, fog: false, color: 0xb0b0b0, emissive: 0x606a70 }));
+    this.landMat = this.track(toonMat({ vertexColors: true, roughness: 0.9, fog: false, color: 0xb0b0b0, emissive: 0x606a70 }));
     const g = new THREE.Group();
     const trees = this.landTrees;
     if (trees.length) {
@@ -429,9 +437,9 @@ export class WorldView {
 
   // ------------------------------------------------------------ fish (ambient life in the sea)
   _buildFish() {
-    const body = merge([at(tint(new THREE.ConeGeometry(0.16, 0.7, 5), 0xffffff), 0, 0, 0, 0, 0, Math.PI / 2), at(tint(new THREE.ConeGeometry(0.2, 0.3, 4), 0xffffff), -0.42, 0, 0, 0, 0, -Math.PI / 2)]);
+    const body = merge([at(tint(puff(1, 1), 0xffffff), 0, 0, 0, 0, 0, 0, 0.36, 0.15, 0.11), at(tint(puff(1, 0), 0xe0e0e0), -0.4, 0, 0, 0, 0, 0, 0.13, 0.15, 0.03)]);   // soft round fish (was two cones)
     this.fishN = 36;
-    this.fishMesh = new THREE.InstancedMesh(this.track(body), this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 0.5 })), this.fishN);
+    this.fishMesh = new THREE.InstancedMesh(this.track(body), this.track(toonMat({ vertexColors: true, roughness: 0.5 })), this.fishN);
     this.fishMesh.frustumCulled = false; this.fishMesh.count = 0;
     for (let i = 0; i < this.fishN; i++) this.fishMesh.setColorAt(i, _c.setHSL(0.05 + (i % 3) * 0.14 + (i % 7) * 0.01, 0.6, 0.6));
     this.root.add(this.fishMesh);
@@ -476,7 +484,7 @@ export class WorldView {
     const parts = [];                       // every tap/seep/AC/pump merged into ONE static mesh
     const P = (g, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => parts.push(at(g, x, y, z, rx, ry, rz, sx, sy, sz));
     const cylG = (r1, r2, h, hex, seg = 8) => tint(new THREE.CylinderGeometry(r1, r2, h, seg), hex);
-    const boxG = (a, b, c, hex) => tint(new THREE.BoxGeometry(a, b, c), hex);
+    const boxG = (a, b, c, hex) => tint(rbox(a, b, c, Math.min(0.1, Math.min(a, b, c) * 0.3)), hex);     // bevelled (t256u)
     for (const t of w.taps) {
       const y = ringMin(w, t.x, t.z, 0.9, 8);          // lowest ground under the fixture: the base never floats
       if (t.type === 'tap') {
@@ -498,9 +506,9 @@ export class WorldView {
         P(cylG(0.2, 0.2, 0.3, 0x1c1c1e, 8), t.x, y + 1.5, t.z);
         this._dripSpot(t.x + 0.9, t.z, 1.2, y);
       } else {
-        const rock = tint(rockGeometry(0), 0x8b8a86);
+        const rock = tint(rockGeometry(1), 0x8b8a86);
         P(rock, t.x - 0.9, y + 1.0, t.z, 0, t.rot, 0, 2.2, 1.7, 1.8);
-        P(tint(new THREE.IcosahedronGeometry(0.8, 0), 0x5c8a3c), t.x - 0.7, y + 2.1, t.z, 0, 0, 0, 1.2, 0.5, 1);
+        P(tint(puff(0.8, 1), 0x5c8a3c), t.x - 0.7, y + 2.1, t.z, 0, 0, 0, 1.2, 0.5, 1);
         this._dripSpot(t.x, t.z, 2.1, y);
       }
     }
@@ -555,7 +563,7 @@ export class WorldView {
       at(tint(new THREE.IcosahedronGeometry(3.2, 1), 0x838c97), -5.5, -0.2, -1, 0, 0, 0, 1.4, 0.6, 1.2),
       at(tint(new THREE.IcosahedronGeometry(3.0, 1), 0x6a737e), 1, 0.6, -3.6, 0, 0, 0, 1.5, 0.6, 1.1),
     ]));
-    const cmat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 1, fog: false }));
+    const cmat = this.track(toonMat({ vertexColors: true, roughness: 1, fog: false }));
     const pts = new Float32Array(w.rain.length * this.rainN * 3);
     const geo = this.track(new THREE.BufferGeometry());
     geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));

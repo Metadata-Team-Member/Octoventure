@@ -1,7 +1,7 @@
 // Every shared piece of geometry in one place, so the renderer (worldView / collect) and the placement audit use
 // exactly the same meshes.
 import * as THREE from 'three';
-import { tint, merge, at, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
+import { tint, merge, at, puff, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
 import { PROP_GEO } from './props.js';
 import { scallop, turban, cowrie } from './shells.js';
 import { buildGatherGeos } from './gatherModels.js';
@@ -12,8 +12,8 @@ import { buildGatherGeos } from './gatherModels.js';
 export const FLOWER = { headY: 0.4, petals: 6, petalLen: 0.15, centre: 0.045 };
 export function flowerPieces() {
   const stem = at(tint(new THREE.CylinderGeometry(0.018, 0.026, 0.36, 4), 0x4f8a3a), 0, 0.18, 0);
-  const centre = at(tint(new THREE.IcosahedronGeometry(FLOWER.centre, 0), 0xfff0b0), 0, FLOWER.headY + 0.005, 0, 0, 0, 0, 1, 0.8, 1);
-  const petal = at(tint(new THREE.IcosahedronGeometry(1, 0), 0xffffff), FLOWER.petalLen / 2 + 0.01, 0, 0, 0, 0, 0, FLOWER.petalLen / 2, 0.016, 0.045);   // pivot at the head centre
+  const centre = at(tint(puff(FLOWER.centre, 1), 0xfff0b0), 0, FLOWER.headY + 0.005, 0, 0, 0, 0, 1, 0.8, 1);
+  const petal = at(tint(puff(1, 1), 0xffffff), FLOWER.petalLen / 2 + 0.01, 0, 0, 0, 0, 0, FLOWER.petalLen / 2, 0.016, 0.045);   // pivot at the head centre
   return { stem, centre, petal };
 }
 export function flowerGeometry() {
@@ -32,9 +32,10 @@ export function buildGeoLib() {
   const propCache = {};
   return {
     tree: treeGeometries(),
-    rock: rockGeometry(0), grass: grassGeometry(), reed: reedGeometry(),
+    treeLod: treeGeometries(true),
+    rock: rockGeometry(1), grass: grassGeometry(), reed: reedGeometry(),
     flower: flowerGeometry(),
-    shell: at(scallop(1), 0, 0, 0, 0, 0, 0, 0.55), weed: new THREE.IcosahedronGeometry(0.3, 0), wood: new THREE.BoxGeometry(1.6, 0.18, 0.2),
+    shell: at(scallop(1), 0, 0, 0, 0, 0, 0, 0.55), weed: puff(0.3, 0), wood: new THREE.CapsuleGeometry(0.1, 1.4, 2, 6).rotateZ(Math.PI / 2),
     seagrass: seagrassGeometry(), coral: coralGeometry(),
     shellc: scallop(0), shellt: turban(), shellk: cowrie(),
     gather: buildGatherGeos(),

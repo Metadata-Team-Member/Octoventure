@@ -54,7 +54,7 @@ export class Flowers {
   }
 
   _makeLive() {
-    const mat = toonMat({ vertexColors: true, flatShading: true, roughness: 0.9 }); applyFade(mat);
+    const mat = toonMat({ vertexColors: true, roughness: 0.9 }); applyFade(mat);
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body); root.visible = false;
     body.add(new THREE.Mesh(this.geo.stem, mat), new THREE.Mesh(this.geo.centre, mat));
     const hinges = [];

@@ -33,7 +33,7 @@ export class CarManager {
     const k = Math.round((x - w.roadOff.x) / P); return { x: w.roadOff.x + k * P, z, alongX: false };
   }
   make(c, rnd) {
-    const mat = toonMat({ vertexColors: true, flatShading: true, roughness: 0.55, metalness: 0.2 });
+    const mat = toonMat({ vertexColors: true, roughness: 0.55, metalness: 0.2 });
     const hue = rnd();
     const grey = (hue * 7) % 1 < 0.3;
     mat.color.setHSL(hue, grey ? 0.05 : 0.62, grey ? 0.62 : 0.5);

@@ -13,6 +13,7 @@ export const FADE = {
   uTube: { value: 0.8 },      // radius of the see-through tube around the camera -> octopus line
   uNear: { value: 1.2 },      // fragments closer than this to the lens fade out
   uOn: { value: 1 },
+  uTime: { value: 0 },
 };
 
 /** update from the game once per frame (world units) */
@@ -20,6 +21,7 @@ export function setFade(cam, tgt, k = 1) {
   FADE.uCam.value.copy(cam); FADE.uTgt.value.copy(tgt);
   FADE.uTube.value = 1.15 * Math.max(0.5, k * 1.6);
   FADE.uNear.value = 3.2 * k;
+  FADE.uTime.value = (performance.now() / 1000) % 3600;
 }
 
 export function applyFade(mat) {
@@ -55,5 +57,48 @@ export function applyFade(mat) {
             if (fn < fa * 0.96) discard;
           }
         }`);
+  });
+}
+
+/**
+ * t256u grass: a vertex patch for the instanced grass / reed tufts. Blades sway in a soft travelling breeze (bouncy secondary
+ * motion) and lean away from the camera -> octopus line and out of the lens, so the near grass parts like real grass instead of
+ * showing up as a dithered stipple (the dither in applyFade stays as the safety net for anything the bend can't clear).
+ * The blade's local height (0 at the base) weights everything, so the roots stay planted.
+ */
+export function applyBend(mat) {
+  return addPatch(mat, 'bend1', (sh) => {
+    Object.assign(sh.uniforms, FADE);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uCam; uniform vec3 uTgt; uniform float uTube; uniform float uNear; uniform float uTime;')
+      .replace('#include <project_vertex>', `
+        vec4 bw = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          bw = instanceMatrix * bw;
+        #endif
+        bw = modelMatrix * bw;
+        {
+          float hn = clamp(transformed.y, 0.0, 1.6);            // normalised blade height (roots stay planted)
+          vec3 base = bw.xyz;
+          #ifdef USE_INSTANCING
+            base = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          #endif
+          float h = max(bw.y - base.y, 0.0);                    // world height of this vertex above the root
+          float sway = sin(uTime * 1.7 + base.x * 0.35 + base.z * 0.21) + 0.5 * sin(uTime * 2.9 + base.z * 0.6);
+          bw.x += sway * 0.06 * h * hn; bw.z += sway * 0.035 * h * hn;
+          // part around the view line (xz only) and out of the lens
+          vec2 ab = uTgt.xz - uCam.xz; float L = max(length(ab), 0.001); vec2 dir = ab / L;
+          vec2 rel = base.xz - uCam.xz; float ta = dot(rel, dir); float t = clamp(ta, 0.0, L);
+          vec2 off = rel - dir * t; float dl = length(off);
+          float r = uTube * 1.25 + 0.15;
+          float k = (1.0 - smoothstep(r * 0.4, r, dl)) * step(0.0, ta) * step(ta, L + 0.3);
+          float kc = 1.0 - smoothstep(uNear * 0.8, uNear * 1.8, length(base - uCam));
+          k = max(k, kc);
+          vec2 side = dl > 1e-3 ? off / dl : vec2(-dir.y, dir.x);
+          bw.xz += side * (k * h * 0.75 * hn);
+          bw.y -= k * h * 0.8 * hn;
+        }
+        vec4 mvPosition = viewMatrix * bw;
+        gl_Position = projectionMatrix * mvPosition;`);
   });
 }
