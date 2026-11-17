@@ -4,6 +4,9 @@
 //  is fully camouflaged (and not too close) -> confused -> leave.
 // =====================================================================
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { separate } from '../util/separate.js';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
 let PRED_LINE = null;
 import { CONFIG, diff } from '../config.js';
@@ -15,11 +18,49 @@ let RND = Math.random;
 const _up = new THREE.Vector3(0, 1, 0), _sv = new THREE.Vector3(), _sn = { x: 0, y: 1, z: 0 };
 /** the manager points this at world.rnd so a seed (or the daily seed) fully decides who is where and how they spawn */
 export function setPredatorRng(f) { RND = f; }
-const mat = (hex, extra = {}) => toonMat({ color: hex, flatShading: true, roughness: 0.85, ...extra });
-const box = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-const sph = (r, m, sx = 1, sy = 1, sz = 1, seg = 8) => { const o = new THREE.Mesh(new THREE.SphereGeometry(r, seg, Math.max(4, seg - 2)), m); o.scale.set(sx, sy, sz); return o; };
-const cone = (r, h, m, seg = 6) => new THREE.Mesh(new THREE.ConeGeometry(r, h, seg), m);
-const cyl = (r1, r2, h, m, seg = 6) => new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, seg), m);
+const mat = (hex, extra = {}) => toonMat({ color: hex, roughness: 0.85, ...extra });
+// t256u softer, friendlier models: bevelled boxes, capsule limbs, rounder spheres and cones. Geometry is cached and shared by
+// every animal (it is never disposed per animal), and bake() below merges each body part's static pieces into one
+// vertex-coloured mesh, so an animal is a handful of draw calls instead of ~20 (+ the same again for outlines).
+const GEO = new Map();
+const cached = (k, make) => { let g = GEO.get(k); if (!g) { g = make(); g.userData.shared = true; GEO.set(k, g); } return g; };
+const box = (w, h, d, m) => new THREE.Mesh(cached(`b${w},${h},${d}`, () => new RoundedBoxGeometry(w, h, d, 2, Math.min(w, h, d) * 0.42)), m);
+const sph = (r, m, sx = 1, sy = 1, sz = 1, seg = 12) => { const o = new THREE.Mesh(cached(`s${r},${seg}`, () => new THREE.SphereGeometry(r, seg, Math.max(6, seg - 3))), m); o.scale.set(sx, sy, sz); return o; };
+const cone = (r, h, m, seg = 6) => new THREE.Mesh(cached(`c${r},${h}`, () => { const g = new THREE.ConeGeometry(r, h, Math.max(seg, 9), 2); const p = g.attributes.position; for (let i = 0; i < p.count; i++) if (p.getY(i) > h * 0.49) p.setY(i, h * 0.42); g.computeVertexNormals(); return g; }), m);   // blunted tip
+const cyl = (r1, r2, h, m, seg = 6) => new THREE.Mesh(cached(`y${r1},${r2},${h}`, () => {
+  const r = Math.max(r1, r2);
+  return h > r * 3 ? new THREE.CapsuleGeometry((r1 + r2) / 2, h - (r1 + r2), 3, 8) : new THREE.CylinderGeometry(r1, r2, h, Math.max(seg, 10));    // limbs get round ends
+}), m);
+const VC = { mat: null };
+/** merge every static mesh (not a part the animation moves) into one vertex-coloured mesh per parent node */
+function bake(parts) {
+  const moving = new Set();
+  for (const [k, v] of Object.entries(parts)) if (k !== 'g') for (const o of [v].flat()) if (o && o.isObject3D) moving.add(o);
+  const mat = VC.mat ??= toonMat({ vertexColors: true, roughness: 0.85 });
+  const dropped = new Set();
+  const nodes = []; parts.g.traverse((o) => { if (!o.isMesh || moving.has(o)) nodes.push(o); });
+  for (const node of nodes) {
+    const kids = node.children.filter((c) => c.isMesh && !moving.has(c) && !c.children.length && c.visible);
+    if (kids.length < 2) continue;
+    const geos = kids.map((c) => {
+      c.updateMatrix();
+      const g = (c.geometry.index ? c.geometry.toNonIndexed() : c.geometry.clone()).applyMatrix4(c.matrix);
+      g.deleteAttribute('uv');
+      const col = c.material.color, n = g.attributes.position.count, a = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { a[i * 3] = col.r; a[i * 3 + 1] = col.g; a[i * 3 + 2] = col.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+      for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color') g.deleteAttribute(k);
+      return g;
+    });
+    const merged = mergeGeometries(geos, false); geos.forEach((g) => g.dispose());
+    const mesh = new THREE.Mesh(merged, mat); mesh.userData.baked = true;
+    for (const c of kids) { node.remove(c); if (c.material !== mat) dropped.add(c.material); }
+    node.add(mesh);
+  }
+  parts.g.traverse((o) => { if (o.isMesh) dropped.delete(o.material); });     // still used by a moving part
+  for (const m of dropped) m.dispose();
+  return parts;
+}
 function pivot(child, x, y, z) { const g = new THREE.Group(); g.position.set(x, y, z); g.add(child); return g; }
 
 /**
@@ -27,6 +68,11 @@ function pivot(child, x, y, z) { const g = new THREE.Group(); g.position.set(x, 
  * models below (~1.3-2 u) tower over it: person ~8-9x its body length, dog ~3.5x, gull/magpie/kookaburra ~2.5x, cat/fox ~2.5-3x (measured by features.mjs). Not full
  * real scale (people would be off-screen), so these are compressed a little. Reach / hit radii scale with them.
  */
+/** anticipation (s) before a ground strike: the bigger the animal, the longer (and more readable) the wind-up */
+const WINDUP = { crab: 0.18, gull: 0.22, cat: 0.3, fox: 0.28, dog: 0.32, human: 0.4 };
+const MAX_STRIKERS = 2;
+/** body radius (before SIZE scaling) used to keep animals apart */
+const BODY_R = { gull: 0.55, cat: 0.65, dog: 0.85, fox: 0.75, crab: 0.6, eagle: 1.5, human: 0.75, magpie: 0.55, kookaburra: 0.55 };
 const THUMP = { human: 1.0, dog: 0.5, fox: 0.28, cat: 0.28 };     // how hard each walker's steps hit the ground
 const FLYERS = new Set(['eagle', 'gull', 'magpie', 'kookaburra']);
 export const SIZE = { gull: 1.15, cat: 0.8, dog: 1.05, fox: 0.95, crab: 0.7, eagle: 1.3, human: 1.8, magpie: 1.0, kookaburra: 1.05 };
@@ -222,7 +268,7 @@ export const SPECIES = {
 export class Predator {
   constructor(kind, x, z, world, scene) {
     this.kind = kind; this.spec = SPECIES[kind]; this.world = world;
-    const m = this.spec.build();
+    const m = bake(this.spec.build());
     this.parts = m;
     this.group = new THREE.Group(); this.group.add(m.g);
     m.g.traverse((o) => { if (o.isMesh) o.castShadow = CONFIG.graphics.shadows; });
@@ -238,6 +284,11 @@ export class Predator {
     this.lunge = 0; this.lungeHit = false; this.headTurn = 0; this.alertT = 0;
     this.blind = 0; this.fleeT = 0; this.lastSeen = null; this.searchT = 0; this.lift = 0; this.crouch = 0; this.events = []; this.carrying = false;
     this.hasBucket = kind === 'human' && RND() < 0.65; if (m.bucket) m.bucket.visible = this.hasBucket;
+    // t257u: every animal has its own spot in a group - a perch offset in the tree, a search spot around the last sighting,
+    // a slot on the ring while it waits its turn to strike, a circling radius / direction and a bias for which way it leaves
+    { const a = RND() * 6.2832, r = 0.9 + RND() * 1.4; this.perchOff = { x: Math.cos(a) * r, z: Math.sin(a) * r }; }
+    this.slotA = RND() * 6.2832; this.circR = 6 + RND() * 5; this.circDir = RND() < 0.5 ? -1 : 1; this.seed = RND() * 100;
+    this.leaveBias = 0; this.searchPt = null; this.windup = 0; this.windup0 = 0.25; this.recover = 0; this.lookBack = 0; this.preen = 0; this.turnV = 0;
     this.swoops = 0; this.perchAlt = 5.5 + RND() * 3; this.mgr = null; this.pounceT = 0; this.trackPt = null; this.act = 1;
     if (this.spec.swoop) { this.state = 'perch'; this.alt = this.perchAlt; }
     this.scale = SIZE[kind] ?? 1;
@@ -287,6 +338,8 @@ export class Predator {
     this.target = { x: this.home.x + Math.cos(a) * r, z: this.home.z + Math.sin(a) * r };
   }
 
+  /** at most MAX_STRIKERS animals strike at once; the rest wait their turn on the ring (t257u) */
+  mayStrike() { return !this.mgr || this.mgr.engaged < MAX_STRIKERS || this.state === 'attack' || this.state === 'pounce'; }
   /** ink made this hunter lose the octopus: birds abort a dive and climb away; ground animals enter the 'blind' state in update() */
   inkFlee(s) {
     this.lastSeen = null;
@@ -325,7 +378,7 @@ export class Predator {
     if (p.legs) p.legs.forEach((l, i) => { l.rotation.x = 0.25 * e * (i % 2 ? 1 : -1); });
     if (p.wings) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * 0.15; });
     if (p.head) p.head.rotation.y = 0;
-    p.g.position.set(0, 0, 0); p.g.rotation.x = 0; p.g.scale.y = 1;
+    p.g.position.set(0, 0, 0); p.g.rotation.x = 0; p.g.rotation.z = 0; p.g.scale.set(1, 1, 1);
   }
   release() { this.carrying = false; this.state = 'leave'; this.timer = 5; this.ignore = 10; this.target = null; }
 
@@ -344,7 +397,7 @@ export class Predator {
         this.alt = damp(this.alt, this.perchAlt, 3, dt);
         const face = dist < 45 ? Math.atan2(player.x - this.x, player.z - this.z) : this.heading;
         this.heading = dampAngle(this.heading, face, 2, dt);
-        this.x = lerp(this.x, this.home.x, 1 - Math.exp(-3 * dt)); this.z = lerp(this.z, this.home.z, 1 - Math.exp(-3 * dt));
+        this.x = lerp(this.x, this.home.x + this.perchOff.x, 1 - Math.exp(-3 * dt)); this.z = lerp(this.z, this.home.z + this.perchOff.z, 1 - Math.exp(-3 * dt));
         if (alive && !fooled && this.ignore <= 0 && this.cool <= 0 && dist < noticeR) {
           this.state = 'alert'; this.alertT = 0.55; this.events.push({ type: 'call', kind: s.call, x: this.x, z: this.z });
         }
@@ -386,8 +439,8 @@ export class Predator {
       }
       case 'home': {
         this.cue(0);
-        const d = Math.hypot(this.home.x - this.x, this.home.z - this.z);
-        this.heading = dampAngle(this.heading, Math.atan2(this.home.x - this.x, this.home.z - this.z), 4, dt);
+        const hx = this.home.x + this.perchOff.x, hz = this.home.z + this.perchOff.z, d = Math.hypot(hx - this.x, hz - this.z);
+        this.heading = dampAngle(this.heading, Math.atan2(hx - this.x, hz - this.z), 4, dt);
         this.speed = Math.min(12, 3 + d * 0.5);
         this.x += Math.sin(this.heading) * this.speed * dt; this.z += Math.cos(this.heading) * this.speed * dt;
         this.alt = damp(this.alt, this.perchAlt, 1.5, dt);
@@ -430,6 +483,7 @@ export class Predator {
     const sprintBoost = player.sprinting ? 1.25 : 1;
     const noticeR = s.notice * (player.moving ? sprintBoost : 0.65) * this.act * (player.visibility ?? 1) * diff().notice;
     let dmg = 0;
+    const entered = this.state !== this._st; this._st = this.state;     // first frame in this state
     if (!fooled && alive && (this.state === 'alert' || this.state === 'chase' || this.state === 'stalk')) this.lastSeen = { x: player.x, z: player.z };
 
     switch (this.state) {
@@ -441,6 +495,8 @@ export class Predator {
           if (RND() < 0.4) { this.target = null; this.timer = 1.5 + RND() * 3; } else { this.pickWanderTarget(); this.timer = 4 + RND() * 5; }
         }
         if (this.target) { if (this.walkToward(this.target.x, this.target.z, s.walk, dt) < 1.2) { this.target = null; } } else this.speed = damp(this.speed, 0, 6, dt);
+        // idle life while standing: slow look-arounds (eased), the odd sniff / peck (sync dips the head)
+        this.headTurn = damp(this.headTurn, this.speed < 0.4 ? Math.sin(this.phase * 0.37 + this.seed) * 0.9 * Math.max(0, Math.sin(this.phase * 0.13 + this.seed * 2)) : 0, 3, dt);
         if (alive && this.ignore <= 0 && !fooled && dist < noticeR) {
           this.state = 'alert'; this.alertT = this.kind === 'cat' ? 0.9 : 0.55;
         } else if (s.tracker && alive && !fooled && this.ignore <= 0) {
@@ -487,20 +543,22 @@ export class Predator {
         // lost the octopus: go back to where it was last seen and look around
         this.cue(0.45);
         if (!this.lastSeen) { this.state = 'leave'; this.timer = 3; break; }
-        const d = this.walkToward(this.lastSeen.x, this.lastSeen.z, s.walk * 2.2, dt);
-        if (d < 2.6) { this.speed = damp(this.speed, 0, 8, dt); this.searchT -= dt; this.headTurn = Math.sin(this.phase * 1.3) * 1.2; }
+        if (entered || !this.searchPt) { const a = RND() * 6.2832, r = 2.5 + RND() * 5; this.searchPt = { x: this.lastSeen.x + Math.cos(a) * r, z: this.lastSeen.z + Math.sin(a) * r }; this.searchT += RND() * 1.5; }
+        const d = this.walkToward(this.searchPt.x, this.searchPt.z, s.walk * 2.2, dt);
+        if (this.lift > 0.05) this.lift = damp(this.lift, d < 5 ? 0 : this.lift, 2.2, dt);           // birds glide down to their own spot
+        if (d < 1.6) { this.speed = damp(this.speed, 0, 8, dt); this.searchT -= dt; this.headTurn = Math.sin(this.phase * 1.3 + this.seed) * 1.2; this.preen = s.hop && this.lift < 0.1 ? 1 : 0; }
         if (alive && !fooled && this.ignore <= 0 && dist < noticeR * 0.8) { this.state = 'alert'; this.alertT = 0.45; this.headTurn = 0; break; }
-        if (this.searchT <= 0) { this.state = 'leave'; this.timer = 5; this.ignore = 6; this.headTurn = 0; this.lastSeen = null; }
+        if (this.searchT <= 0) { this.state = 'leave'; this.timer = 5; this.ignore = 6; this.headTurn = 0; this.lastSeen = null; this.preen = 0; this.searchPt = null; }
         break;
       }
       case 'circle': {
         // gulls: take off, circle overhead and call the others in
         this.cue(1);
-        this.timer -= dt; this.circleA += dt * 1.7;
-        const tx = player.x + Math.cos(this.circleA) * 8, tz = player.z + Math.sin(this.circleA) * 8;
+        this.timer -= dt; this.circleA += dt * 1.7 * this.circDir * (8 / this.circR);
+        const tx = player.x + Math.cos(this.circleA) * this.circR, tz = player.z + Math.sin(this.circleA) * this.circR;
         this.heading = dampAngle(this.heading, Math.atan2(tx - this.x, tz - this.z), 6, dt);
         this.speed = 10; this.x += Math.sin(this.heading) * this.speed * dt; this.z += Math.cos(this.heading) * this.speed * dt;
-        this.lift = damp(this.lift, 7, 3, dt);
+        this.lift = damp(this.lift, 6 + (this.seed % 3), 3, dt);
         if (fooled || !alive) { this.state = 'confused'; this.timer = 1.5; break; }
         if (this.timer <= 0) { this.state = 'chase'; this.chaseT = 0; }
         break;
@@ -513,7 +571,7 @@ export class Predator {
         if (fooled) { this.state = 'confused'; this.timer = 1.6; break; }
         if (dist > s.notice * 1.9) { this.state = 'leave'; this.timer = 4; this.ignore = 6; break; }
         this.walkToward(player.x, player.z, s.walk * 1.25, dt);
-        if (dist < 6.2 && this.cool <= 0) { this.state = 'pounce'; this.pounceT = 0; this.pounceDir = Math.atan2(dx, dz); this.pounceHit = false; }
+        if (dist < 6.2 && this.cool <= 0 && this.mayStrike()) { if (this.mgr) this.mgr.engaged++; this.state = 'pounce'; this.pounceT = 0; this.pounceDir = Math.atan2(dx, dz); this.pounceHit = false; }
         break;
       }
       case 'pounce': {
@@ -565,15 +623,25 @@ export class Predator {
         if (fooled) { this.state = 'confused'; this.timer = 1.7; break; }
         if (dist > s.notice * 1.9 || this.chaseT > 14) { this.state = 'leave'; this.timer = 4; this.ignore = 6; break; }
         this.lift = damp(this.lift, 0, 5, dt);
-        this.walkToward(player.x, player.z, s.speed, dt);
-        if (dist < this.reach && this.cool <= 0) { this.state = 'attack'; this.lunge = 0.0; this.lungeHit = false; }
+        this.recover = Math.max(0, this.recover - dt);
+        const turn = this.mayStrike();
+        if (!turn && dist < this.reach + 4) {
+          // someone else is striking: hold back on our own slot of a ring around the octopus, edging round it
+          this.slotA += dt * 0.35 * this.circDir;
+          const rr = this.reach + 1.6 + (this.seed % 1.5);
+          this.walkToward(player.x + Math.sin(this.slotA) * rr, player.z + Math.cos(this.slotA) * rr, s.walk * 1.6, dt);
+          this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 5, dt);
+        } else if (this.recover > 0) this.walkToward(this.x - dx, this.z - dz, s.walk, dt);          // backs off a step after a strike
+        else this.walkToward(player.x, player.z, s.speed, dt);
+        if (dist < this.reach && this.cool <= 0 && turn && this.recover <= 0) { this.state = 'attack'; this.lunge = 0.0; this.lungeHit = false; this.windup = this.windup0 = WINDUP[this.kind] ?? 0.25; if (this.mgr) this.mgr.engaged++; }
         break;
       }
       case 'attack': {
         this.cue(1);
         this.speed = damp(this.speed, 0, 10, dt);
         this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 12, dt);
-        if (fooled) { this.lunge = 0; this.state = 'confused'; this.timer = 1.4; this.cool = s.cooldown; break; }
+        if (fooled) { this.lunge = 0; this.windup = 0; this.state = 'confused'; this.timer = 1.4; this.cool = s.cooldown; break; }
+        if (this.windup > 0) { this.windup -= dt; break; }               // anticipation: draws back and squashes (see sync) before the strike
         this.lunge += dt / 0.4;
         if (this.lunge > 0.5 && !this.lungeHit) {
           this.lungeHit = true;
@@ -587,7 +655,7 @@ export class Predator {
           }
         }
         if (this.lunge >= 1) {
-          this.lunge = 0; this.cool = s.cooldown;
+          this.lunge = 0; this.cool = s.cooldown; this.recover = 0.55;
           this.state = fooled ? 'confused' : alive ? 'chase' : 'leave'; this.timer = 1.6;
           this.chaseT = Math.max(0, (this.chaseT || 0) - 3);
         }
@@ -610,8 +678,11 @@ export class Predator {
       case 'leave': {
         this.cue(0);
         this.timer -= dt;
-        const away = Math.atan2(-dx, -dz) + Math.sin(this.phase * 0.2) * 0.4;
-        this.walkToward(this.x + Math.sin(away) * 20, this.z + Math.cos(away) * 20, s.walk * 1.5, dt);
+        if (entered) { this.leaveBias = (RND() - 0.5) * 2.8; this.lookBack = 0.7 + RND() * 0.5; this.preen = 0; }
+        const away = Math.atan2(-dx, -dz) + this.leaveBias + Math.sin(this.phase * 0.2 + this.seed) * 0.4;
+        this.lookBack = Math.max(0, this.lookBack - dt);
+        if (this.lookBack > 0.35) { this.speed = damp(this.speed, 0, 6, dt); this.headTurn = clamp(angleDiff(this.toPlayer, this.heading), -1.2, 1.2); }   // one last glance
+        else { this.headTurn = damp(this.headTurn, 0, 4, dt); this.walkToward(this.x + Math.sin(away) * 20, this.z + Math.cos(away) * 20, s.walk * 1.5, dt); }
         this.lift = damp(this.lift, 0, 4, dt); this.circled = false;
         if (this.timer <= 0 || dist > 40) { this.state = 'wander'; this.home = { x: this.x, z: this.z }; this.target = null; this.ignore = Math.max(this.ignore, 3); }
         break;
@@ -713,12 +784,16 @@ export class Predator {
     this.group.rotation.y = this.heading + faceOffset;
     const mv = clamp(this.speed / (s.speed * 0.6 + 0.001), 0, 1.4);
     const swing = Math.sin(t * 3.2) * 0.7 * mv;
+    const ddt = dt || 0.016;
+    if (this._h0 !== undefined) this.turnV = damp(this.turnV, clamp(angleDiff(this.heading, this._h0) / ddt, -4, 4), 6, ddt);
+    this._h0 = this.heading;
     if (s.flying) {
       this.awareV = damp(this.awareV, this.aware, 6, dt || 0.016);
       if (p.head) p.head.rotation.y = clamp(angleDiff(this.toPlayer, this.heading), -1.1, 1.1) * Math.min(1, this.awareV * 1.4);   // looks down at you before it commits
       const flap = this.state === 'dive' ? 0.15 : Math.sin(t * 0.9) * 0.15;
-      if (s.swoop) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'perch' ? -0.9 : this.state === 'swoop' ? 0.6 : Math.sin(this.phase * 16) * 0.7); });
-      else p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'dive' ? 0.7 : flap + 0.08); });
+      if (s.swoop) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'perch' ? -0.9 + 0.08 * Math.sin(this.phase * 0.7 + this.seed) : this.state === 'alert' ? 1.0 : this.state === 'swoop' ? 0.6 : Math.sin(this.phase * 16) * 0.7); });   // wings flick up just before a swoop
+      else p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'dive' ? 0.7 : this.state === 'alert' ? 0.45 : flap + 0.08); });
+      if (p.head && this.state === 'perch') p.head.rotation.y += Math.sin(this.phase * 0.5 + this.seed) * 0.6 * Math.max(0, Math.sin(this.phase * 0.17 + this.seed));   // perched: looks about
       this.group.rotation.z = Math.sin(t * 0.2) * 0.15; this.group.rotation.x = this.state === 'dive' || this.state === 'swoop' ? 0.6 : this.state === 'climb' ? -0.35 : 0;
       return;
     }
@@ -734,6 +809,13 @@ export class Predator {
       p.head.userData.y0 ??= p.head.position.y;
       p.head.position.y = p.head.userData.y0 + 0.1 * av;           // head up: ears up, eyes on you
       if (s.hop) p.head.position.z = 0.55 + Math.sin(t * 6.4) * 0.12 * mv;
+      // idle sniff / peck while standing (an occasional quick dip), or preening after landing (head tucked to the side)
+      const still = 1 - clamp(this.speed / 0.6, 0, 1);
+      const dip = Math.pow(Math.max(0, Math.sin(this.phase * 0.23 + this.seed)), 6) * still * (1 - av);
+      p.head.position.y -= 0.16 * dip;
+      if (this.preen) { p.head.rotation.y += 1.3 * Math.sin(this.phase * 0.9 + this.seed); p.head.position.y -= 0.08; }
+      if (this.state === 'flee' || this.state === 'blind') p.head.position.y -= 0.1;            // head low, running scared
+      if (this.state === 'confused') p.head.position.y += 0.05 * Math.sin(this.phase * 3);
     }
     if (p.tail) p.tail.rotation.y = Math.sin(t * 2.2) * 0.4 * (1 - 0.7 * av);        // tail goes stiff when it has seen you
     if (p.claws) p.claws.forEach((c, i) => { c.position.y = 0.7 + (this.state === 'attack' ? Math.sin(this.lunge * Math.PI) * 0.4 : Math.sin(t * 2 + i) * 0.04); });
@@ -741,9 +823,17 @@ export class Predator {
     if (this.crouch) { p.g.scale.y = 1 - 0.3 * this.crouch; if (this.state !== 'stalk' && this.state !== 'pounce') this.crouch = Math.max(0, this.crouch - dt * 3); } else p.g.scale.y = lowSlung ? 1 - 0.1 * av : 1;     // a quick crouch before they commit
     if (p.wings && !s.flying) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.lift > 0.4 ? Math.sin(this.phase * 14) * 0.7 : 0.55 * av); });     // wings half-raised when alarmed
     // body bob / lunge
-    const lungeOff = this.state === 'attack' ? Math.sin(this.lunge * Math.PI) * 0.9 : 0;
-    p.g.position.set(0, (s.hop ? Math.abs(Math.sin(t * 3.2)) * 0.18 * mv : Math.abs(Math.sin(t * 3.2)) * 0.06 * mv), lungeOff);
-    p.g.rotation.x = this.state === 'attack' ? -Math.sin(this.lunge * Math.PI) * 0.25 : 0;
+    const strike = this.state === 'attack' ? Math.sin(this.lunge * Math.PI) : 0;
+    const wind = this.state === 'attack' && this.windup > 0 ? 1 - this.windup / (this.windup0 || 0.25) : 0;      // 0 -> 1 over the anticipation
+    const lungeOff = strike * 0.9 - wind * 0.35 - this.recover * 0.25;
+    const bob = Math.abs(Math.sin(t * 3.2));
+    p.g.position.set(0, (s.hop ? bob * 0.18 * mv : bob * 0.06 * mv), lungeOff);
+    p.g.rotation.x = this.state === 'attack' ? -strike * 0.25 + wind * 0.12 : 0;
+    p.g.rotation.z = clamp(-this.turnV * 0.06 * mv, -0.18, 0.18);                                              // leans into turns
+    // squash & stretch: footfalls squash a touch, the wind-up squashes, the strike stretches long; slow breathing at rest
+    const breathe = 1 + 0.018 * Math.sin((this.phase + this.seed) * 2.4) * (1 - clamp(mv, 0, 1));
+    const sq = (1 - 0.05 * (1 - bob) * mv) * (1 - 0.12 * wind) * (1 - 0.08 * strike) * breathe;
+    p.g.scale.y *= sq; p.g.scale.x = 1 + 0.06 * wind; p.g.scale.z = 1 + 0.06 * wind + 0.15 * strike;
     if (this.flinch > 0) {      // nipped: a sharp jerk back and up
       this.flinch = Math.max(0, this.flinch - (dt || 0.016) * 3.5);
       p.g.position.z -= Math.sin(this.flinch * Math.PI) * 0.35; p.g.rotation.x += this.flinch * 0.3;
@@ -753,7 +843,7 @@ export class Predator {
   dispose(scene) {
     scene.remove(this.group);
     if (this.shadowDisc) { scene.remove(this.shadowDisc); this.shadowDisc.geometry.dispose(); this.shadowDisc.material.dispose(); }
-    this.group.traverse((o) => { if (o.isMesh && !o.userData.isOutline) { o.geometry?.dispose?.(); const m = o.material; if (m) { m.map?.dispose?.(); m.dispose(); } } });
+    this.group.traverse((o) => { if (o.isMesh && !o.userData.isOutline) { if (!o.geometry?.userData.shared) o.geometry?.dispose?.(); const m = o.material; if (m && m !== VC.mat) { m.map?.dispose?.(); m.dispose(); } } });
   }
 }
 
@@ -850,7 +940,10 @@ export class PredatorManager {
     const events = [];
     const w = this.world;
     // storms bring more birds
-    if (w.weatherKind === 'storm' && this.list.filter((p) => p.storm).length < Math.round(4 * w.areaScale)) {
+    let storms = 0, engaged = 0;
+    for (const p of this.list) { if (p.storm) storms++; if (p.state === 'attack' || p.state === 'pounce') engaged++; }
+    this.engaged = engaged;                       // strikers right now (mayStrike() lets at most MAX_STRIKERS at once)
+    if (w.weatherKind === 'storm' && storms < Math.round(4 * w.areaScale)) {
       const a = w.rnd() * 6.28, d = 60 + w.rnd() * 40;
       const x = player.x + Math.cos(a) * d, z = player.z + Math.sin(a) * d;
       if (w.heightAt(x, z) > 0.4) { const g = this.spawn('gull', x, z); g.storm = true; }
@@ -891,7 +984,30 @@ export class PredatorManager {
       }
       if (p.state === 'chase' || p.state === 'attack' || p.state === 'dive' || p.state === 'alert' || p.state === 'swoop' || p.state === 'pounce' || p.state === 'stalk' || p.state === 'carry') threat = Math.max(threat, 1 - clamp(d / 45, 0, 1));
     }
+    this.spread(player);
     return { threat, hurt, events };
+  }
+  /** t257u: keep every animal out of every other one (same species too): spatial-hash separation in 3D (birds in the air use
+   *  their height), pushes checked against walls / water so nobody is shoved somewhere it can't stand. */
+  spread(player) {
+    const A = this._agents ??= [], w = this.world; A.length = 0;
+    const R = CONFIG.predators.activeRadius;
+    for (const p of this.list) {
+      if (p.dead || !p.group.visible) continue;
+      if (Math.abs(p.x - player.x) > R || Math.abs(p.z - player.z) > R) continue;
+      const a = p._sep ??= { p, x: 0, z: 0, y: 0, r: 0, w: 1 };
+      a.x = p.x; a.z = p.z; a.y = (p.alt || 0) + (p.lift || 0); a.r = (BODY_R[p.kind] ?? 0.7) * p.scale;
+      a.w = p.state === 'carry' ? 0.15 : p.state === 'attack' || p.state === 'pounce' || p.state === 'swoop' || p.state === 'dive' ? 0.35 : 1;
+      A.push(a);
+    }
+    if (A.length < 2) return 0;
+    return separate(A, { cell: 3.5, passes: 2, apply: (a, dx, dz, dy) => {
+      const p = a.p, nx = p.x + dx, nz = p.z + dz;
+      if (p.spec.flying) { p.x = nx; p.z = nz; if (dy && p.alt > 1) p.alt = Math.max(0.6, p.alt + dy); }
+      else if (p.canWalk(nx, nz)) { const r = w.resolve(nx, nz, 0.5 * p.scale); p.x = r.x; p.z = r.z; if (dy && p.lift > 0.5) p.lift = Math.max(0, p.lift + dy); }
+      a.x = p.x; a.z = p.z; a.y = (p.alt || 0) + (p.lift || 0);
+      p.group.position.set(p.x, p.group.position.y + (dy && p.spec.flying ? dy : 0), p.z);
+    } });
   }
   dispose() { for (const p of this.list) p.dispose(this.scene); this.list = []; }
 }

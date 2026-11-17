@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
 import { tint, merge, at } from '../world/models.js';
+import { separate } from '../util/separate.js';
 
 const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank']);
 const ANT_B = new Set(['desert', 'bush', 'suburb', 'farm', 'town', 'dunes', 'rainforest']);
@@ -125,7 +126,7 @@ function pose(mesh, i, x, y, z, yaw, sx = 1, sy = 1, sz = 1, pitch = 0, roll = 0
 export class Critters {
   constructor(world, scene) {
     this.world = world; this.scene = scene;
-    this.mat = toonMat({ vertexColors: true, flatShading: true, roughness: 0.8, side: THREE.DoubleSide });
+    this.mat = toonMat({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
     const mk = (geo, n) => {
       const m = new THREE.InstancedMesh(geo, this.mat, n);
       m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false;
@@ -214,8 +215,25 @@ export class Critters {
     }
   }
 
+  /** t257u: critters never overlap each other (same kind too) or a predator: spatial-hash separation on last frame's spots,
+   *  so this frame's poses already use the corrected positions. Predators (this.preds, set by the game) are immovable here. */
+  spread() {
+    const A = this._agents ??= [], w = this.world; A.length = 0;
+    const add = (arr, r, kind) => { for (const c of arr) if (c.on && !(c.dig >= 1) && !(c.hide >= 1)) { const a = c._sep ??= { c, x: 0, z: 0, y: 0, r, w: 1, kind }; a.x = c.x; a.z = c.z; a.y = c.y ?? 0; A.push(a); } };
+    add(this.sk, 0.24, 'g'); add(this.cr, 0.2, 'g'); add(this.fr, 0.17, 'g'); add(this.hm, 0.15, 'g'); add(this.wr, 0.15, 'g'); add(this.fl, 0.12, 'f'); add(this.bu, 0.12, 'f');
+    if (this.preds) for (const p of this.preds) if (!p.dead) { const a = p._csep ??= { c: null, x: 0, z: 0, y: 0, r: 0, w: 0 }; a.x = p.x; a.z = p.z; a.y = p.y + (p.lift || 0) + (p.alt || 0) + 0.3; a.r = 0.6 * p.scale; A.push(a); }
+    if (A.length < 2) return 0;
+    return separate(A, { cell: 1.5, passes: 2, apply: (a, dx, dz, dy) => {
+      const c = a.c; if (!c) return;
+      const nx = c.x + dx, nz = c.z + dz;
+      if (a.kind === 'f') { c.x = nx; c.z = nz; c.y += dy; if (c.tx !== undefined) { c.tx += dx; c.tz += dz; } }
+      else if (!w.waterAt?.(nx, nz)) { c.x = nx; c.z = nz; if (c.y !== undefined && !(c.fly > 0) && !(c.air > 0)) c.y = w.heightAt(nx, nz); }
+      a.x = c.x; a.z = c.z;
+    } });
+  }
   update(dt, o, night = 0, rain = 0) {
     const w = this.world; this.T += dt;
+    this.spread();
     for (let i = 0; i < 3; i++) this.respawn(o, night, rain);
     const scare = (c, r2, heading) => {
       const dx = c.x - o.x, dz = c.z - o.z, d2 = dx * dx + dz * dz;
