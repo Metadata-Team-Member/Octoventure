@@ -14,6 +14,7 @@
 //  Nothing is spelled out in the game itself: the pictures in the satchel and what you see on the octopus are the whole interface.
 // =====================================================================
 import * as THREE from 'three';
+import { toonMat } from '../world/toon.js';
 import { seat } from '../world/placement.js';
 import { USABLE, FX } from './items.js';
 import { clamp, lerp } from '../util/rng.js';
@@ -28,7 +29,7 @@ export class Abilities {
     const o = game.octopus, geos = gatherer.geos;
     this.group = new THREE.Group(); o.group.add(this.group);
     this.mat = gatherer.mat;
-    this.glass = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.1, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide });
+    this.glass = toonMat({ vertexColors: true, roughness: 0.1, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide });
     // ---- shield: top shell (convex up) and bottom shell (convex down), a hinge at the back
     this.shield = new THREE.Group(); this.shield.visible = false; this.group.add(this.shield);
     this.shTop = new THREE.Group(); this.shBot = new THREE.Group();

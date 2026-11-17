@@ -197,6 +197,13 @@ ok(perthDate(new Date('2026-11-16T17:00:00Z')) === '2026-11-17', 'Perth date rol
   ok(/bubbles\(/.test(sp) && /highpass/.test(sp) && !/this\.noise\(/.test(sp), 'water entry = airy spray + plip + bubbles (no raw noise hit)');
   ok(!/swish\([^)]*,\s*([1-4]\d{2}|[1-9]\d)\s*,/.test(sp), 'no low-frequency thump in the splash');
   ok(/this\.lp\b/.test(au) && /submerge\(\)/.test(au) && /surface\(\)/.test(au), 'master lowpass muffles the world under water, with going-under / surfacing sounds'); }
+// soft toon look (t248u): no PBR material is built anywhere in the game code, outlines only via the toon module
+{ const { readdirSync } = await import('node:fs');
+  const walk = (u) => readdirSync(u, { withFileTypes: true }).flatMap((d) => d.isDirectory() ? walk(new URL(d.name + '/', u)) : d.name.endsWith('.js') ? [new URL(d.name, u)] : []);
+  for (const f of walk(new URL('../src/', import.meta.url))) { const t = readFileSync(f, 'utf8'); ok(!/new THREE\.(MeshStandardMaterial|MeshPhysicalMaterial|PointLight)\(/.test(t), `${f.pathname.split('/src/')[1]}: no PBR material / point light`); }
+  const tn = readFileSync(new URL('../src/world/toon.js', import.meta.url), 'utf8');
+  ok(/MeshToonMaterial/.test(tn) && /gradientMap/.test(tn) && /uRim/.test(tn), 'toon module: banded gradient + rim light');
+  ok(/BackSide/.test(tn) && /uOutlinePx/.test(tn), 'outline = thin screen-space inverted hull'); }
 // trees: every primitive overlaps the rest, so canopies / fronds / branches are always attached to the trunk
 { PARTS.on = true; const T = treeGeometries(); PARTS.on = false;
   ok(Object.keys(T).length >= 9, 'all tree kinds built');

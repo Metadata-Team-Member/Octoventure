@@ -5,6 +5,7 @@
 //  Dither (screen-door) instead of alpha blending: no sorting, no transparency cost, shadows are unaffected.
 // =====================================================================
 import * as THREE from 'three';
+import { addPatch } from './toon.js';
 
 export const FADE = {
   uCam: { value: new THREE.Vector3(0, 100, 0) },
@@ -22,7 +23,7 @@ export function setFade(cam, tgt, k = 1) {
 }
 
 export function applyFade(mat) {
-  mat.onBeforeCompile = (sh) => {
+  return addPatch(mat, 'fade1', (sh) => {
     Object.assign(sh.uniforms, FADE);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vFadeWP;')
@@ -54,7 +55,5 @@ export function applyFade(mat) {
             if (fn < fa * 0.96) discard;
           }
         }`);
-  };
-  mat.customProgramCacheKey = () => 'fade1';
-  return mat;
+  });
 }

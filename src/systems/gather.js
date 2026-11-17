@@ -7,6 +7,7 @@
 //   - taking something is silent apart from a soft pluck and a little animation: it lifts and shrinks into the octopus. No pop-ups.
 // =====================================================================
 import * as THREE from 'three';
+import { toonMat } from '../world/toon.js';
 import { buildGatherGeos } from '../world/gatherModels.js';
 import { seat, instanceSpec, geoHeight } from '../world/placement.js';
 
@@ -21,8 +22,8 @@ export class Gatherer {
     this.world = world; this.scene = scene; this.audio = audio;
     this.root = new THREE.Group(); scene.add(this.root);
     this.geos = buildGatherGeos();
-    this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.68, metalness: 0, side: THREE.DoubleSide });
-    this.jarMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
+    this.mat = toonMat({ vertexColors: true, roughness: 0.68, metalness: 0, side: THREE.DoubleSide });
+    this.jarMat = toonMat({ vertexColors: true, roughness: 0.12, metalness: 0, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
     this.meshes = {}; this.free = {};
     for (const k in this.geos) {
       if (CRITTER[k]) continue;

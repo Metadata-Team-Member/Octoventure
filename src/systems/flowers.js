@@ -8,6 +8,7 @@
 //  original matrix is restored. Touch tests use a coarse grid and only look at the 3x3 cells around the octopus.
 // =====================================================================
 import * as THREE from 'three';
+import { toonMat } from '../world/toon.js';
 import { flowerPieces, FLOWER } from '../world/geoLib.js';
 import { dotTexture } from '../world/worldView.js';
 import { applyFade } from '../world/fade.js';
@@ -53,7 +54,7 @@ export class Flowers {
   }
 
   _makeLive() {
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }); applyFade(mat);
+    const mat = toonMat({ vertexColors: true, flatShading: true, roughness: 0.9 }); applyFade(mat);
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body); root.visible = false;
     body.add(new THREE.Mesh(this.geo.stem, mat), new THREE.Mesh(this.geo.centre, mat));
     const hinges = [];

@@ -4,6 +4,8 @@
 //  is fully camouflaged (and not too close) -> confused -> leave.
 // =====================================================================
 import * as THREE from 'three';
+import { toonMat, outlineMat, outline } from '../world/toon.js';
+let PRED_LINE = null;
 import { CONFIG, diff } from '../config.js';
 import { clamp, damp, dampAngle, angleDiff, lerp } from '../util/rng.js';
 import { TIER, nipsFor } from '../systems/combat.js';
@@ -12,7 +14,7 @@ let RND = Math.random;
 const _up = new THREE.Vector3(0, 1, 0), _sv = new THREE.Vector3(), _sn = { x: 0, y: 1, z: 0 };
 /** the manager points this at world.rnd so a seed (or the daily seed) fully decides who is where and how they spawn */
 export function setPredatorRng(f) { RND = f; }
-const mat = (hex, extra = {}) => new THREE.MeshStandardMaterial({ color: hex, flatShading: true, roughness: 0.85, ...extra });
+const mat = (hex, extra = {}) => toonMat({ color: hex, flatShading: true, roughness: 0.85, ...extra });
 const box = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
 const sph = (r, m, sx = 1, sy = 1, sz = 1, seg = 8) => { const o = new THREE.Mesh(new THREE.SphereGeometry(r, seg, Math.max(4, seg - 2)), m); o.scale.set(sx, sy, sz); return o; };
 const cone = (r, h, m, seg = 6) => new THREE.Mesh(new THREE.ConeGeometry(r, h, seg), m);
@@ -223,6 +225,7 @@ export class Predator {
     this.parts = m;
     this.group = new THREE.Group(); this.group.add(m.g);
     m.g.traverse((o) => { if (o.isMesh) o.castShadow = CONFIG.graphics.shadows; });
+    this.hulls = outline(m.g, PRED_LINE ??= outlineMat(0x24160f));          // t248u: thin toon outline (only drawn when near, see the manager)
     scene.add(this.group);
     this.x = x; this.z = z; this.home = { x, z };
     this.y = world.heightAt(x, z);
@@ -240,7 +243,8 @@ export class Predator {
     this.group.scale.setScalar(this.scale);
     this.reach = this.spec.attackRange * this.scale;       // bigger animals reach further
     this.aware = 0; this.awareV = 0; this.toPlayer = this.heading;     // body-language level: 0 calm, ~0.45 wary / searching, 1 has noticed you
-    if (FLYERS.has(kind)) {          // a shadow that slides over the ground (and over the octopus) when a bird passes overhead
+    this.blob = !FLYERS.has(kind) && !CONFIG.graphics.shadows;      // no shadow map (phones): a soft blob under ground animals
+    if (FLYERS.has(kind) || this.blob) {          // a shadow that slides over the ground (and over the octopus) when a bird passes overhead
       this.shadowDisc = new THREE.Mesh(new THREE.CircleGeometry(1, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
       this.shadowDisc.renderOrder = 3; this.shadowDisc.visible = false; scene.add(this.shadowDisc);
     }
@@ -671,6 +675,11 @@ export class Predator {
   updateShadow() {
     const d = this.shadowDisc; if (!d) return;
     const h = this.alt + (this.lift || 0);
+    if (this.blob) {
+      const w = this.world; d.visible = !this.dead && this.group.visible;
+      if (d.visible) { d.position.set(this.x, w.heightAt(this.x, this.z) + 0.05, this.z); const r = 0.75 * this.scale * (this.kind === 'human' ? 0.8 : 1); d.scale.set(r, r, r * 1.5); d.material.opacity = 0.28; }
+      return;
+    }
     const on = h > 0.9 && this.state !== 'perch';
     d.visible = on;
     if (!on) return;
@@ -730,7 +739,7 @@ export class Predator {
   dispose(scene) {
     scene.remove(this.group);
     if (this.shadowDisc) { scene.remove(this.shadowDisc); this.shadowDisc.geometry.dispose(); this.shadowDisc.material.dispose(); }
-    this.group.traverse((o) => { if (o.isMesh) { o.geometry?.dispose?.(); const m = o.material; if (m) { m.map?.dispose?.(); m.dispose(); } } });
+    this.group.traverse((o) => { if (o.isMesh && !o.userData.isOutline) { o.geometry?.dispose?.(); const m = o.material; if (m) { m.map?.dispose?.(); m.dispose(); } } });
   }
 }
 
@@ -844,6 +853,8 @@ export class PredatorManager {
       const near = d < R;
       p.group.visible = d < CONFIG.graphics.fogFar + 20;
       if (p.shadowDisc && !p.group.visible) p.shadowDisc.visible = false;
+      const line = d < 42 && p.group.visible;
+      if (p.lineOn !== line) { p.lineOn = line; for (const h of p.hulls) h.visible = line; }
       if (p.dead) { p.updateDead(dt); continue; }
       if (!near) continue;
       hurt += p.update(dt, player, this.world);

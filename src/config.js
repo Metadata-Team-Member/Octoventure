@@ -92,8 +92,9 @@ export const CONFIG = {
 
   // ---- Graphics / camera -------------------------------------------------
   graphics: {
-    shadows: true,         // URL: ?shadows=0 to disable
-    pixelRatioCap: 2,
+    shadows: true,         // URL: ?shadows=0 to disable (?shadows=1 forces them on a phone); touch-only devices default to blob shadows
+    shadowMapSize: 1536, shadowRange: 45,                // t248u: one sun shadow, a tighter box (was 2048 over +-60)
+    pixelRatioCap: 2, mobilePixelRatioCap: 1.5,
     fogNear: 60,
     fogFar: 230,
     treeCount: 1700,
@@ -130,8 +131,8 @@ export const CONFIG = {
 // ---- Terrain types (also what the octopus camouflages to) ------------
 // speed = movement multiplier, dry = drying multiplier (lower = safer, moister ground)
 export const TERRAIN = {
-  lawn:   { name: 'Garden lawn',   color: 0x6dbb48, speed: 1.00, dry: 0.90 },
-  grass:  { name: 'Meadow grass',  color: 0x86b04a, speed: 1.00, dry: 1.00 },
+  lawn:   { name: 'Garden lawn',   color: 0x62a646, speed: 1.00, dry: 0.90 },
+  grass:  { name: 'Meadow grass',  color: 0x7fa84a, speed: 1.00, dry: 1.00 },
   forest: { name: 'Forest floor',  color: 0x44703a, speed: 0.85, dry: 0.70 },
   mud:    { name: 'Squelchy mud',  color: 0x6b4f3a, speed: 0.55, dry: 0.45 },
   rock:   { name: 'Sun-baked rock', color: 0x8d8c88, speed: 0.80, dry: 1.50 },

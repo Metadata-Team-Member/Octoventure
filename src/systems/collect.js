@@ -5,6 +5,7 @@
 //     celebration and is tracked internally (no counter).
 // =====================================================================
 import * as THREE from 'three';
+import { toonMat, outlineMat, outline } from '../world/toon.js';
 import { tint, merge, at } from '../world/models.js';
 import { buildShellGeos } from '../world/geoLib.js';
 import { seat, instanceSpec, geoHeight, shellScale, shellKind, fitDisc } from '../world/placement.js';
@@ -35,7 +36,7 @@ export class Collectibles {
     const list = world.shells.filter((sh) => !sh.reg);
     this.geos = buildShellGeos();
     // natural, matte-to-satin shell (no metal): the colours are baked into the vertices, instances only vary the tone a little
-    this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0, side: THREE.DoubleSide });
+    this.mat = toonMat({ vertexColors: true, roughness: 0.62, metalness: 0, side: THREE.DoubleSide });
     this.meshes = {}; this.counts = { c: 0, t: 0, k: 0 }; this.free = { c: [], t: [], k: [] };
     const POOL = 140;
     for (const k of ['c', 't', 'k']) {
@@ -61,7 +62,7 @@ export class Collectibles {
     this.active = new Set(); this.actT = 0;
     // ---- babies
     this.babyGeo = babyGeometry();
-    this.babyMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.4, emissive: 0x0a3a9a, emissiveIntensity: 0.0 });
+    this.babyMat = toonMat({ vertexColors: true, flatShading: true, roughness: 0.4, emissive: 0x0a3a9a, emissiveIntensity: 0.0 });
     this.fx = [];                 // running rescue animations
     this.dotMat = new THREE.PointsMaterial({ size: 6, sizeAttenuation: false, map: dotTexture(), transparent: true, depthWrite: false, vertexColors: true });
     this.hearts = 0;
@@ -69,6 +70,7 @@ export class Collectibles {
     // (a small pool of 24 live slots is reused for whichever babies are close)
     const nb = 24;
     this.peek = new THREE.InstancedMesh(this.babyGeo, this.babyMat, nb); this.peek.count = 0; this.peek.frustumCulled = false; this.root.add(this.peek);
+    this.babyOutline = outlineMat(0x1c1a30); [this.peekLine] = outline(this.peek, this.babyOutline); this.peekLine.count = 0;
     this.glint = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(nb * 3).fill(-999), 3)),
       new THREE.PointsMaterial({ color: 0xbfe0ff, size: 3.4, sizeAttenuation: false, map: dotTexture(), transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.glint.frustumCulled = false; this.root.add(this.glint);
@@ -114,7 +116,7 @@ export class Collectibles {
       }
     }
     for (let j = n; j < 24; j++) P.setXYZ(j, 0, -999, 0);
-    this.peek.count = n;
+    this.peek.count = n; this.peekLine.count = n;
     this.peek.instanceMatrix.needsUpdate = true; P.needsUpdate = true;
     // a very soft little blip now and then when one is close
     this.tellT -= dt;
@@ -207,10 +209,12 @@ class BabyRescue {
     const g = this.group = new THREE.Group();
     this.mesh = new THREE.Mesh(col.babyGeo, col.babyMat.clone());
     this.mesh.scale.setScalar(0.001);
-    g.add(this.mesh);
+    g.add(this.mesh); outline(this.mesh, col.babyOutline);
     g.position.set(b.x, b.y, b.z);
     col.scene.add(g);
-    this.light = new THREE.PointLight(0x4f9bff, 0, 9, 2); this.light.position.set(0, 0.6, 0); g.add(this.light);
+    // t248u: a soft additive glow sprite (was a PointLight: adding / removing a light recompiled every shader mid-game)
+    this.light = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(), color: 0x4f9bff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.light.position.set(0, 0.6, 0); this.light.scale.setScalar(3.2); g.add(this.light);
     // bubbles (joy / ink): points rising from the spot
     this.N = 34;
     this.pos = new Float32Array(this.N * 3); this.colr = new Float32Array(this.N * 3);
@@ -223,7 +227,7 @@ class BabyRescue {
     col.scene.add(this.points);
     // the puddle it dissolves into
     const pg = new THREE.CircleGeometry(1, 24); pg.rotateX(-Math.PI / 2);
-    this.puddle = new THREE.Mesh(pg, new THREE.MeshStandardMaterial({ color: 0x59b4ea, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+    this.puddle = new THREE.Mesh(pg, toonMat({ color: 0x59b4ea, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
     const fit = fitDisc(col.world, b.x, b.z, 1.9);          // the puddle lies on the slope, not flat in the air
     this.puddle.position.set(b.x, fit.y0 + 0.02, b.z); this.puddle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-fit.gx, 1, -fit.gz).normalize()); this.puddle.scale.setScalar(0.01);
     col.scene.add(this.puddle);
@@ -249,7 +253,7 @@ class BabyRescue {
     if (t > 3.6) m.scale.y *= 0.7;
     const glow = t < 3.6 ? 0.7 + 0.5 * Math.sin(t * 8) : 0.7 * (1 - (t - 3.6) / 1.4);
     m.material.emissiveIntensity = Math.max(0, glow);
-    this.light.intensity = Math.max(0, glow) * 3.0;
+    this.light.material.opacity = Math.min(1, Math.max(0, glow) * 0.8);
     // bubbles
     for (let i = 0; i < this.N; i++) {
       const sd = this.seed[i], f = ((t * 0.5 * sd.s + sd.d) % 1);
@@ -271,7 +275,7 @@ class BabyRescue {
   dispose() {
     const sc = this.col.scene;
     sc.remove(this.group); sc.remove(this.points); sc.remove(this.puddle);
-    this.mesh.material.dispose(); this.points.geometry.dispose(); this.puddle.geometry.dispose(); this.puddle.material.dispose(); this.light.dispose?.();
+    this.mesh.material.dispose(); this.points.geometry.dispose(); this.puddle.geometry.dispose(); this.puddle.material.dispose(); this.light.material.dispose();
     this.col.dotMat.opacity = 1;
   }
 }

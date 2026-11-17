@@ -27,6 +27,7 @@ import { Levels } from './systems/levels.js';
 import { Shimmer } from './systems/shimmer.js';
 import { SeaBeat } from './systems/seabeat.js';
 import { Critters } from './systems/critters.js';
+import { TOON } from './world/toon.js';
 import { TIER, PEOPLE, BITE, killTier, nipsFor, killXP, lethal } from './systems/combat.js';
 import { BIOMES } from './world/biomes.js';
 import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell } from './systems/save.js';
@@ -43,14 +44,18 @@ export class Game {
     this.state = 'menu';
     this.runTime = 0;
     this.fps = 60;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, CONFIG.graphics.pixelRatioCap));
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    // t248u soft toon look: phones / tablets (touch only) get a lighter setup - no shadow map (blob shadows instead) and a lower
+    // pixel-ratio cap; everyone gets toon materials and a hue-preserving tone curve (ACES greyed the saturated palette).
+    this.mobile = params.get('mobile') === '1' || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches);
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.mobile || (window.devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.mobile ? CONFIG.graphics.mobilePixelRatioCap : CONFIG.graphics.pixelRatioCap));
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 0.86;
     if (params.get('size')) CONFIG.worldSize = Math.max(800, Math.min(4800, Math.round(Number(params.get('size')) / 100) * 100 || CONFIG.worldSize));
-    this.shadows = params.get('shadows') !== '0' && CONFIG.graphics.shadows;
+    this.shadows = params.get('shadows') === '1' || (params.get('shadows') !== '0' && CONFIG.graphics.shadows && !this.mobile);
+    CONFIG.graphics.shadows = this.shadows;             // read by the world view / predators / cars when they decide who casts
     this.renderer.shadowMap.enabled = this.shadows;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;  // (was PCFSoft: soft toon bands do the softening, a 4-tap PCF is enough)
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(FOG_COLOR, CONFIG.graphics.fogNear, CONFIG.graphics.fogFar);
     this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, 0.08, 1400);
@@ -62,8 +67,8 @@ export class Game {
     this.sun.position.set(60, 90, 40);
     if (this.shadows) {
       this.sun.castShadow = true;
-      this.sun.shadow.mapSize.set(2048, 2048);
-      const sc = this.sun.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60; sc.near = 10; sc.far = 260;
+      this.sun.shadow.mapSize.set(CONFIG.graphics.shadowMapSize, CONFIG.graphics.shadowMapSize);
+      const R = CONFIG.graphics.shadowRange, sc = this.sun.shadow.camera; sc.left = -R; sc.right = R; sc.top = R; sc.bottom = -R; sc.near = 10; sc.far = 260;
       this.sun.shadow.bias = -0.0006; this.sun.shadow.normalBias = 0.4;
     }
     this.scene.add(this.hemi, this.sun, this.sun.target);
@@ -146,6 +151,8 @@ void main(){
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
+    this.renderer.getDrawingBufferSize(TOON.uRes.value);
+    TOON.uOutlinePx.value = 1.4 * this.renderer.getPixelRatio();
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
   }
 

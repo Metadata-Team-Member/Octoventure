@@ -86,8 +86,10 @@ export class Atmosphere {
     this.fireflies = new THREE.Points(fg, this.flyMat); this.fireflies.frustumCulled = false; this.fireflies.visible = false;
     g.scene.add(this.fireflies);
     // the octopus's own faint glow, only noticeable in the dark
-    this.glow = new THREE.PointLight(0x5a8cff, 0, 10, 2);
-    this.glow.position.set(0, 1.2, 0);
+    // t248u: a soft additive halo sprite instead of a PointLight (a point light costs a lighting term on every lit pixel of every
+    // material, all day long, even at intensity 0)
+    this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(), color: 0x5a8cff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    this.glow.position.set(0, 1.0, 0); this.glow.scale.setScalar(7);
   }
   attachGlow(octoGroup) { octoGroup.add(this.glow); }
 
@@ -164,9 +166,9 @@ export class Atmosphere {
     g.sun.color.lerp(this.bTint, 0.35 * day);
     g.hemi.groundColor.copy(HEMI_GR_DAY).lerp(HEMI_GR_NIGHT, night);
     g.hemi.intensity = (0.3 + 1.05 * day) * (1 - env.dark * 0.5) * (1 - u * 0.3) + 0.4 * night + this.flash * 1.6;
-    g.renderer.toneMappingExposure = 1.0 + env.heat * 0.1 + night * 0.35;
+    g.renderer.toneMappingExposure = 0.86 + env.heat * 0.08 + night * 0.3;      // toon bands read brighter than PBR: base exposure trimmed (t248u)
     // glow of the rings, visible mostly in the dark and under water
-    this.glow.intensity = (night * 4 + u * 2) * (o.alive ? 1 : 0);
+    this.glow.material.opacity = Math.min(0.55, (night * 0.5 + u * 0.25)) * (o.alive ? 1 : 0) * (1 - (o.camoBlend || 0) * 0.8);
 
     // sky furniture (children of the sky dome, which follows the camera)
     this.sunSprite.position.copy(this.sunDir).multiplyScalar(820);

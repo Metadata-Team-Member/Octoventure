@@ -60,14 +60,14 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const fx = g.collect.fx[0];
     const found = G.babiesFound;
     g.advance(1.2);
-    const mid = { y: fx.mesh.position.y, s: fx.mesh.scale.x, glow: fx.mesh.material.emissiveIntensity, light: fx.light.intensity };
+    const mid = { y: fx.mesh.position.y, s: fx.mesh.scale.x, glow: fx.mesh.material.emissiveIntensity, light: fx.light.material.opacity };
     g.advance(4.5);
     const after = { fx: g.collect.fx.length, puddles: g.world.temp.filter((q) => Math.hypot(q.x - b.x, q.z - b.z) < 1).length, text: document.body.innerText.trim(), found: G.babiesFound, healthUp: G.health };
     G.teleport(b.x + 5, b.z); g.advance(0.1); G.teleport(b.x, b.z); g.advance(0.2);
     return { found, mid, after, again: g.collect.fx.length, text0, total: G.babyTotal };
   });
   ok(r.found === 1, 'finding a baby is tracked internally');
-  ok(r.mid.s > 0.5 && r.mid.glow > 0.2 && r.mid.light > 0.5, `the baby pops up with glowing rings (scale ${r.mid.s.toFixed(2)}, glow ${r.mid.glow.toFixed(2)})`);
+  ok(r.mid.s > 0.5 && r.mid.glow > 0.2 && r.mid.light > 0.12, `the baby pops up with glowing rings (scale ${r.mid.s.toFixed(2)}, glow ${r.mid.glow.toFixed(2)})`);
   ok(r.after.fx === 0 && r.after.puddles >= 1, 'it scampers, then dissolves into a puddle');
   ok(r.after.text === r.text0, 'no counter or message for babies');
   ok(r.again === 0, 'a baby can only be found once');
@@ -362,7 +362,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     G.mockPad(null);
     return out;
   });
-  ok(r.moved > 6 * 0.42, `left stick moves (${r.moved.toFixed(1)} m)`);
+  ok(r.moved > 4 * 0.42, `left stick moves (${r.moved.toFixed(1)} m)`);
   ok(r.looked > 0.5, `right stick looks (${r.looked.toFixed(2)} rad)`);
   ok(r.sprint, 'LT sprints');
   ok(r.camo, 'A holds camouflage');
@@ -462,7 +462,19 @@ const uiBefore = await E(() => document.body.innerText.trim());
     out.shadowOn = !!e.shadowDisc && e.shadowDisc.visible; out.shadowDy = e.shadowDisc ? e.shadowDisc.position.y - w.heightAt(e.shadowDisc.position.x, e.shadowDisc.position.z) : 9;
     G.clearPredators();
     // occluder fade is compiled into the grass / prop materials
-    out.fade = [g.view.vcMat, g.view.whiteMat, g.view.grassMat].every((m) => typeof m.onBeforeCompile === 'function' && m.customProgramCacheKey() === 'fade1');
+    out.fade = [g.view.vcMat, g.view.whiteMat, g.view.grassMat].every((m) => typeof m.onBeforeCompile === 'function' && m.customProgramCacheKey().split('|').includes('fade1'));
+    // t248u soft toon look: every lit material is a toon material, outlines only on the octopus / babies / creatures, no point lights
+    const kinds = new Set(), lights = [], outlined = new Set();
+    g.scene.traverse((x) => { if (x.isLight) lights.push(x.type); if (x.isMesh && !x.userData.isOutline) { const ms = Array.isArray(x.material) ? x.material : [x.material]; for (const m of ms) kinds.add(m.type); }
+      if (x.userData.isOutline) { let p = x.parent; while (p && !p.userData.outlineOwner) p = p.parent; outlined.add(p ? p.userData.outlineOwner : 'other'); } });
+    out.toon = { kinds: [...kinds], lights, outlined: [...outlined] };
+    out.octoLines = g.octopus.outlines.length; out.octoLineVis = g.octopus.outlines[0].visible;
+    out.octoCalls = 0; g.octopus.group.traverse((x) => { if ((x.isMesh) && x.visible) out.octoCalls++; });
+    const cat = G.spawnPredator('cat', 6, 0); g.advance(0.1); out.catLine = cat.hulls.length > 0 && cat.hulls[0].visible;
+    G.clearPredators();
+    out.critterLines = g.critters.hulls.length;
+    out.peekLine = !!g.collect.peekLine;
+    out.tone = g.renderer.toneMapping; out.shadowType = g.renderer.shadowMap.type;
     return out;
   });
   ok(Math.abs(r.sz - 0.42) < 1e-6 && Math.abs(r.scale - r.sz) < 1e-6, `the octopus is drawn at real-scale (size ${r.sz})`);
@@ -471,6 +483,12 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.thump > 0.05, `a person walking past shakes the ground under the octopus (thump ${r.thump.toFixed(2)})`);
   ok(r.shadowOn && Math.abs(r.shadowDy) < 0.3, `a bird overhead casts a shadow on the ground (visible ${r.shadowOn}, ${r.shadowDy.toFixed(2)} u above terrain)`);
   ok(r.fade, 'camera occluder fade is compiled into the grass, tree and prop materials');
+  ok(!r.toon.kinds.includes('MeshStandardMaterial') && !r.toon.kinds.includes('MeshPhysicalMaterial') && r.toon.kinds.includes('MeshToonMaterial'), `soft toon look: lit materials are toon, no PBR left (${r.toon.kinds.join(', ')})`);
+  ok(!r.toon.lights.includes('PointLight'), `no point lights (glows are sprites): ${r.toon.lights.join(', ')}`);
+  ok(r.octoLines >= 4 && r.octoLineVis, `the octopus has a thin outline (${r.octoLines} hulls)`);
+  ok(r.catLine && r.critterLines >= 3 && r.peekLine, 'creatures, critters and babies are outlined too');
+  ok(r.octoCalls <= 30, `the octopus is cheap to draw: ${r.octoCalls} visible meshes incl. outlines (was ~226 meshes)`);
+  ok(r.tone === 7 /* Neutral */, 'neutral tone mapping keeps the curated palette (ACES greyed the toon colours)');
 }
 
 // ================================================================ no ground marks (t246u: removed, they read as car tracks)

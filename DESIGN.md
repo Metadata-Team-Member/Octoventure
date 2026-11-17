@@ -105,3 +105,27 @@ A blue-ringed octopus's venom is tetrodotoxin made by bacteria in its salivary g
 - **Lethal dose** (`dose`, satchel): fungi + urchin (rainforest + headland) or ochre + frogspawn (desert + wetland). Using it readies `octopus.lethalDose` (the rings flicker violet); the next venomous bite that lands on a predator kills it whatever its size, then the dose is spent (not spent on people).
 - **Kills:** the animal yelps (pitch falls with size), keels onto its side (birds drop out of the air first), lies still for 3.5 s, sinks into the ground and is disposed at 6.5 s; dead animals never hurt, threaten or get targeted. Experience `15 x tier (+10 venom)`; first kill earns the **hunter** badge (22 badges now).
 - The browser context menu is suppressed over the game. Controls list (Esc): Click / X = Bite, Right-click / B = Venomous bite; gamepad line LT sprint, X bite, RT venomous bite.
+
+## Soft toon look (t247u / t248u)
+Animal Crossing / Fortnite style soft toon, not hard comic-book cel shading:
+* **Materials:** every lit surface is `MeshToonMaterial` built by `toonMat()` in `src/world/toon.js` (drop-in for the old physically based standard material; PBR-only params are ignored). A shared 6-texel gradient gives three soft bands (shade 0.50, mid 0.78, lit 1.0) with short linear ramps. A small shader patch adds a warm rim light (`TOON.uRim`) and a gentle saturation lift (`TOON.uSat` 1.05). Patches compose through `addPatch()`, so the camera occluder fade (`fade.js`) still compiles in; program cache keys list the patches (`toon1|fade1`).
+* **Outlines:** thin inverted-hull outlines (`outlineMat()` / `outline()`), pushed out a fixed number of screen pixels in clip space, so they stay thin at any distance. Only on the octopus (body, head, eyes, arms), babies (peeking and rescue) and creatures (predators within ~42 m; skinks, dragonflies, ghost crabs). Instanced meshes get instanced hulls that share the instance matrices. The octopus outline disappears while camouflaged or tucked away, so it never gives a hidden octopus away.
+* **Readability:** health greying and the camo ring paling are unchanged (they act on base colours, which the toon bands keep).
+* **Lighting:** neutral tone mapping (ACES greyed the curated colours), base exposure 0.86; one hemisphere and one sun. The octopus night glow and the baby rescue glow are now additive sprites, not point lights (a point light costs every lit pixel, and adding or removing one recompiled every shader mid-game).
+* **Palette:** softer lawn and meadow greens; biome palettes otherwise kept from the terrain table; sky stays a three-stop gradient.
+* **Octopus draw cost:** the 96 arm segments are one `InstancedMesh`; the arm rings are two instanced meshes riding on them; the ~50 body rings are merged into two meshes. 226 draw calls -> 17.
+* **Shadows:** PCF (not PCF-soft) 1536 map over +/-45 u (was 2048 over +/-60). On phones (coarse pointer, or `?mobile=1`) the shadow map is off (`?shadows=1` forces it on) and soft blob shadows sit under the octopus and ground animals instead; pixel ratio capped at 1.5 (`CONFIG.graphics.mobilePixelRatioCap`), no MSAA on high-DPI phones.
+* **Measured** (`node scripts/perf.mjs [--shadows=0] [--mobile]`, SwiftShader software rendering at 1280x720, mean of 30 frames per biome after warm-up, GPU-synced): 
+
+| biome | before calls / ms | toon + shadows | toon, no shadow map | phone settings |
+|---|---|---|---|---|
+| suburb | 515 / 471 | 194 / 887 | 184 / 501 | 183 / 141 |
+| bush | 505 / 541 | 174 / 482 | 160 / 538 | 148 / 145 |
+| farm | 452 / 419 | 180 / 389 | 159 / 364 | 170 / 124 |
+| beach | 453 / 553 | 108 / 434 | 125 / 434 | 140 / 147 |
+| desert | 505 / 409 | 174 / 405 | 141 / 376 | 199 / 125 |
+| rainforest | 493 / 499 | 183 / 651 | 158 / 769 | 175 / 150 |
+
+Octopus alone: 226 -> 17 draw calls. Triangles are unchanged (~1.7-2.0 M incl. shadow pass).
+
+ Software-raster frame times are dominated by triangle fill and vary run to run, so they are not phone numbers; test on a real mid-range phone.

@@ -9,6 +9,7 @@
 //  small stuff (grass, flowers ...) is further culled by distance.
 // =====================================================================
 import * as THREE from 'three';
+import { toonMat } from './toon.js';
 import { CONFIG, TERRAIN } from '../config.js';
 import { smoothstep as ss, lerp, clamp } from '../util/rng.js';
 import { tint, merge, at, rockGeometry, treeGeometries, grassGeometry, reedGeometry, seagrassGeometry, coralGeometry } from './models.js';
@@ -132,12 +133,12 @@ export class WorldView {
     w.regions.onGenerate((reg) => this._ingest(reg));
     // shared geometry & materials
     const sh = this.shadows;
-    this.vcMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 }));
-    this.whiteMat = this.track(new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, roughness: 0.95 }));
-    this.grassMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1, side: THREE.DoubleSide }));
+    this.vcMat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 0.9 }));
+    this.whiteMat = this.track(toonMat({ color: 0xffffff, flatShading: true, roughness: 0.95 }));
+    this.grassMat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 1, side: THREE.DoubleSide }));
     for (const m of [this.vcMat, this.whiteMat, this.grassMat]) applyFade(m);   // occluders dither away between the camera and the octopus
-    this.terrainMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 }));
-    this.waterMat = this.track(new THREE.MeshStandardMaterial({ color: 0x4aa8dc, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    this.terrainMat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 }));
+    this.waterMat = this.track(toonMat({ color: 0x4aa8dc, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     this.lib = buildGeoLib();                       // the same geometry the placement audit uses
     const L = this.lib;
     this.geo = {
@@ -385,7 +386,7 @@ export class WorldView {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.set(size / 28, size / 28);
     this.seaTex = tex;
-    const mat = this.track(new THREE.MeshStandardMaterial({ color: 0x2c93c4, roughness: 0.18, metalness: 0.05, normalMap: tex, normalScale: new THREE.Vector2(0.55, 0.55), transparent: true, opacity: 0.72, side: THREE.DoubleSide }));
+    const mat = this.track(toonMat({ color: 0x2c93c4, roughness: 0.18, metalness: 0.05, normalMap: tex, normalScale: new THREE.Vector2(0.55, 0.55), transparent: true, opacity: 0.72, side: THREE.DoubleSide }));
     const sea = new THREE.Mesh(geo, mat);
     const centre = w.cCoast - 120 + size / 2;
     sea.position.set(w.dir.x * centre, 0, w.dir.z * centre);
@@ -398,7 +399,7 @@ export class WorldView {
 
   // ------------------------------------------------------------ landmarks (lighthouse, Norfolk pines, windmills, water tower): always drawn, hazed
   _buildLandmarks() {
-    this.landMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9, fog: false, color: 0xb0b0b0, emissive: 0x606a70 }));
+    this.landMat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 0.9, fog: false, color: 0xb0b0b0, emissive: 0x606a70 }));
     const g = new THREE.Group();
     const trees = this.landTrees;
     if (trees.length) {
@@ -419,7 +420,7 @@ export class WorldView {
   _buildFish() {
     const body = merge([at(tint(new THREE.ConeGeometry(0.16, 0.7, 5), 0xffffff), 0, 0, 0, 0, 0, Math.PI / 2), at(tint(new THREE.ConeGeometry(0.2, 0.3, 4), 0xffffff), -0.42, 0, 0, 0, 0, -Math.PI / 2)]);
     this.fishN = 36;
-    this.fishMesh = new THREE.InstancedMesh(this.track(body), this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.5 })), this.fishN);
+    this.fishMesh = new THREE.InstancedMesh(this.track(body), this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 0.5 })), this.fishN);
     this.fishMesh.frustumCulled = false; this.fishMesh.count = 0;
     for (let i = 0; i < this.fishN; i++) this.fishMesh.setColorAt(i, _c.setHSL(0.05 + (i % 3) * 0.14 + (i % 7) * 0.01, 0.6, 0.6));
     this.root.add(this.fishMesh);
@@ -507,7 +508,7 @@ export class WorldView {
     // drop particles
     const total = this.drips.length * 3;
     const dgeo = this.track(new THREE.SphereGeometry(0.09, 5, 4));
-    const dmat = this.track(new THREE.MeshStandardMaterial({ color: 0x7ec8f2, roughness: 0.1, transparent: true, opacity: 0.9 }));
+    const dmat = this.track(toonMat({ color: 0x7ec8f2, roughness: 0.1, transparent: true, opacity: 0.9 }));
     this.dropMesh = new THREE.InstancedMesh(dgeo, dmat, Math.max(1, total));
     this.dropMesh.count = total;
     this.dropMesh.frustumCulled = false;
@@ -543,7 +544,7 @@ export class WorldView {
       at(tint(new THREE.IcosahedronGeometry(3.2, 1), 0x838c97), -5.5, -0.2, -1, 0, 0, 0, 1.4, 0.6, 1.2),
       at(tint(new THREE.IcosahedronGeometry(3.0, 1), 0x6a737e), 1, 0.6, -3.6, 0, 0, 0, 1.5, 0.6, 1.1),
     ]));
-    const cmat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1, fog: false }));
+    const cmat = this.track(toonMat({ vertexColors: true, flatShading: true, roughness: 1, fog: false }));
     const pts = new Float32Array(w.rain.length * this.rainN * 3);
     const geo = this.track(new THREE.BufferGeometry());
     geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
@@ -598,12 +599,12 @@ export class WorldView {
   _buildTransient() {
     const w = this.world;
     const geo = this.track(new THREE.CircleGeometry(1, 20)); geo.rotateX(-Math.PI / 2);
-    this.tempMat = this.track(new THREE.MeshStandardMaterial({ color: 0x4a9fd0, roughness: 0.06, metalness: 0.2, transparent: true, opacity: 0.82, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+    this.tempMat = this.track(toonMat({ color: 0x4a9fd0, roughness: 0.06, metalness: 0.2, transparent: true, opacity: 0.82, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
     this.tempMesh = new THREE.InstancedMesh(geo, this.tempMat, CONFIG.env.maxTempPuddles + 10);
     this.tempMesh.count = 0; this.tempMesh.frustumCulled = false; this.tempMesh.renderOrder = 2;
     this.root.add(this.tempMesh);
     const gated = w.seasonal;
-    this.gatedMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8f2ff, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.0, emissive: 0x7fb6d8, emissiveIntensity: 0.4, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, depthWrite: false }));
+    this.gatedMat = this.track(toonMat({ color: 0xd8f2ff, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.0, emissive: 0x7fb6d8, emissiveIntensity: 0.4, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, depthWrite: false }));
     this.gatedMesh = new THREE.InstancedMesh(geo, this.gatedMat, Math.max(1, gated.length));
     this.gatedMesh.count = gated.length; this.gatedMesh.frustumCulled = false; this.gatedMesh.renderOrder = 2;
     this.gatedLast = -1;

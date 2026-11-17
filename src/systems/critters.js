@@ -8,6 +8,7 @@
 //  preallocated (no per-frame allocation), ground heights for an ant trail sampled once when it is placed.
 // =====================================================================
 import * as THREE from 'three';
+import { toonMat, outlineMat, outline } from '../world/toon.js';
 import { tint, merge, at } from '../world/models.js';
 
 const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank']);
@@ -58,9 +59,10 @@ function crabGeo() {
 export class Critters {
   constructor(world, scene) {
     this.world = world; this.scene = scene;
-    this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.8 });
+    this.mat = toonMat({ vertexColors: true, flatShading: true, roughness: 0.8 });
     const mk = (geo, n) => { const m = new THREE.InstancedMesh(geo, this.mat, n); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; for (let i = 0; i < n; i++) { _m.compose(_p.set(0, -999, 0), _q.identity(), _zero); m.setMatrixAt(i, _m); } scene.add(m); return m; };
     this.skMesh = mk(skinkGeo(), NS); this.antMesh = mk(antGeo(), NT * PER); this.flyMesh = mk(flyGeo(), NF); this.crMesh = mk(crabGeo(), NC);
+    this.lineMat = outlineMat(0x231a12); this.hulls = [this.skMesh, this.flyMesh, this.crMesh].flatMap((m) => outline(m, this.lineMat));       // (ants are too small to outline)
     this.sk = Array.from({ length: NS }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, run: 0, walk: 0, t: Math.random() * 5 }));
     this.tr = Array.from({ length: NT }, () => ({ on: false, x: 0, z: 0, a: 0, len: 3, hs: new Float32Array(9), ph: Math.random() }));
     this.fl = Array.from({ length: NF }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, g: 0, t: 0, h: 0 }));
@@ -166,5 +168,5 @@ export class Critters {
   }
   /** how many of each are out right now (tests) */
   counts() { return { skinks: this.sk.filter((c) => c.on).length, trails: this.tr.filter((c) => c.on).length, flies: this.fl.filter((c) => c.on).length, crabs: this.cr.filter((c) => c.on && c.dig < 1).length }; }
-  dispose() { for (const m of [this.skMesh, this.antMesh, this.flyMesh, this.crMesh]) { m.geometry.dispose(); this.scene.remove(m); } this.mat.dispose(); }
+  dispose() { for (const m of [this.skMesh, this.antMesh, this.flyMesh, this.crMesh]) { m.geometry.dispose(); this.scene.remove(m); } this.mat.dispose(); this.lineMat.dispose(); }
 }

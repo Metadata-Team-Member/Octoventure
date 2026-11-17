@@ -120,4 +120,5 @@ The page exposes `window.__game` (`setHealth`, `teleportToOcean`, `spawnPredator
 * Terrain is a 2.5 m grid, so narrow creek channels are only roughly resolved.
 * The world is not full real scale: people and animals are compressed (a person is ~8x, not ~9x) and buildings are lower than real, so nothing leaves the screen and layouts keep working.
 * Balance numbers are first guesses and need playtesting - tweak `src/config.js`.
+* Graphics: a soft toon look. Phones automatically drop the shadow map (soft blob shadows instead) and cap the resolution; add `?shadows=1` to force shadows or `?mobile=1` to try the phone settings on a desktop.
 * Not tested on real GPUs / phones. The save lives in one browser's local storage (clearing site data erases it; use Copy code to keep a copy).

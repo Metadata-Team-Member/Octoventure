@@ -6,6 +6,7 @@
 //  noise that swells as one approaches, and a horn if it is bearing down on you.
 // =====================================================================
 import * as THREE from 'three';
+import { toonMat } from '../world/toon.js';
 import { CONFIG } from '../config.js';
 import { clamp } from '../util/rng.js';
 import { PROP_GEO, CAR_SCALE } from '../world/props.js';
@@ -32,7 +33,7 @@ export class CarManager {
     const k = Math.round((x - w.roadOff.x) / P); return { x: w.roadOff.x + k * P, z, alongX: false };
   }
   make(c, rnd) {
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.55, metalness: 0.2 });
+    const mat = toonMat({ vertexColors: true, flatShading: true, roughness: 0.55, metalness: 0.2 });
     const hue = rnd();
     const grey = (hue * 7) % 1 < 0.3;
     mat.color.setHSL(hue, grey ? 0.05 : 0.62, grey ? 0.62 : 0.5);
