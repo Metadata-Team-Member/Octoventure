@@ -11,6 +11,7 @@ import { PredatorManager } from './entities/predators.js';
 import { Input } from './input.js';
 import { Hud } from './hud.js';
 import { GameAudio } from './audio.js';
+import { Music } from './systems/music.js';
 import { Progress } from './systems/progress.js';
 import { Environment } from './systems/environment.js';
 import { Atmosphere } from './systems/atmosphere.js';
@@ -73,6 +74,7 @@ export class Game {
     this.hud = new Hud();
     this.input = new Input(canvas);
     this.audio = new GameAudio();
+    this.music = new Music();
     this.hemi = new THREE.HemisphereLight(0xcfe8ff, 0x8d8466, 1.35);
     this.sun = new THREE.DirectionalLight(0xfff1d6, 2.6);
     this.sun.position.set(60, 90, 40);
@@ -111,7 +113,7 @@ export class Game {
     this.input.onLockChange = (locked) => this.onLockChange(locked);
     this.hud.el.pause.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#keys')) return; this.input.requestLock(); });   // the controls list is for reading, not clicking
     this.input.onKey = (e) => {
-      if (e.code === 'KeyM') this.audio.toggleMute();
+      if (e.code === 'KeyM' && !e.repeat && this.state !== 'menu') this.music.toggle();
       if (this.satchelOpen) { this.satchelKey(e); return; }
       if (e.code === 'Tab' && !e.repeat && this.state === 'playing') { this.openSatchel(); return; }
       // press any (real) key to start
@@ -264,12 +266,24 @@ void main(){
     if (this.state === 'playing' && this.input.everLocked) this.setPaused(true);
   }
   setPaused(on) {
-    if (this.paused === on) return;
+    if (this.paused === on) {
+      // Tab can open the satchel while already paused: keep its bed, and hush the score.
+      if (on && this.satchelOpen) { this.music?.setSatchel(true); this.audio.resume(); }
+      return;
+    }
     this.paused = on;
     if (on) this.saveNow('pause');
     this.hud.setPauseVisible(on && !this.satchelOpen);
     this.input.pressed.clear();
-    if (on) { this.input.keys.clear(); this.audio.ctx?.suspend?.(); } else { this.audio.resume(); this.clock.getDelta(); }
+    if (on) {
+      this.input.keys.clear();
+      if (this.satchelOpen) { this.music?.setSatchel(true); this.audio.resume(); }
+      else this.audio.ctx?.suspend?.();
+    } else {
+      this.music?.setSatchel(false);
+      this.audio.resume();
+      this.clock.getDelta();
+    }
   }
 
   // ------------------------------------------------------------------ the satchel (Tab)
@@ -291,7 +305,8 @@ void main(){
     const i = this.input;
     const needLock = i.lockSupported && i.everLocked && i._mock == null && !i.lockFailed;
     if (needLock) {
-      // get the pointer back (this key press is the user gesture); if the browser says no, fall back to the pause screen
+      // back to a real pause until the pointer returns: the satchel bed stops, the score stays quiet
+      this.audio.ctx?.suspend?.();
       i.requestLock();
       this._reLock = setTimeout(() => { this._reLock = null; if (this.paused && !this.satchelOpen) this.hud.setPauseVisible(true); }, 450);
     } else this.setPaused(false);
@@ -314,6 +329,7 @@ void main(){
     if (this.pendingSave) { const s = this.pendingSave, o = this.octopus; this.pendingSave = null; o.health = s.octo.health; o.energy = s.octo.energy; for (const k in s.fx.buff) o.buff[k] = s.fx.buff[k]; o.inkCharges = s.fx.ink; o.venomReady = s.fx.venom; o.lethalDose = !!s.fx.lethal; }
     this.input.requestLock();
     this.audio.start(); this.audio.resume();
+    this.music.attach(this.audio); this.music.start();
     this.state = 'playing';
     this.hud.setStartVisible(false);
   }
@@ -420,6 +436,7 @@ void main(){
       coast, ambient: this.atmo.ambient, cam: this.camera, health: o.health, moving: o.moving, swim: o.swim, night: world.night,
       car: this.carInfo ? { dist: this.carInfo.dist, x: this.carInfo.x, y: world.heightAt(this.carInfo.x, this.carInfo.z) + 1, z: this.carInfo.z, horn: this.carInfo.horn, speed: this.carInfo.speed } : null,
     });
+    this.music.update(dt, this);
     if (this.params.get('debug') === '1') {
       this.hud.setDebug(`fps ${this.fps.toFixed(0)}  state ${this.state}\npos ${o.x.toFixed(0)},${o.z.toFixed(0)}  h ${o.y.toFixed(1)}\nseed ${world.seed}  sea-dir ${(world.angle * 57.3).toFixed(0)}°  to-sea ${(-world.distToSea(o.x, o.z)).toFixed(0)}m\nterrain ${o.terrain}  water ${o.waterKind}\npredators ${this.predators.list.length}`);
     }

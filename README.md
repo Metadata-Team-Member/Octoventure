@@ -51,7 +51,7 @@ npm run build:dist   # normal multi-file build into dist/ (for hosting on any st
 | Quick keys for what you carry (listed on the pause screen) | **G**, **H**, **V** | LB, RB |
 | Zoom | mouse wheel | |
 | Pause / release the mouse | **Esc** (pause menu: Resume, difficulty, Daily, New start, and a quiet list of these controls) | Start |
-| Mute | **M** | |
+| Music | **M** | |
 | Restart after dying | button, or **R** | |
 
 **Tab** opens your satchel: what you have gathered on the left, what you can make on the right, all in pictures. The game is fully paused while it is open. Gather small things by touching them as you go; work out what they are good for.
