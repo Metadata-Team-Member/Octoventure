@@ -180,7 +180,7 @@ export class Octopus {
   /** the glass jar hides you from birds only (it is see-through to everything else) */
   get birdHidden() { return this.alive && this.buff.jar > 0 && this.jarF > 0.6; }
   /** drying multiplier from the satchel: kelp wrap on land, resting in a den, a closed shell */
-  get dryScale() { return (this.buff.kelp > 0 ? FX.kelpDry : 1) * (this.restF > 0.5 ? FX.denDry : 1) * (this.shieldClosed > 0.75 ? 0.85 : 1); }
+  get dryScale() { return (this.perkDry ?? 1) * (this.buff.kelp > 0 ? FX.kelpDry : 1) * (this.restF > 0.5 ? FX.denDry : 1) * (this.shieldClosed > 0.75 ? 0.85 : 1); }
   get inWater() { return !!this.waterKind; }
   get hiding() { return this.camoWanted && this.alive; }
 
@@ -218,7 +218,7 @@ export class Octopus {
       this.camoWanted = wantCamo;
       if (wantCamo) {
         // tucked into a shell, tin or log, camouflage costs nothing
-        if (!this.hiddenIn) this.energy = Math.max(0, this.energy - C.drainPerSec * diff().camoDrain * (this.buff.mimic > 0 ? FX.mimicDrain : 1) * (this.buff.tonic > 0 ? FX.tonicDrain : 1) * dt);
+        if (!this.hiddenIn) this.energy = Math.max(0, this.energy - C.drainPerSec * diff().camoDrain * (this.buff.mimic > 0 ? FX.mimicDrain : 1) * (this.buff.tonic > 0 ? FX.tonicDrain : 1) * (this.perkCamo ?? 1) * dt);
         if (this.energy <= 0.01) { this.camoLocked = true; this.camoWanted = false; }
       } else {
         this.energy = Math.min(C.maxEnergy, this.energy + C.regenPerSec * dt);
@@ -260,6 +260,10 @@ export class Octopus {
         const gain = CONFIG.water[water.kind] ?? 20;
         this.health = Math.min(O.maxHealth, this.health + gain * dt);
         this.wetness = Math.min(1, this.wetness + dt * 1.5);
+      } else if (world.raining && !this.tunnel && !this.hiddenIn) {
+        // a rain shower (t241u): out in the open the octopus soaks it up instead of drying
+        this.health = Math.min(O.maxHealth, this.health + (CONFIG.env.rainGain ?? 2.5) * (world.gates?.wet ?? 0.5) * dt);
+        this.wetness = Math.min(1, this.wetness + dt * 0.4);
       } else {
         let rate = O.baseDryRate * T.dry * (world.dryMult ?? 1) * (1 + 0.9 * (world.harshAt?.(this.x, this.z) ?? 0)) * diff().dry;   // far inland the air is drier
         rate *= this.dryScale;

@@ -100,3 +100,13 @@ button.chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #code-in { font: 500 11px/1 ui-monospace, monospace; color: #dff6ff; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.28); border-radius: 12px; padding: 5px 10px; width: 160px; outline: none; }
 #code-in[hidden] { display: none; }
 #code-in:focus { border-color: #fff; }
+
+/* badges (t241u): tiny medallions under the satchel, locked ones are faint silhouettes */
+.sat-badges { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 12px; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); max-width: 330px; }
+.badge { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.04); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
+.badge i { display: block; width: 16px; height: 16px; filter: brightness(0) invert(1); opacity: 0.12; }
+.badge svg { width: 100%; height: 100%; }
+.badge.got { background: radial-gradient(circle at 35% 30%, #3b5f7a, #1d3247); box-shadow: inset 0 0 0 1px rgba(242,201,76,0.55), 0 0 6px rgba(159,228,255,0.25); }
+.badge.got i { filter: none; opacity: 1; }
+.badge.new { animation: badgeShine 1.6s ease-out 2; }
+@keyframes badgeShine { 0% { box-shadow: inset 0 0 0 1px rgba(242,201,76,0.9), 0 0 0 rgba(255,226,160,0); transform: scale(1); } 35% { box-shadow: inset 0 0 0 1px #fff3c4, 0 0 16px rgba(255,226,160,0.9); transform: scale(1.18); } 100% { box-shadow: inset 0 0 0 1px rgba(242,201,76,0.55), 0 0 6px rgba(159,228,255,0.25); transform: scale(1); } }

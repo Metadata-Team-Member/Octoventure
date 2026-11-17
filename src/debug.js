@@ -179,6 +179,11 @@ export function installDebugHooks(game) {
     teleportToGather(kind, i = 0) { const l = game.gather.items().filter((q) => q.kind === kind && !q.got); const g = l[i]; if (!g) return null; this.teleport(g.x - 2.5, g.z); return g; },
     get cars() { return game.cars.cars; },
     get scent() { return game.world.scent.length; },
+    // ---- levels & badges (tests)
+    get levels() { return game.levels; },
+    giveXP(n) { game.levels.add(n); },
+    did(kind, arg) { game.levels.did(kind, arg); },
+    get shimmerActive() { return game.shimmer.active > 0; },
     terrainTypes: Object.keys(TERRAIN),
     game,
   };

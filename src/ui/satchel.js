@@ -5,6 +5,7 @@
 // =====================================================================
 import { icon } from './icons.js';
 import { RECIPES, USABLE, FX } from '../systems/items.js';
+import { BADGES } from '../systems/levels.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 
@@ -14,8 +15,8 @@ export class Satchel {
     this.root = root; this.game = game; this.isOpen = false; this.lastFocus = null;
     root.innerHTML = '';
     this.panel = el('div', 'sat-panel');
-    this.bag = el('div', 'sat-bag'); this.recs = el('div', 'sat-recipes'); this.fxrow = el('div', 'sat-fx');
-    const left = el('div', 'sat-left'); left.append(this.bag, this.fxrow);
+    this.bag = el('div', 'sat-bag'); this.recs = el('div', 'sat-recipes'); this.fxrow = el('div', 'sat-fx'); this.badgeRow = el('div', 'sat-badges');
+    const left = el('div', 'sat-left'); left.append(this.bag, this.fxrow, this.badgeRow);
     this.panel.append(left, this.recs); root.append(this.panel);
     root.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-act]'); if (!b) { return; }
@@ -68,6 +69,15 @@ export class Satchel {
     if (o.inkCharges > 0) add('inksac', null, o.inkCharges);
     if (g.abilities?.dens.length) add('den', null, g.abilities.dens.length);
     this.fxrow.hidden = !this.fxrow.children.length;
+    // ---- badges (t241u): earned ones as bright tokens, the rest as faint silhouettes to discover; newly earned ones shine once
+    this.badgeRow.innerHTML = '';
+    const lv = g.levels, fresh = g.freshBadges;
+    if (lv) for (const b of BADGES) {
+      const got = lv.badges.has(b.id);
+      const t = el('span', 'badge' + (got ? ' got' : '') + (got && fresh?.has(b.id) ? ' new' : ''), `<i>${icon(b.glyph)}</i>`);
+      t.dataset.badge = b.id; this.badgeRow.append(t);
+    }
+    if (fresh) fresh.clear();
     // restore the focus where it was
     if (keep && keep.id) { const n = this.root.querySelector(`button[data-act="${keep.act}"][data-id="${keep.id}"]`); if (n) n.focus({ preventScroll: true }); }
   }

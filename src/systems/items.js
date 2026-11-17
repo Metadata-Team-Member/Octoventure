@@ -67,6 +67,7 @@ export class Inventory {
     if (!r || !this.canCraft(r)) return false;
     for (const k in r.in) this.take(k, r.in[k]);
     this.add(r.out); this.made.add(r.out);
+    this.onCraft?.(r, MADE.every((m) => this.made.has(m)));
     return true;
   }
   /** items shown in the left grid, in a stable order: raw things first, then made things */

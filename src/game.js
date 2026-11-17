@@ -23,6 +23,9 @@ import { Gatherer } from './systems/gather.js';
 import { Abilities } from './systems/abilities.js';
 import { Inventory, FX } from './systems/items.js';
 import { Satchel } from './ui/satchel.js';
+import { Levels } from './systems/levels.js';
+import { Shimmer } from './systems/shimmer.js';
+import { BIOMES } from './world/biomes.js';
 import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell } from './systems/save.js';
 import { clamp, damp, lerp, mulberry32 } from './util/rng.js';
 const _fadeT = new THREE.Vector3();
@@ -69,6 +72,9 @@ export class Game {
     this.deadShown = false;
     this.progress = new Progress();
     this.inv = new Inventory();
+    this.inv.onCraft = (r, all) => this.levels.did('craft', { all });
+    this.levels = new Levels(); this.levels.allBiomes = BIOMES.length; this.freshBadges = new Set();
+    this.shimmer = new Shimmer(this.scene);
     this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
     // saves are for the real game: a fixed ?seed= / ?daily world (tests, sharing a link) never reads or overwrites the one in the browser
     this.saveEnabled = !params.has('seed') && !params.has('daily') && !params.has('nosave');
@@ -181,16 +187,18 @@ void main(){
     this.flowers = new Flowers(this.world, this.scene, this.audio);
     this.inv.reset();
     this.gather = new Gatherer(this.world, this.scene, this.audio);
-    this.gather.onPick = (g) => { this.inv.add(g.kind); this.audio.gather(g.x, g.y, g.z); };
+    this.gather.onPick = (g) => { this.inv.add(g.kind); this.audio.gather(g.x, g.y, g.z); this.levels.did('gather'); };
     this.abilities = new Abilities(this, this.gather);
     this.world.scent = []; this.lastScent = null;
     this.runTime = 0; this.deadShown = false; this.threat = 0;
     this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
+    this.levels.reset(); this.levels.allBiomes = BIOMES.length; this.freshBadges.clear(); this.lv = { babies: 0, shells: 0, biomeT: 0, rain: 0, chased: false, calmT: 0 };
     this.camInit = false;
     this.input.yaw = Math.random() * Math.PI * 2; this.input.pitch = CONFIG.camera.pitch; this.input.zoom = 0;
     this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
     if (save) { applySave(this, save); this.pendingSave = save; }
     else if (hadWorld && this.saveEnabled) clearSave();          // a brand new world replaces whatever was saved
+    this.lv.babies = this.progress.babies; this.lv.shells = this.progress.shells; this.applyPerks();
     this.updateCamera(0.016, true);
   }
   // ------------------------------------------------------------------ saving (no login: this browser's localStorage)
@@ -312,7 +320,8 @@ void main(){
 
     if (playing) {
       this.runTime += dt;
-      this.explored.add(exploreCell(o.x, o.z));
+      const cell = exploreCell(o.x, o.z);
+      if (!this.explored.has(cell)) { this.explored.add(cell); this.levels.did('cell'); }
       this.saveT += dt; if (this.saveT >= 30) { this.saveT = 0; this.saveNow('timer'); }
       this.env.update(dt);
       this.env.updatePuddles(dt, o);
@@ -348,6 +357,7 @@ void main(){
       if (o.camoWanted && !wasCamo) { this.audio.camo(true); }
       if (!o.camoWanted && wasCamo) { this.audio.camo(false); }
       if (o.waterKind && o.waterKind !== wasWater) this.audio.splash();
+      this.updateLevels(dt);
       if (!o.alive) this.onDeath();
       else if (world.isSea(o.x, o.z) && o.y < world.seaLevel - 0.2 && this.progress.markSea(this.runTime)) this.onSeaReached();
     } else {
@@ -361,6 +371,7 @@ void main(){
     }
 
     this.updateSeaMoment(dt);
+    this.shimmer.update(dt, o);
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);
     this.updateCamera(dt);
     this.updateAtmosphere(dt);
@@ -372,6 +383,26 @@ void main(){
     });
     if (this.params.get('debug') === '1') {
       this.hud.setDebug(`fps ${this.fps.toFixed(0)}  state ${this.state}\npos ${o.x.toFixed(0)},${o.z.toFixed(0)}  h ${o.y.toFixed(1)}\nseed ${world.seed}  sea-dir ${(world.angle * 57.3).toFixed(0)}°  to-sea ${(-world.distToSea(o.x, o.z)).toFixed(0)}m\nterrain ${o.terrain}  water ${o.waterKind}\npredators ${this.predators.list.length}`);
+    }
+  }
+
+  // ------------------------------------------------------------------ levels & badges (t241u / t242u): felt, never shown as numbers
+  applyPerks() { const P = this.levels.perks, o = this.octopus; if (o) { o.perkDry = P.dry; o.perkCamo = P.camo; } }
+  updateLevels(dt) {
+    const o = this.octopus, w = this.world, L = this.levels, S = this.lv, p = this.progress;
+    if (p.babies > S.babies) { for (let i = S.babies; i < p.babies; i++) L.did('baby'); S.babies = p.babies; }
+    if (p.shells > S.shells) { for (let i = S.shells; i < p.shells; i++) L.did('shell'); S.shells = p.shells; }
+    S.biomeT -= dt;
+    if (S.biomeT <= 0) { S.biomeT = 0.5; L.did('biome', w.biomeAt(o.x, o.z)); }
+    if (o.waterKind && w.night > 0.7) L.did('night');
+    if (w.raining && !o.waterKind && o.moving) { S.rain += dt; if (S.rain >= 1) { S.rain -= 1; L.did('rain'); } }
+    if (this.env.boltEvent && o.alive) L.did('storm');
+    // getting away: something was really on to us, and then everything stayed calm for a few seconds
+    if (this.threat > 0.5) { S.chased = true; S.calmT = 0; }
+    else if (S.chased && this.threat < 0.04) { S.calmT += dt; if (S.calmT > 3) { S.chased = false; S.calmT = 0; L.did('escape'); } }
+    for (const e of L.drain()) {
+      if (e.type === 'level') { this.shimmer.burst('level'); this.audio.levelUp(); this.applyPerks(); }
+      else if (e.type === 'badge') { this.freshBadges.add(e.id); this.shimmer.burst('badge'); this.audio.badge(); }
     }
   }
 
@@ -424,6 +455,7 @@ void main(){
 
   /** first arrival in the open sea: a quiet moment (camera drifts out to sea, surf swells, gentle fade) - and play simply continues */
   onSeaReached() {
+    this.levels.did('sea');
     this.seaMoment = { t: 0, dur: 7 };
     this.audio.seaArrival();
   }

@@ -173,6 +173,10 @@ export class GameAudio {
   /** a faint little bubbling blip from a hidden baby octopus close by */
   /** a soft pluck when something small is taken; a pair of notes for a craft; a low knock for putting something on / eating it */
   gather(x, y, z) { if (!this.ctx) return; const d = x != null ? this.at(x, y, z) : null; this.tone(540 + Math.random() * 160, 0.1, 'sine', 0.035, -180, 0, d); }
+  /** level-up (t242u): a rising shimmer of soft bells */
+  levelUp() { if (!this.ctx) return; [784, 988, 1175, 1568, 1976].forEach((f, i) => this.tone(f, 0.9, 'sine', 0.055, 0, i * 0.085)); this.tone(392, 1.6, 'triangle', 0.035, 0, 0); this.noise(0.9, 6500, 0.025, null, 1.6, 0.05); }
+  /** a badge: two warm bell notes */
+  badge() { if (!this.ctx) return; this.tone(1319, 0.8, 'sine', 0.05, 0, 0); this.tone(1760, 1.1, 'sine', 0.045, 0, 0.16); this.tone(659, 1.2, 'triangle', 0.025, 0, 0); }
   craft() { if (!this.ctx) return; this.tone(523, 0.22, 'sine', 0.05, 0, 0); this.tone(784, 0.3, 'sine', 0.045, 0, 0.09); }
   use(id) { if (!this.ctx) return; this.tone(id === 'feast' || id === 'mussel' || id === 'moss' ? 330 : 196, 0.16, 'triangle', 0.06, 60, 0); this.tone(660, 0.18, 'sine', 0.025, 0, 0.06); }
   babyTell(x, y, z) { if (!this.ctx) return; const d = this.at(x, y, z); this.tone(760, 0.12, 'sine', 0.03, 380, 0, d); this.tone(1020, 0.1, 'sine', 0.022, 300, 0.11, d); }

@@ -77,6 +77,14 @@ export class Atmosphere {
     this.snowMat = new THREE.PointsMaterial({ color: 0xbfeaf0, size: 3, sizeAttenuation: false, map: dotTexture(), transparent: true, opacity: 0, depthWrite: false });
     this.snowPts = new THREE.Points(ng, this.snowMat); this.snowPts.frustumCulled = false; this.snowPts.visible = false;
     g.scene.add(this.snowPts);
+    // fireflies / glow-bugs (t241u): drift low over the ground at night, thickest in damp, green places
+    this.flyN = 90;
+    const fp = new Float32Array(this.flyN * 3);
+    this.flySeed = new Float32Array(this.flyN * 3).map(() => Math.random());
+    const fg = new THREE.BufferGeometry(); fg.setAttribute('position', new THREE.BufferAttribute(fp, 3));
+    this.flyMat = new THREE.PointsMaterial({ color: 0xd8ff7a, size: 4, sizeAttenuation: false, map: dotTexture(), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    this.fireflies = new THREE.Points(fg, this.flyMat); this.fireflies.frustumCulled = false; this.fireflies.visible = false;
+    g.scene.add(this.fireflies);
     // the octopus's own faint glow, only noticeable in the dark
     this.glow = new THREE.PointLight(0x5a8cff, 0, 10, 2);
     this.glow.position.set(0, 1.2, 0);
@@ -209,12 +217,27 @@ export class Atmosphere {
       }
       this.snowPts.geometry.attributes.position.needsUpdate = true;
     }
+    // fireflies at night (most over bush, creeks, wetlands and rainforest; none in the open desert or town)
+    const q = w.biomes.weights(o.x, o.z), BI = this._bi ??= Object.fromEntries(BIOMES.map((n, i) => [n, i]));
+    const green = clamp((q[BI.bush] ?? 0) + (q[BI.riverbank] ?? 0) + (q[BI.wetland] ?? 0) + (q[BI.rainforest] ?? 0) * 1.4 + (q[BI.farm] ?? 0) * 0.5 + (q[BI.suburb] ?? 0) * 0.3, 0, 1);
+    const fly = night * (1 - R * 0.8) * (0.25 + 0.75 * green) * (1 - u);
+    this.fireflies.visible = fly > 0.03;
+    this.flyMat.opacity = fly;
+    if (this.fireflies.visible) {
+      const arr = this.fireflies.geometry.attributes.position.array, S = this.flySeed;
+      for (let i = 0; i < this.flyN; i++) {
+        const x = cp.x + (S[i * 3] - 0.5) * 50 + Math.sin(t * 0.35 + i * 1.7) * 2.2, z = cp.z + (S[i * 3 + 2] - 0.5) * 50 + Math.cos(t * 0.3 + i) * 2.2;
+        const blink = Math.sin(t * (1.2 + S[i * 3 + 1]) + i * 2.1) > -0.2;
+        arr[i * 3] = x; arr[i * 3 + 1] = blink ? w.heightAt(x, z) + 0.4 + S[i * 3 + 1] * 1.6 + Math.sin(t * 0.8 + i) * 0.25 : -999; arr[i * 3 + 2] = z;
+      }
+      this.fireflies.geometry.attributes.position.needsUpdate = true;
+    }
     // heat haze: the camera "breathes" very slightly
     camera.fov = CONFIG.camera.fov + env.heat * 0.8 * Math.sin(t * 1.7);
     camera.updateProjectionMatrix();
   }
 
   dispose() {
-    for (const o of [this.stars, this.rainPts, this.heatPts, this.snowPts]) { o.geometry.dispose(); o.material.dispose(); o.parent?.remove(o); }
+    for (const o of [this.stars, this.rainPts, this.heatPts, this.snowPts, this.fireflies]) { o.geometry.dispose(); o.material.dispose(); o.parent?.remove(o); }
   }
 }

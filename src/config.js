@@ -57,7 +57,8 @@ export const CONFIG = {
     startTime: 0.28,       // 0 = midnight, 0.25 = sunrise, 0.5 = noon: the run starts just after dawn (dew on the grass)
     firstWeatherAfter: 150,// calm for the first couple of minutes
     weatherMin: 100, weatherMax: 220,
-    heatDryBonus: 0.7,     // a heatwave dries you up to 70% faster
+    heatDryBonus: 0.7,
+    rainGain: 2.5,         // moisture per second soaked up in a rain shower (x rain strength; storms give the most)     // a heatwave dries you up to 70% faster
     tideRange: 0.45,       // the sea edge moves up/down this many metres...
     tidePeriod: 300,       // ...over this many seconds
     maxTempPuddles: 70, puddleLife: 140,
@@ -149,6 +150,12 @@ export const TERRAIN = {
   dunegrass: { name: 'Dune grass',     color: 0xcdc47e, speed: 0.72, dry: 1.70 },
   headland:  { name: 'Headland rock',  color: 0x5d6068, speed: 0.78, dry: 1.35 },
   paving:    { name: 'Paving',         color: 0x93918f, speed: 1.10, dry: 2.00 },
+  // t241u: desert + rainforest ground
+  redsand:   { name: 'Red sand',       color: 0xc0582e, speed: 0.80, dry: 2.00 },
+  gibber:    { name: 'Gibber plain',   color: 0x8e4a30, speed: 0.85, dry: 1.80 },
+  spinifex:  { name: 'Spinifex',       color: 0xb8a45a, speed: 0.80, dry: 1.70 },
+  fern:      { name: 'Fern floor',     color: 0x2f5a2a, speed: 0.80, dry: 0.45 },
+  mossy:     { name: 'Mossy floor',    color: 0x3f7a34, speed: 0.85, dry: 0.40 },
 };
 
 /** the active difficulty's multipliers */

@@ -59,7 +59,7 @@ let before;
   });
   await page.keyboard.press('Tab'); await sleep(300);
   const s = await saved();
-  ok(!!s && s.v === 2 && s.seed === seed1, 'opening the satchel saves the game (versioned)');
+  ok(!!s && s.v === 3 && s.seed === seed1, 'opening the satchel saves the game (versioned)');
   ok(s && Math.abs(s.octo.x - before.pos.x) < 0.1 && Math.abs(s.octo.z - before.pos.z) < 0.1 && Math.abs(s.octo.health - before.health) < 0.3, 'the save holds position and health');
   ok(s && s.got.includes(before.id) && s.shells.o.length === 1 && s.babies.length === 1 && s.dens.length === 1 && s.fx.ink === 3 && s.inv.counts.crab === 2, `it holds ${s && JSON.stringify({ got: s.got.includes(before.id), so: s.shells.o.length, b: s.babies.length, d: s.dens.length, ink: s.fx.ink, crab: s.inv.counts.crab })} what was taken, the shell, the baby, the den, the ink and the satchel`);// what was taken, the shell, the baby, the den, the ink and the satchel');
   ok(s && s.explored.length > 0 && s.env.kind === 'rain' && Math.abs(s.env.t - before.t) < 0.01, 'and explored cells, time of day and weather');
@@ -141,7 +141,7 @@ let before;
   ok(p.state === 'playing' && Math.hypot(p.x - p.sx, p.z - p.sz) < 1 && Math.hypot(p.x - 120.5, p.z + 33.25) > 5, 'the old position is gone: the octopus begins at a start point of the one world');
   ok(p.crab === 2 && p.kelp === 3 && p.shield === 1 && p.ink === 2 && p.venom === true && p.kelpBuff > 30 && p.babies === 2 && p.shells === 3 && p.dens === 0 && p.run > 800, 'but the satchel, effects, babies, shells and clock were kept');
   await E(() => { const g = window.__game.game; g.setPaused(true); });
-  const v2 = await saved(); ok(v2 && v2.v === 2 && v2.fresh !== true && Number.isFinite(v2.octo.x), 'the next autosave is a normal v2 save with a position');
+  const v2 = await saved(); ok(v2 && v2.v === 3 && v2.fresh !== true && Number.isFinite(v2.octo.x), 'the next autosave is a normal v2 save with a position');
 }
 
 // ================================================================ damaged / future saves, new start, death
