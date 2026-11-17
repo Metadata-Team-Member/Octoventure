@@ -132,7 +132,7 @@ await sleep(500);
   ok(!r.cantShield && r.canShield && r.crafted && r.shells === 0 && r.shield === 1 && !r.fail, 'crafting uses up the ingredients and makes the item; missing ingredients can not be crafted');
   // clicking in the panel
   await E(() => { const G = window.__game; G.game.inv.reset(); G.give('crab', 1); G.give('shellhalf', 1); G.game.openSatchel(); });
-  const cl = await E(() => { const rows = [...document.querySelectorAll('.sat-recipes .rec')]; return { n: rows.length, no: rows.filter((x) => x.classList.contains('no')).length, can: rows.filter((x) => !x.classList.contains('no')).length, text: document.getElementById('satchel').innerText.trim() }; });
+  const cl = await E(() => { window.__game.game.satchel.hideTip(); const rows = [...document.querySelectorAll('.sat-recipes .rec')]; return { n: rows.length, no: rows.filter((x) => x.classList.contains('no')).length, can: rows.filter((x) => !x.classList.contains('no')).length, text: document.querySelector('#satchel .sat-panel').innerText.trim() }; });
   ok(cl.n === 4 && cl.can === 1 && cl.no === 3 && cl.text.replace(/[\d\s]/g, '') === '', `panel shows picture recipes only, the unaffordable ones greyed (${cl.n} rows, ${cl.can} ready, text "${cl.text}")`);
   await page.click('.sat-recipes .rec:not(.no)'); await sleep(100);
   const cr = await E(() => { const G = window.__game; return { feast: G.inv.count('feast'), crab: G.inv.count('crab') }; });
@@ -263,9 +263,73 @@ const fresh = () => E(() => { const G = window.__game, g = G.game, o = g.octopus
   ok(r.ok1 && r.h > 70 && r.left === 0, 'a mussel eaten from the satchel restores health');
 }
 
+// ================================================================ level ring and tooltips (t253u)
+{
+  await fresh();
+  await E(() => { const G = window.__game; G.game.closeSatchel(); G.setLevel(4); G.give('kelp', 1); G.give('lettuce', 1); G.game.openSatchel(); G.game.satchel.hideTip(); const a = document.activeElement; a && a.blur(); });
+  await sleep(200);
+  const lv = await E(() => {
+    const el = document.querySelector('#satchel .sat-level b');
+    const tip = document.querySelector('.sat-tip');
+    window.__game.game.satchel.hideTip();
+    const panel = document.querySelector('#satchel .sat-panel').innerText.replace(/\d+/g, '').trim();
+    return { n: el && el.textContent, words: /[a-z]{3,}/i.test(panel), panel, tipOn: !tip.hidden };
+  });
+  ok(lv.n === '4', `the satchel shows the current level as a number in the ring (${lv.n})`);
+  ok(!lv.words && !lv.tipOn, `with nothing hovered, the satchel itself still has no words and no tooltip (${JSON.stringify(lv.panel).slice(0, 80)})`);
+  // ingredient tooltip
+  const ing = await E(() => {
+    const el = document.querySelector('#satchel .ing[data-tip="item:kelp"]');
+    el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    const tip = document.querySelector('.sat-tip');
+    return { hidden: tip.hidden, text: tip.innerText, html: tip.innerHTML };
+  });
+  ok(!ing.hidden && /kelp/i.test(ing.text) && /wrap/i.test(ing.text), `hovering kelp shows its name and a short note (${ing.text.replace(/\n/g, ' / ')})`);
+  // recipe result tooltip (what the end product does)
+  const rec = await E(() => {
+    const el = document.querySelector('#satchel .res[data-tip="item:wrap"]');
+    el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    const tip = document.querySelector('.sat-tip');
+    return { hidden: tip.hidden, text: tip.innerText };
+  });
+  ok(!rec.hidden && /wrap/i.test(rec.text) && /dry/i.test(rec.text), `hovering the crafted result describes what it does (${rec.text.replace(/\n/g, ' / ')})`);
+  // locked badge: no tooltip
+  const locked = await E(() => {
+    const el = document.querySelector('#satchel .badge:not(.got)');
+    if (!el) return { none: true };
+    el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    const tip = document.querySelector('.sat-tip');
+    return { hidden: tip.hidden, hasTip: !!el.dataset.tip, tag: el.tagName };
+  });
+  ok(locked.hidden && !locked.hasTip && locked.tag === 'SPAN', 'a locked badge is a silent silhouette with no tooltip');
+  // unlocked badge tooltip
+  const badge = await E(() => {
+    const G = window.__game;
+    G.game.levels.did('craft');
+    G.game.satchel.render();
+    const el = document.querySelector('#satchel .badge.got[data-tip="badge:craft1"]') || document.querySelector('#satchel .badge.got');
+    el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    const tip = document.querySelector('.sat-tip');
+    return { hidden: tip.hidden, text: tip.innerText, got: !!el, id: el && el.dataset.badge };
+  });
+  ok(!badge.hidden && badge.got && /mak/i.test(badge.text), `an unlocked badge shows its name and a short line (${badge.text.replace(/\n/g, ' / ')})`);
+  // gamepad / keyboard focus also shows a tooltip
+  const focus = await E(() => {
+    const el = document.querySelector('#satchel button.slot[data-tip="item:kelp"]');
+    if (!el) return { has: false, hidden: true, text: '' };
+    el.focus();
+    window.__game.game.satchel.tipFor(el);
+    const tip = document.querySelector('.sat-tip');
+    return { hidden: tip.hidden, text: tip.innerText, has: true };
+  });
+  ok(focus.has && !focus.hidden && /kelp/i.test(focus.text), 'focusing an ingredient with the keyboard or gamepad shows its tooltip');
+  await E(() => { const G = window.__game; G.game.closeSatchel(); G.game.setPaused(false); });
+}
+
+
 // ================================================================ keys and layout
 {
-  await E(() => { const G = window.__game; G.game.setPaused(true); });
+  await E(() => { const G = window.__game; G.game.closeSatchel(); G.game.setPaused(true); });
   const k = await E(() => document.getElementById('keys').innerText);
   ok(/Tab/.test(k) && /Satchel/.test(k) && /\bG\b/.test(k) && /\bH\b/.test(k) && /\bV\b/.test(k), 'the Esc controls list names Tab, G, H and V');
   await E(() => { const G = window.__game; G.game.setPaused(false); });

@@ -47,9 +47,11 @@ await sleep(400);
 {
   await E(() => window.__game.advance(0.1));
   await page.keyboard.press('Tab'); await sleep(300);
-  const s = await E(() => ({ all: document.querySelectorAll('#satchel .badge').length, got: document.querySelectorAll('#satchel .badge.got').length, txt: document.getElementById('satchel').innerText.replace(/\d+/g, '').trim() }));
+  const s = await E(() => { window.__game.game.satchel.hideTip(); return { all: document.querySelectorAll('#satchel .badge').length, got: document.querySelectorAll('#satchel .badge.got').length, txt: document.querySelector('#satchel .sat-panel').innerText.replace(/\d+/g, '').trim(), lv: document.querySelector('#satchel .sat-level b')?.textContent }; });
   ok(s.all >= 15 && s.got >= 1 && s.got < s.all, `the satchel shows the badges as tokens (${s.got} earned of ${s.all}; the rest are silhouettes)`);
-  ok(!/[a-z]{3,}/i.test(s.txt), 'no words in the satchel');
+  ok(!/[a-z]{3,}/i.test(s.txt), 'no words in the satchel until a tooltip is shown');
+  const lv = await E(() => document.querySelector('#satchel .sat-level b')?.textContent);
+  ok(Number(lv) >= 2, `the satchel shows the current level in the ring (${lv})`);
   await shot('satchel-badges');
   await page.keyboard.press('Tab'); await sleep(600);
   await E(() => window.__game.game.setPaused(false));

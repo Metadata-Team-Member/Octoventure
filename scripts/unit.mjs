@@ -10,11 +10,12 @@ import { PARTS, treeGeometries } from '../src/world/models.js';
 import { treeConnectivity } from '../src/world/treeCheck.js';
 import { waterDisc } from '../src/world/placement.js';
 import { existsSync, readFileSync } from 'node:fs';
-import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE } from '../src/systems/items.js';
+import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE, LORE, loreOf } from '../src/systems/items.js';
 import { GATHER_COUNT, GATHER_KINDS, HABITAT, BIOME_MATERIALS } from '../src/world/gather.js';
 import { mulberry32 } from '../src/util/rng.js';
 import { ICON_IDS } from '../src/ui/icons.js';
 import { Levels, BADGES, xpForLevel, levelOf, perks, XP } from '../src/systems/levels.js';
+import { inkDeter, inkUnder, cloudCovers, INK_NEAR, INK_AQUA_NEAR, INK_BLIND, INK_AQUA_BLIND, INK_BIRD_RANGE, AQUA, FLYERS } from '../src/systems/ink.js';
 import { SAVE_VERSION, SAVE_KEY, LEGACY_KEYS, validateSave, migrate, readSaveText, encodeCode, decodeCode, loadSave, writeSave, clearSave, MIGRATIONS } from '../src/systems/save.js';
 
 let checks = 0;
@@ -335,7 +336,11 @@ for (const seed of [1, 42, 2026]) {
   const bad = new Inventory().load({ counts: { crab: -5, hax: 9, jar: 1e9, kelp: 'x' }, seen: ['crab', 42, 'zzz'], made: ['den', 'crab'] });
   ok(bad.count('crab') === 0 && bad.count('hax') === 0 && bad.count('jar') === 999 && bad.count('kelp') === 0 && bad.made.has('den') && !bad.made.has('crab'), 'garbage in a loaded satchel is cleaned up');
   ok(FX.denMax === 3 && FX.shield > 10 && FX.mimicDrain < 1 && FX.kelpDry < 1, 'effect numbers are sane');
+  ok(ALL_ITEMS.every((id) => loreOf(id)?.name && loreOf(id)?.note), 'every item has a name and a short tooltip note');
+  ok(!loreOf('not-a-thing') && !('shell' in LORE), 'unknown items have no lore (hidden shell armour stays unmentioned)');
 }
+
+
 
 // ================================================================ one fixed world, many starts, blended biomes (t239u)
 {
@@ -434,6 +439,7 @@ for (const seed of [1, 42, 2026]) {
   ok(xpForLevel(1) === 0 && xpForLevel(2) === 60 && xpForLevel(5) === 420 && levelOf(0) === 1 && levelOf(59) === 1 && levelOf(60) === 2 && levelOf(1e9) === 30, 'level curve: 60 xp for level 2, 420 for level 5, capped at 30');
   ok(perks(1).dry === 1 && perks(11).dry < 0.9 && perks(30).dry >= 0.75 && perks(30).camo >= 0.8, 'hidden perks: a little slower drying and camo drain each level, bounded');
   ok(BADGES.length >= 15 && BADGES.length <= 24 && new Set(BADGES.map((b) => b.id)).size === BADGES.length, `${BADGES.length} distinct badges`);
+  ok(BADGES.every((b) => b.title && b.note && !/toughen|armou?r|counter/i.test(b.note + b.title)), 'every badge has a tooltip name and note, none of which reveal hidden shell toughening');
   const { ICON_IDS } = await import('../src/ui/icons.js');
   ok(BADGES.every((b) => ICON_IDS.includes(b.glyph)), 'every badge has its own pictogram');
   const L = new Levels(); L.allBiomes = 13;
@@ -554,4 +560,28 @@ for (const seed of [1, 42, 2026]) {
   const bigCode = await encodeCode(validateSave(big)); ok(bigCode.length < 40000, `even a very full save makes a manageable code (${bigCode.length} chars)`);
   ok(!/[0-9]{9,}@|mail|user|name|ip/.test(JSON.stringify(f).replace(/"[a-z]*"\s*:/g, '')) && !('name' in f) && !('email' in f), 'the save carries no personal data');
 }
+
+// ================================================================ ink deterrence (t253u)
+{
+  const cloud = { x: 0, z: 0, r: 6.5, k: 1 };
+  ok(cloudCovers(cloud, 0, 0) && cloudCovers(cloud, 6, 0) && !cloudCovers(cloud, 7, 0), 'a fully grown cloud covers its radius, not beyond');
+  ok(cloudCovers(cloud, 7, 0, INK_NEAR) && !cloudCovers(cloud, 9, 0, INK_NEAR), '"near" reaches a little past the visible edge');
+  ok(inkUnder([cloud], 4, 0) && !inkUnder([], 0, 0) && !inkUnder([{ x: 0, z: 0, r: 6.5, k: 0 }], 0, 0), 'inkUnder finds a covering cloud and ignores empty or ungrown ones');
+  const inCloud = inkDeter('dog', 4, 0, 0, 0, [cloud]);
+  ok(inCloud && inCloud.secs === INK_BLIND, 'a dog inside the cloud is deterred');
+  const near = inkDeter('dog', 6.5 + INK_NEAR - 0.2, 0, 0, 0, [cloud]);
+  ok(near, 'a dog just outside the visible edge is still near enough');
+  ok(!inkDeter('dog', 12, 0, 0, 0, [cloud]), 'a dog well away from the cloud is not deterred');
+  const crab = inkDeter('crab', 6.5 + INK_AQUA_NEAR - 0.2, 0, 0, 0, [cloud]);
+  ok(crab && crab.secs === INK_AQUA_BLIND && crab.secs > INK_BLIND, 'a crab feels the cloud sooner and stays lost longer');
+  const eagleOver = inkDeter('eagle', 20, 0, 0, 0, [cloud]);
+  ok(eagleOver && eagleOver.secs === INK_BLIND, 'an eagle overhead loses sight when the octopus is under the cloud, even if the bird itself is not in it');
+  ok(!inkDeter('eagle', INK_BIRD_RANGE + 2, 0, 0, 0, [cloud]), 'a far-off eagle is not affected by a cloud it cannot have been watching');
+  ok(!inkDeter('dog', 20, 0, 0, 0, [cloud]), 'a land hunter far from the cloud is not deterred just because the octopus is under it');
+  ok(!inkDeter('eagle', 15, 0, 20, 0, [cloud]), 'a bird does not lose sight if the octopus is outside the cloud');
+  ok(!inkDeter('dog', 15, 0, 0, 0, [cloud]), 'a land hunter well outside the near-edge is not deterred');
+
+  ok(AQUA.has('crab') && AQUA.has('gull') && FLYERS.has('eagle') && FLYERS.has('magpie') && FLYERS.has('kookaburra'), 'shore and flying kinds are classified');
+}
+
 console.log(`unit checks passed (${checks} assertions).`);

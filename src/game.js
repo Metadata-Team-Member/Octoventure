@@ -421,7 +421,7 @@ void main(){
   }
 
   // ------------------------------------------------------------------ abilities
-  /** ink cloud: only works in water. Blinds anything that walks into it. */
+  /** ink cloud: only works in water (or from a crafted ink sac). Predators in or near it lose the octopus and back off; birds lose sight if the octopus is under the cloud. */
   tryInk() {
     const o = this.octopus, w = this.world, A = CONFIG.abilities;
     if (o.tunnel || o.carried) return false;

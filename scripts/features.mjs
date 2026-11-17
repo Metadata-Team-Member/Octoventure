@@ -95,6 +95,28 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.st === 'blind' || r.blind > 0, `a predator inside the cloud is blinded (state ${r.st})`);
   ok(r.dmg < 6, `a blinded dog does no damage (${r.dmg.toFixed(1)})`);
   await E(() => { window.__game.clearPredators(); });
+  // birds overhead lose sight if the octopus is under the cloud, even when the bird itself is high above it
+  const bird = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus, w = g.world;
+    const q = w.waters.find((a) => a.kind === 'pond' || a.kind === 'puddle');
+    G.teleport(q.x, q.z); G.advance(0.15); o.inkCool = 0;
+    G.clearPredators();
+    const eagle = G.spawnPredator('eagle', 18, 0); eagle.alt = 24; eagle.state = 'dive'; eagle.diveT = 0.4; eagle.diveFrom = { x: eagle.x, z: eagle.z, a: 24 }; eagle.ignore = 0;
+    const used = G.inkNow(); G.advance(0.2);
+    return { used, st: eagle.state, blind: eagle.blind, ign: eagle.ignore, alt: eagle.alt };
+  });
+  ok(bird.used && bird.blind > 0 && (bird.st === 'climb' || bird.ign > 0), `an eagle diving from high up aborts when the octopus is under the ink (${bird.st}, blind ${bird.blind.toFixed(1)})`);
+  // a crab near the edge of the cloud (just outside the visible radius) is still deterred, and for longer
+  const shore = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus, w = g.world;
+    const q = w.waters.find((a) => a.kind === 'pond' || a.kind === 'puddle');
+    G.teleport(q.x, q.z); G.advance(0.1); o.inkCool = 0; G.clearPredators();
+    const used = G.inkNow();
+    const crab = G.spawnPredator('crab', 7.6, 0); G.advance(0.25);
+    return { used, st: crab.state, blind: crab.blind };
+  });
+  ok(shore.used && (shore.st === 'blind' || shore.blind > 4), `a crab near the cloud is deterred for longer (state ${shore.st}, ${shore.blind.toFixed(1)} s)`);
+  await E(() => { window.__game.clearPredators(); });
 }
 
 // ================================================================ venom bite: last resort, long cooldown

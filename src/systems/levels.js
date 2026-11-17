@@ -1,10 +1,11 @@
 // =====================================================================
 //  Levels & badges (t241u / t242u). Pure data + logic (no three.js) so it is unit-testable and saved as-is.
 //
-//  Nothing is ever shown as a number, bar or popup. Experience comes quietly from doing things (new ground, gathering, making,
-//  rescuing, getting away, finding new places, and from t250u biting predators to death). A level-up is felt, not read: a shimmer of light and a soft halo around the
+//  Experience comes quietly from doing things (new ground, gathering, making, rescuing, getting away, finding new places, and
+//  from t250u biting predators to death). A level-up is felt, not read: a shimmer of light and a soft halo around the
 //  octopus with a chime (the octopus never changes size or colour). Each level also gives a tiny hidden perk (it dries and
-//  tires a little more slowly). Badges are discoveries: they only appear, as picture tokens, in the Tab satchel.
+//  tires a little more slowly). The current level is shown only in the Tab satchel, as a number inside a ring. Badges are
+//  discoveries: picture tokens in the satchel; a short tooltip names an unlocked one (locked ones stay silent silhouettes).
 // =====================================================================
 export const XP = { kill: 0, cell: 2, gather: 3, craft: 10, baby: 30, shell: 6, escape: 12, biome: 25, sea: 60, badge: 15, flower: 1, night: 8 };
 export const MAX_LEVEL = 30;
@@ -16,28 +17,28 @@ export const perks = (L) => ({ dry: Math.max(0.75, 1 - 0.012 * (L - 1)), camo: M
 
 /** the badges. `glyph` is a pictogram in ui/icons.js; `test(st, L)` says whether it has been earned. Order = order in the satchel. */
 export const BADGES = [
-  { id: 'wander',    glyph: 'b_steps',   test: (s) => s.cells >= 25 },
-  { id: 'roamer',    glyph: 'b_compass', test: (s) => s.cells >= 150 },
-  { id: 'places3',   glyph: 'b_leaf',    test: (s) => s.biomes.size >= 3 },
-  { id: 'places7',   glyph: 'b_map',     test: (s) => s.biomes.size >= 7 },
-  { id: 'placesAll', glyph: 'b_globe',   test: (s, L, all) => all > 0 && s.biomes.size >= all },
-  { id: 'desert',    glyph: 'b_sun',     test: (s) => s.biomes.has('desert') },
-  { id: 'rainforest',glyph: 'b_fern',    test: (s) => s.biomes.has('rainforest') },
-  { id: 'sea',       glyph: 'b_wave',    test: (s) => s.sea },
-  { id: 'baby1',     glyph: 'b_baby',    test: (s) => s.babies >= 1 },
-  { id: 'baby5',     glyph: 'b_babies',  test: (s) => s.babies >= 5 },
-  { id: 'gather50',  glyph: 'b_basket',  test: (s) => s.gathered >= 50 },
-  { id: 'craft1',    glyph: 'b_mortar',  test: (s) => s.crafted >= 1 },
-  { id: 'craftAll',  glyph: 'b_star',    test: (s) => s.madeAll },
-  { id: 'shells5',   glyph: 'shellhalf', test: (s) => s.shells >= 5 },
-  { id: 'night',     glyph: 'b_moon',    test: (s) => s.nightSwim },
-  { id: 'rain',      glyph: 'b_rain',    test: (s) => s.rainDance >= 20 },
-  { id: 'storm',     glyph: 'b_bolt',    test: (s) => s.storm },
-  { id: 'escape',    glyph: 'b_eye',     test: (s) => s.escapes >= 1 },
-  { id: 'escape10',  glyph: 'b_eyes',    test: (s) => s.escapes >= 10 },
-  { id: 'hunter',    glyph: 'b_fang',    test: (s) => s.kills >= 1 },
-  { id: 'level5',    glyph: 'b_spark',   test: (s, L) => L >= 5 },
-  { id: 'level10',   glyph: 'b_crown',   test: (s, L) => L >= 10 },
+  { id: 'wander',     glyph: 'b_steps',   title: 'Wanderer',     note: 'Twenty-five new patches of ground under the arms.', test: (s) => s.cells >= 25 },
+  { id: 'roamer',     glyph: 'b_compass', title: 'Roamer',       note: 'A long wander. A hundred and fifty patches explored.', test: (s) => s.cells >= 150 },
+  { id: 'places3',    glyph: 'b_leaf',    title: 'Three places', note: 'Three different kinds of country felt.', test: (s) => s.biomes.size >= 3 },
+  { id: 'places7',    glyph: 'b_map',     title: 'Seven places', note: 'Seven different kinds of country felt.', test: (s) => s.biomes.size >= 7 },
+  { id: 'placesAll',  glyph: 'b_globe',   title: 'Every place',  note: 'Every kind of country, from desert to sea.', test: (s, L, all) => all > 0 && s.biomes.size >= all },
+  { id: 'desert',     glyph: 'b_sun',     title: 'Red earth',    note: 'The hot red desert, under the sun.', test: (s) => s.biomes.has('desert') },
+  { id: 'rainforest', glyph: 'b_fern',    title: 'Green gully',  note: 'The damp rainforest, under the ferns.', test: (s) => s.biomes.has('rainforest') },
+  { id: 'sea',        glyph: 'b_wave',    title: 'The sea',      note: 'The open water, at last.', test: (s) => s.sea },
+  { id: 'baby1',      glyph: 'b_baby',    title: 'A little one', note: 'A baby octopus found and led to water.', test: (s) => s.babies >= 1 },
+  { id: 'baby5',      glyph: 'b_babies',  title: 'A family',     note: 'Five little ones found and led to water.', test: (s) => s.babies >= 5 },
+  { id: 'gather50',   glyph: 'b_basket',  title: 'Forager',      note: 'Fifty things gathered along the way.', test: (s) => s.gathered >= 50 },
+  { id: 'craft1',     glyph: 'b_mortar',  title: 'First making', note: 'Something made from what was found.', test: (s) => s.crafted >= 1 },
+  { id: 'craftAll',   glyph: 'b_star',    title: 'Every making', note: 'Every kind of thing that can be made.', test: (s) => s.madeAll },
+  { id: 'shells5',    glyph: 'shellhalf', title: 'Shell finder', note: 'Five shells found along the shore.', test: (s) => s.shells >= 5 },
+  { id: 'night',      glyph: 'b_moon',    title: 'Night swim',   note: 'A swim under the moon.', test: (s) => s.nightSwim },
+  { id: 'rain',       glyph: 'b_rain',    title: 'Rain dance',   note: 'A wander out in the rain.', test: (s) => s.rainDance >= 20 },
+  { id: 'storm',      glyph: 'b_bolt',    title: 'Storm walker', note: 'Out in the open when the sky broke.', test: (s) => s.storm },
+  { id: 'escape',     glyph: 'b_eye',     title: 'Got away',     note: 'A predator noticed, then lost.', test: (s) => s.escapes >= 1 },
+  { id: 'escape10',   glyph: 'b_eyes',    title: 'Slippery',     note: 'Got away ten times.', test: (s) => s.escapes >= 10 },
+  { id: 'hunter',     glyph: 'b_fang',    title: 'Hunter',       note: 'A predator bitten down.', test: (s) => s.kills >= 1 },
+  { id: 'level5',     glyph: 'b_spark',   title: 'Fifth shine',  note: 'Five shimmers of growing stronger.', test: (s, L) => L >= 5 },
+  { id: 'level10',    glyph: 'b_crown',   title: 'Tenth shine',  note: 'Ten shimmers of growing stronger.', test: (s, L) => L >= 10 },
 ];
 export const BADGE_IDS = BADGES.map((b) => b.id);
 

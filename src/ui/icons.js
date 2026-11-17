@@ -61,6 +61,8 @@ const ICONS = {
   b_fang: s(`<path d="M5 4h14l-2.4 6.5L12 21 7.4 10.5z" fill="#f4efe2"/><path d="M12 6v11" stroke="#d7cfbb" stroke-width="1"/><circle cx="12" cy="9" r="2.6" fill="none" stroke="#4aa8ff" stroke-width="1.4"/>`),
   b_crown: s(`<path d="M3 18 2 7l5 4 5-7 5 7 5-4-1 11z" fill="#f2c94c"/><rect x="3" y="18" width="18" height="3" rx="1" fill="#d9a441"/><circle cx="12" cy="13" r="1.6" fill="#4aa8ff"/>`),
   // ---- the little pieces of the interface
+  rings: s(`<circle cx="12" cy="12" r="10" fill="#1a3244"/><circle cx="12" cy="12" r="8.2" fill="none" stroke="#4aa8ff" stroke-width="1.8"/><circle cx="12" cy="12" r="5.4" fill="none" stroke="#9fe4ff" stroke-width="1.5"/>`),
+
   arrow: s(`<path d="M3 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2.200" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`),
   plus: s(`<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`),
 };

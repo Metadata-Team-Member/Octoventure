@@ -9,6 +9,7 @@ let PRED_LINE = null;
 import { CONFIG, diff } from '../config.js';
 import { clamp, damp, dampAngle, angleDiff, lerp } from '../util/rng.js';
 import { TIER, nipsFor } from '../systems/combat.js';
+import { inkDeter } from '../systems/ink.js';
 
 let RND = Math.random;
 const _up = new THREE.Vector3(0, 1, 0), _sv = new THREE.Vector3(), _sn = { x: 0, y: 1, z: 0 };
@@ -286,6 +287,17 @@ export class Predator {
     this.target = { x: this.home.x + Math.cos(a) * r, z: this.home.z + Math.sin(a) * r };
   }
 
+  /** ink made this hunter lose the octopus: birds abort a dive and climb away; ground animals enter the 'blind' state in update() */
+  inkFlee(s) {
+    this.lastSeen = null;
+    this.ignore = Math.max(this.ignore, 6);
+    this.cue(0);
+    if (s.swoop) {
+      if (this.state === 'swoop' || this.state === 'alert') { this.state = 'climb'; this.timer = 2.6; this.cool = Math.max(this.cool, 3); }
+    } else if (s.flying) {
+      if (this.state === 'dive' || this.state === 'alert') { this.state = 'climb'; this.timer = 3.2; this.cool = Math.max(this.cool, 5); }
+    }
+  }
   /** venom bite: scared off for a good while */
   scare(sec) {
     this.state = this.spec.flying ? 'climb' : 'flee'; this.fleeT = sec; this.timer = Math.min(sec, 4); this.ignore = sec + 6; this.lastSeen = null; this.alertT = 0;
@@ -404,12 +416,14 @@ export class Predator {
     // daily rhythm: foxes and cats prowl at night, everything else is sleepy in the dark
     const night = world.night ?? 0;
     this.act = s.nocturnal ? lerp(0.7, 1.45, night) : lerp(1, s.swoop ? 0.15 : 0.5, night);
-    // ink clouds blind whoever walks into them
-    for (const c of world.ink || []) if ((this.x - c.x) ** 2 + (this.z - c.z) ** 2 < (c.r * c.k) ** 2) { this.blind = Math.max(this.blind, 3.5); this.inkFrom = c; }
+    // ink clouds: in or near them a hunter loses the octopus and backs off; birds also lose sight if the octopus is under the cloud
+    const ink = inkDeter(this.kind, this.x, this.z, player.x, player.z, world.ink);
+    if (ink) { this.blind = Math.max(this.blind, ink.secs); this.inkFrom = ink.cloud; }
     this.blind = Math.max(0, this.blind - dt);
+    if (this.blind > 0) this.inkFlee(s);
     if (s.swoop) return this.updateSwooper(dt, player, dist);
     if (s.flying) return this.updateEagle(dt, player, dist);
-    if (this.blind > 0 && this.state !== 'carry' && this.state !== 'blind') { this.state = 'blind'; this.lift = 0; if (this.carrying) this.release(); }
+    if (this.blind > 0 && this.state !== 'carry' && this.state !== 'blind') { this.state = 'blind'; this.lift = 0; this.lastSeen = null; if (this.carrying) this.release(); }
 
     const fooled = player.camoProtected;      // hidden: nobody can see, track or hurt you (no close-range exception)
     const alive = player.alive && !player.won;

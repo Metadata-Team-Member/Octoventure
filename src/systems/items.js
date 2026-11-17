@@ -1,6 +1,6 @@
 // =====================================================================
 //  Items, recipes and the satchel (t236u). Pure data + logic, no three.js, so it is unit-testable and the save file can
-//  round-trip it. Nothing here is ever worded on screen: the satchel panel shows only pictograms (see ui/satchel.js).
+//  round-trip it. Pictograms are the satchel's language (see ui/satchel.js); short names and notes live here for tooltips only.
 //
 //  Raw things are gathered in the world (systems/gather.js); the rest are crafted from them. Effects are applied by
 //  systems/abilities.js onto the octopus; the numbers live here so tests and the save can see them.
@@ -10,6 +10,44 @@ import { GATHER_KINDS } from '../world/gather.js';
 export const RAW = GATHER_KINDS;                                   // crab shrimp snail mussel kelp lettuce sponge coral shellhalf pebble moss coconut cap jar + urchin worm beetle spawn propagule
 export const MADE = ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'tonic', 'meal', 'dose'];
 export const ALL_ITEMS = [...RAW, ...MADE];
+
+/** names and short octopus-flavoured notes, shown only as satchel tooltips (never in the world, never on locked or unfound things) */
+export const LORE = {
+  crab:      { name: 'Crab',          note: 'A scuttling snack. Sweet, and enough for a feast.' },
+  shrimp:    { name: 'Shrimp',        note: 'Little darting things. They help fill an ink sac.' },
+  snail:     { name: 'Snail',         note: 'A slow, soft morsel. Sharp with venom.' },
+  mussel:    { name: 'Mussel',        note: 'A tight shell with a sip of the sea inside. Eaten as it is.' },
+  kelp:      { name: 'Kelp',          note: 'Long wet leaves. Good for wrapping.' },
+  lettuce:   { name: 'Sea lettuce',   note: 'Soft sea greens. Cool on the skin.' },
+  sponge:    { name: 'Sponge',        note: 'A soft sea lump. It takes on other colours.' },
+  coral:     { name: 'Coral',         note: 'A hard little branch. Bright, like a disguise.' },
+  shellhalf: { name: 'Shell half',    note: 'A broken home. Strong when two are held together.' },
+  pebble:    { name: 'Pebble',        note: 'A smooth stone. Good for stacking a den.' },
+  moss:      { name: 'Dew moss',      note: 'Damp green fluff. A small sip of wet, eaten as it is.' },
+  coconut:   { name: 'Coconut half',  note: 'A hard hollow half. Like a shell, but sweeter.' },
+  cap:       { name: 'Bottle cap',    note: 'A round shiny lid. Seals a hideaway.' },
+  jar:       { name: 'Glass jar',     note: 'A clear cave you can carry.' },
+  urchin:    { name: 'Urchin',        note: 'A prickly bite. Sharp enough for a strong tonic.' },
+  worm:      { name: 'Worm',          note: 'A wriggle from the dirt. Filling with a meal.' },
+  beetle:    { name: 'Beetle',        note: 'A hard-backed crawler. Bitter, with a sting.' },
+  spawn:     { name: 'Frogspawn',     note: 'Jelly dots from still water. A hearty mouthful.' },
+  propagule: { name: 'Propagule',     note: 'A mangrove seedling. Briny and strengthening.' },
+  ochre:     { name: 'Red ochre',     note: 'Warm red earth. It stains the skin like camouflage.' },
+  fungi:     { name: 'Ghost fungi',   note: 'A pale night cap. Strange and potent.' },
+  shield:    { name: 'Shell shield',  note: 'Two shells close around you when you keep still.' },
+  den:       { name: 'Den',           note: 'A little home of pebbles, set down where you stand.' },
+  inksac:    { name: 'Ink sac',       note: 'Three full squirts of ink, even on dry ground.' },
+  wrap:      { name: 'Kelp wrap',     note: 'A cool wrap of leaves. You dry more slowly.' },
+  feast:     { name: 'Crab feast',    note: 'A rich meal. Health rushes back and the rings glow.' },
+  gland:     { name: 'Venom gland',   note: 'The next venomous bite reaches farther and lasts longer.' },
+  hideaway:  { name: 'Jar hideaway',  note: 'Tuck into a glass jar. Birds cannot see you.' },
+  mimic:     { name: 'Mimic skin',    note: 'A living disguise. Harder to notice, and camouflage lasts.' },
+  tonic:     { name: 'Tonic',         note: 'Camouflage energy floods back and stays longer.' },
+  meal:      { name: 'Hearty meal',   note: 'A hearty feed. Full health, and the rings shine for a long while.' },
+  dose:      { name: 'Lethal dose',   note: 'One drop of lethal venom for the next bite. Spent when it lands.' },
+};
+export const loreOf = (id) => LORE[id] || null;
+
 
 /** craft recipes: `in` = ingredient counts, `out` = the made item. More than one recipe may make the same thing. */
 export const RECIPES = [
