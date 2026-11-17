@@ -18,6 +18,9 @@ export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their 
 export const SAVE_VERSION = 5;
 const WEATHER_KINDS = ['clear', 'heatwave', 'rain', 'storm'];
 const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast', 'tonic'];
+const MAX_TRAIL = 1200;
+/** optional wander-trail (flat [x, z, ...] whole metres; older saves simply have none) */
+const trail = (a) => { if (!Array.isArray(a)) return []; const t = a.slice(-MAX_TRAIL * 2); const ok = t.every((n) => Number.isInteger(n) && Math.abs(n) < 1e6); return ok && t.length % 2 === 0 ? t : []; };
 const MAX_IDS = 6000, MAX_CELLS = 6000, MAX_DENS = 3;
 
 /** old formats -> the next one. Each takes a plain object at version N and returns it at N + 1. */
@@ -92,6 +95,7 @@ export function validateSave(o) {
     dens,
     got: ids(o.got, ID_RE),
     explored: cells,
+    ...(Array.isArray(o.trail) ? { trail: trail(o.trail) } : {}),      // optional (older saves have none)
     env: { t: num(e.t, 0, 1, 0.35), abs: num(e.abs, 0, 1e9, 0), kind: WEATHER_KINDS.includes(e.kind) ? e.kind : 'clear', target: WEATHER_KINDS.includes(e.target) ? e.target : 'clear', timer: num(e.timer, 0, 1e6, 60), heat: num(e.heat, 0, 1, 0), rain: num(e.rain, 0, 1, 0), dark: num(e.dark, 0, 1, 0) },
     lv: new Levels().load(o.lv).toJSON(),
     journal: new Journal().load(o.journal).toJSON(),
@@ -123,7 +127,7 @@ export function snapshot(game) {
     inv: inv.toJSON(),
     fx: { buff, ink: o.inkCharges, venom: o.venomReady, lethal: !!o.lethalDose },
     dens: game.abilities.denList(),
-    got, explored: [...game.explored].slice(-MAX_CELLS),
+    got, explored: [...game.explored].slice(-MAX_CELLS), trail: (game.trail || []).slice(-MAX_TRAIL * 2),
     lv: game.levels.toJSON(),
     journal: game.journal.toJSON(),
     env: { t: +env.t.toFixed(4), abs: +env.abs.toFixed(1), kind: env.kind, target: env.target, timer: +env.timer.toFixed(1), heat: +env.heat.toFixed(3), rain: +env.rain.toFixed(3), dark: +env.dark.toFixed(3) },
@@ -145,7 +149,7 @@ export function applySave(game, s) {
   o.kelpF = o.buff.kelp > 0 ? 1 : 0; o.mimicF = o.buff.mimic > 0 ? 1 : 0; o.feastF = o.buff.feast > 0 ? 1 : 0; o.jarF = o.buff.jar > 0 ? 1 : 0;
   for (const d of s.dens) game.abilities.addDen(d.x, d.z, false);
   game.gather.markCollected(s.got);
-  game.explored = new Set(s.explored);
+  game.explored = new Set(s.explored); game.trail = (s.trail || []).slice();
   game.levels.load(s.lv); game.levels.check(); game.levels.drain();      // badges already deserved are granted quietly
   game.journal.load(s.journal); game.journal.syncItems(game.inv);
   if (s.babies?.length) game.journal.seeHow('baby');

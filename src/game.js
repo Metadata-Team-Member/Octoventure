@@ -37,9 +37,17 @@ import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, expl
 import { clamp, damp, lerp, mulberry32 } from './util/rng.js';
 const _fadeT = new THREE.Vector3(), _camOff = new THREE.Vector3(), _camWant = new THREE.Vector3();   // (t241u: camera scratch, no per-frame allocation)
 
+const TRAIL_MAX = 1200;
 const CAUSE = { dry: 'The octopus dried out', gull: 'Pecked by a seagull', cat: 'Caught by a cat', dog: 'Chased down by a dog', fox: 'Caught by a fox', crab: 'Pinched by a crab', eagle: 'Snatched by an eagle', human: 'Picked up by a person', car: 'Hit by a car', magpie: 'Swooped by a magpie', kookaburra: 'Swooped by a kookaburra' };
 
 export class Game {
+  /** the map's dotted wander-trail: a point every 8 m, thinned (every other point dropped) when it grows past the cap */
+  recordTrail(x, z) {
+    const t = this.trail, n = t.length;
+    if (n && (x - t[n - 2]) ** 2 + (z - t[n - 1]) ** 2 < 64) return;
+    t.push(Math.round(x), Math.round(z));
+    if (t.length > TRAIL_MAX * 2) { const k = []; for (let i = 0; i < t.length; i += 4) k.push(t[i], t[i + 1]); this.trail = k; }
+  }
   constructor(canvas, params) {
     this.canvas = canvas;
     this.params = params;
@@ -88,7 +96,7 @@ export class Game {
     this.journal = new Journal();
     this.shimmer = new Shimmer(this.scene);
     this.seaBeat = new SeaBeat(this.scene);
-    this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
+    this.explored = new Set(); this.trail = []; this.saveT = 0; this.pendingSave = null;
     // saves are for the real game: a fixed ?seed= / ?daily world (tests, sharing a link) never reads or overwrites the one in the browser
     this.saveEnabled = !params.has('seed') && !params.has('daily') && !params.has('nosave');
     this.satchelOpen = false; this._suspendTick = false;
@@ -214,7 +222,7 @@ void main(){
     this.journal.reset();
     this.camInit = false;
     this.input.yaw = Math.random() * Math.PI * 2; this.input.pitch = CONFIG.camera.pitch; this.input.zoom = 0;
-    this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
+    this.explored = new Set(); this.trail = []; this.saveT = 0; this.pendingSave = null;
     if (save) { applySave(this, save); this.pendingSave = save; }
     else if (hadWorld && this.saveEnabled) clearSave();          // a brand new world replaces whatever was saved
     this.lv.babies = this.progress.babies; this.lv.shells = this.progress.shells; this.applyPerks();
@@ -345,6 +353,7 @@ void main(){
       this.runTime += dt;
       const cell = exploreCell(o.x, o.z);
       if (!this.explored.has(cell)) { this.explored.add(cell); this.levels.did('cell'); }
+      this.recordTrail(o.x, o.z);
       this.saveT += dt; if (this.saveT >= 30) { this.saveT = 0; this.saveNow('timer'); }
       this.env.update(dt);
       this.env.updatePuddles(dt, o);
@@ -398,7 +407,7 @@ void main(){
     this.updateSeaMoment(dt);
     this.shimmer.update(dt, o);
     this.seaBeat.update(dt, o, world.seaLevel);
-    if (playing) this.critters.update(dt, o, world.night, world.raining ? (this.env?.rain || 1) : 0);
+    if (playing) { this.critters.preds = this.predators.list; this.critters.update(dt, o, world.night, world.raining ? (this.env?.rain || 1) : 0); }
     if (playing) this.updateJournal();
     this.plankton?.update(dt, { night: world.night, biome: world.biomeAt(o.x, o.z), o, seaLevel: world.seaLevel });
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);

@@ -10,8 +10,8 @@ import { icon } from './icons.js';
 import { RECIPES, USABLE, FX, loreOf } from '../systems/items.js';
 import { BADGES } from '../systems/levels.js';
 import { ENTRIES, RARE, TABS } from '../systems/journal.js';
-import { unpackCell } from '../systems/save.js';
-import { BIOME_INFO } from '../world/biomes.js';
+import { unpackCell, exploreCell } from '../systems/save.js';
+import { drawMap } from './map.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -222,79 +222,23 @@ export class Satchel {
   }
 
   renderMap() {
-    const g = this.game, c = this.mapCanvas, ctx = c.getContext('2d');
-    const W = c.width, H = c.height;
-    ctx.clearRect(0, 0, W, H);
-    // kelp-paper
-    ctx.fillStyle = '#c9d6b4'; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = 'rgba(90, 80, 50, 0.04)';
-    for (let i = 0; i < 40; i++) { ctx.beginPath(); ctx.ellipse(Math.random() * W, Math.random() * H, 20 + Math.random() * 80, 8 + Math.random() * 18, Math.random() * 3, 0, 6.28); ctx.fill(); }
-    const cells = [...(g.explored || [])];
+    const g = this.game, c = this.mapCanvas, ctx = c.getContext('2d'), world = g.world;
+    if (!world) return;
     const seaOk = !!g.progress?.seaReached;
-    const world = g.world;
-    if (!cells.length || !world) return;
-    let minX = 1e9, minZ = 1e9, maxX = -1e9, maxZ = -1e9;
-    const unpacked = [];
-    for (const n of cells) {
-      const { ix, iz } = unpackCell(n);
-      const x = ix * 100 + 50, z = iz * 100 + 50;
-      const biome = world.biomeAt?.(x, z);
-      if (biome === 'sea' && !seaOk) continue;
-      unpacked.push({ ix, iz, x, z, biome });
-      if (x < minX) minX = x; if (z < minZ) minZ = z; if (x > maxX) maxX = x; if (z > maxZ) maxZ = z;
-    }
-    if (!unpacked.length) return;
-    const pad = 180;
-    minX -= pad; minZ -= pad; maxX += pad; maxZ += pad;
-    const sx = W / (maxX - minX), sz = H / (maxZ - minZ);
-    const sc = Math.min(sx, sz);
-    const ox = (W - (maxX - minX) * sc) / 2, oz = (H - (maxZ - minZ) * sc) / 2;
-    const to = (x, z) => [ox + (x - minX) * sc, oz + (z - minZ) * sc];
-    const tint = (name) => {
-      const hex = BIOME_INFO[name]?.tint ?? 0xd5e2c4;
-      return `rgba(${(hex >> 16) & 255},${(hex >> 8) & 255},${hex & 255},0.72)`;
-    };
-    for (const q of unpacked) {
-      const [x, y] = to(q.x - 50, q.z - 50);
-      ctx.fillStyle = tint(q.biome);
-      ctx.beginPath();
-      const s = 100 * sc;
-      ctx.roundRect?.(x, y, s, s, 8);
-      if (!ctx.roundRect) ctx.rect(x, y, s, s);
-      ctx.fill();
-    }
-    // biome names at each biome's centre (never the sea until it has been found)
-    const groups = new Map();
-    for (const q of unpacked) {
-      if (!q.biome || (q.biome === 'sea' && !seaOk)) continue;
-      const g0 = groups.get(q.biome) || { x: 0, z: 0, n: 0 };
-      g0.x += q.x; g0.z += q.z; g0.n++; groups.set(q.biome, g0);
-    }
-    ctx.font = 'italic 12px "Segoe UI", system-ui, serif';
-    ctx.fillStyle = 'rgba(40, 50, 30, 0.72)';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    for (const [name, g0] of groups) {
-      if (g0.n < 1) continue;
-      let [x, y] = to(g0.x / g0.n, g0.z / g0.n);
-      const label = BIOME_INFO[name]?.label || name;
-      const tw = ctx.measureText(label).width;
-      x = Math.max(8 + tw / 2, Math.min(W - 8 - tw / 2, x));
-      y = Math.max(12, Math.min(H - 12, y));
-      ctx.fillText(label, x, y);
-    }
-    // dens
-    for (const d of (g.abilities?.denList?.() || [])) {
-      const [x, y] = to(d.x, d.z);
-      ctx.fillStyle = '#f3dcc9'; ctx.strokeStyle = '#8d6648'; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.ellipse(x, y, 5, 4, 0, 0, 6.28); ctx.fill(); ctx.stroke();
-    }
-    // you are here
+    const cells = [...(g.explored || [])].map((n) => { const { ix, iz } = unpackCell(n); return { x: ix * 100 + 50, z: iz * 100 + 50 }; });
+    const ex = g.explored || new Set();
+    const seen = (x, z) => ex.has(exploreCell(x, z));
+    const babies = [];
+    for (const b of world.babies || []) if (b.found) babies.push(b);
+    for (const r of world.regions?.list || []) for (const b of r.babies || []) if (b.found) babies.push(b);
+    const puddles = [];
+    for (const q of world.waters || []) if ((q.kind === 'puddle' || q.kind === 'pond' || q.kind === 'tidepool') && seen(q.x, q.z)) { puddles.push(q); if (puddles.length >= 40) break; }
     const o = g.octopus;
-    if (o) {
-      const [x, y] = to(o.x, o.z);
-      ctx.fillStyle = '#4aa8ff'; ctx.beginPath(); ctx.arc(x, y, 4.5, 0, 6.28); ctx.fill();
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
-    }
+    this.mapInfo = drawMap(ctx, c.width, c.height, {
+      cells, seaOk, biomeAt: (x, z) => world.biomeAt(x, z), trail: g.trail || [],
+      dens: g.abilities?.denList?.() || [], babies: babies.filter((b) => seen(b.x, b.z)), puddles,
+      me: o ? { x: o.x, z: o.z } : null,
+    });
   }
 
   renderCollection() {
