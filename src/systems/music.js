@@ -13,7 +13,7 @@ import { damp, lerp } from '../util/rng.js';
 const N = BIOMES.length;
 const VOICES = 3;
 // Just pentatonic (1, 9/8, 5/4, 3/2, 5/3) above a cosy root, one register per place.
-const ROOT = {
+export const ROOT = {
   suburb: 261.63, town: 293.66, farm: 196.0, bush: 220.0,
   riverbank: 246.94, wetland: 174.61, dunes: 329.63, beach: 392.0,
   headland: 220.0, estuary: 233.08, sea: 130.81, desert: 146.83, rainforest: 196.0,
@@ -21,7 +21,7 @@ const ROOT = {
 const PENT = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3];
 // How often the little tune speaks, and what the second drone is.
 // ratio 1.5 is a warm fifth; 2 is a hollow octave. wobble is a slow breath, not a tremolo.
-const MOOD = {
+export const MOOD = {
   suburb:     { fifth: 'triangle', ratio: 1.5, wob: 0.16, depth: 0.07, dens: 0.72 },
   town:       { fifth: 'sine',     ratio: 2,   wob: 0.05, depth: 0.04, dens: 0.42 },
   farm:       { fifth: 'sine',     ratio: 1.5, wob: 0.09, depth: 0.11, dens: 0.55 },
@@ -230,6 +230,10 @@ export class Music {
       this.tenseG1 = this.hunt * 0.016 * pulse;
       this.tenseLo.g.gain.value = this.tenseG0;
       this.tenseHi.g.gain.value = this.tenseG1;
+    } else if (this.tenseG0 || this.tenseG1) {
+      this.tenseG0 = this.tenseG1 = 0;
+      this.tenseLo.g.gain.value = 0;
+      this.tenseHi.g.gain.value = 0;
     }
 
     const interval = lerp(0.92, 2.2, night) * lerp(1.4, 0.72, dens) * lerp(1, 0.78, this.hunt);

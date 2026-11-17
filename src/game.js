@@ -113,7 +113,7 @@ export class Game {
     this.input.onLockChange = (locked) => this.onLockChange(locked);
     this.hud.el.pause.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#keys')) return; this.input.requestLock(); });   // the controls list is for reading, not clicking
     this.input.onKey = (e) => {
-      if (e.code === 'KeyM' && !e.repeat && this.state !== 'menu') this.music.toggle();
+      if (e.code === 'KeyM' && !e.repeat && this.state !== 'menu') this.cycleSound();
       if (this.satchelOpen) { this.satchelKey(e); return; }
       if (e.code === 'Tab' && !e.repeat && this.state === 'playing') { this.openSatchel(); return; }
       // press any (real) key to start
@@ -264,6 +264,15 @@ void main(){
     this.canvas.classList.toggle('locked', locked);
     if (locked) { if (this._reLock) { clearTimeout(this._reLock); this._reLock = null; } if (this.satchelOpen) this.closeSatchel(); this.setPaused(false); return; }
     if (this.state === 'playing' && this.input.everLocked) this.setPaused(true);
+  }
+  /** M cycles all sound → effects only (music off) → muted. */
+  cycleSound() {
+    this.soundMode = ((this.soundMode ?? 0) + 1) % 3;
+    const mode = this.soundMode;
+    if (this.music) { this.music.enabled = mode === 0; this.music.applyLevel(); }
+    this.audio.muted = mode === 2;
+    if (this.audio.master) this.audio.master.gain.value = this.audio.muted ? 0 : CONFIG.audio.volume;
+    return mode;
   }
   setPaused(on) {
     if (this.paused === on) {
