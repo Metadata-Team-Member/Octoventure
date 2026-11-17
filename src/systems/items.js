@@ -8,7 +8,7 @@
 import { GATHER_KINDS } from '../world/gather.js';
 
 export const RAW = GATHER_KINDS;                                   // crab shrimp snail mussel kelp lettuce sponge coral shellhalf pebble moss coconut cap jar + urchin worm beetle spawn propagule
-export const MADE = ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'tonic', 'meal', 'dose'];
+export const MADE = ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'tonic', 'meal', 'dose', 'glow'];
 export const ALL_ITEMS = [...RAW, ...MADE];
 
 /** names and short octopus-flavoured notes, shown only as satchel tooltips (never in the world, never on locked or unfound things) */
@@ -34,6 +34,7 @@ export const LORE = {
   propagule: { name: 'Propagule',     note: 'A mangrove seedling. Briny and strengthening.' },
   ochre:     { name: 'Red ochre',     note: 'Warm red earth. It stains the skin like camouflage.' },
   fungi:     { name: 'Ghost fungi',   note: 'A pale night cap. Strange and potent.' },
+  anemone:   { name: 'Anemone',      note: 'A soft flower of the reef. It closes if you touch it.' },
   shield:    { name: 'Shell shield',  note: 'Two shells close around you when you keep still.' },
   den:       { name: 'Den',           note: 'A little home of pebbles, set down where you stand.' },
   inksac:    { name: 'Ink sac',       note: 'Three full squirts of ink, even on dry ground.' },
@@ -45,6 +46,7 @@ export const LORE = {
   tonic:     { name: 'Tonic',         note: 'Camouflage energy floods back and stays longer.' },
   meal:      { name: 'Hearty meal',   note: 'A hearty feed. Full health, and the rings shine for a long while.' },
   dose:      { name: 'Lethal dose',   note: 'One drop of lethal venom for the next bite. Spent when it lands.' },
+  glow:      { name: 'Reef light',    note: 'A little lamp from the reef. The rings shine, and nothing else changes.' },
 };
 export const loreOf = (id) => LORE[id] || null;
 
@@ -71,6 +73,8 @@ export const RECIPES = [
   { id: 'meal-fungi', out: 'meal', in: { fungi: 1, worm: 1 } },              // rainforest + farmland
   { id: 'dose', out: 'dose', in: { fungi: 1, urchin: 1 } },                  // t250u lethal venom dose: rainforest + rocky headland
   { id: 'dose-ochre', out: 'dose', in: { ochre: 1, spawn: 1 } },             //   or red desert + wetland
+  { id: 'glow-coral', out: 'glow', in: { anemone: 1, coral: 1 } },
+  { id: 'glow-urchin', out: 'glow', in: { anemone: 1, urchin: 1 } },
 ];
 
 /** how long each effect lasts (s) and how strong it is */
@@ -86,10 +90,11 @@ export const FX = {
   venomScare: 2.4, venomRange: 1.6,  // the next bite scares for x2.4 as long, from x1.6 as far
   mussel: 20, moss: 12,           // eaten straight from the satchel (health)
   denRest: 2.4, denDry: 0.15, denMax: 3,  // resting inside a den: health per second, drying multiplier, dens kept
+  glow: 70,                   // reef light: rings shine, no heal
 };
 
 /** things you can use straight from the satchel (a click / Enter / quick key) */
-export const USABLE = new Set(['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'dose', 'hideaway', 'mimic', 'mussel', 'moss', 'tonic', 'meal']);
+export const USABLE = new Set(['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'dose', 'hideaway', 'mimic', 'mussel', 'moss', 'tonic', 'meal', 'glow']);
 
 export class Inventory {
   constructor() { this.reset(); }
