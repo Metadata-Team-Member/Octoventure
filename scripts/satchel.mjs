@@ -269,7 +269,7 @@ const fresh = () => E(() => { const G = window.__game, g = G.game, o = g.octopus
   await E(() => { const G = window.__game; G.game.closeSatchel(); G.setLevel(4); G.give('kelp', 1); G.give('lettuce', 1); G.game.openSatchel(); G.game.satchel.hideTip(); const a = document.activeElement; a && a.blur(); });
   await sleep(200);
   const lv = await E(() => {
-    const el = document.querySelector('#satchel .sat-level b');
+    const el = document.querySelector('#satchel .sat-level');
     const tip = document.querySelector('.sat-tip');
     window.__game.game.satchel.hideTip();
     const panel = document.querySelector('#satchel .sat-panel').innerText.replace(/\d+/g, '').trim();
@@ -327,15 +327,90 @@ const fresh = () => E(() => { const G = window.__game, g = G.game, o = g.octopus
 }
 
 
+
+// ================================================================ satchel pages: journal, map, collection, portrait (t254u)
+{
+  await E(() => {
+    const G = window.__game, g = G.game;
+    G.game.closeSatchel();
+    G.setLevel(4);
+    g.inv.reset();
+    G.give('kelp', 2); G.give('lettuce', 1); G.give('jar', 1);
+    g.journal.reset(); g.journal.syncItems(g.inv); g.journal.seeHow('flower'); g.journal.seePred('dog');
+    g.openSatchel();
+  });
+  await sleep(200);
+  const tabs = await E(() => [...document.querySelectorAll('#satchel .sat-tab')].map((b) => b.dataset.id).join());
+  ok(tabs === 'bag,journal,map,collection', `shell tabs list the four pages (${tabs})`);
+  const port = await E(() => { const p = document.querySelector('#satchel .sat-portrait'); return { lv: p?.querySelector('.sat-level')?.textContent, eyes: !!p?.querySelector('.por-eye') }; });
+  ok(port.lv === '4' && port.eyes, 'the octopus portrait shows the current level');
+  await E(() => window.__game.setTab('journal'));
+  await sleep(100);
+  const j = await E(() => {
+    const got = document.querySelectorAll('#satchel .j-ent.got').length;
+    const all = document.querySelectorAll('#satchel .j-ent').length;
+    const locked = document.querySelector('#satchel .j-ent:not(.got)');
+    locked?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    const tip1 = document.querySelector('.sat-tip');
+    const lockedTip = tip1.hidden;
+    const kelp = document.querySelector('#satchel .j-ent.got[data-ent="kelp"]');
+    window.__game.game.satchel.tipFor(kelp);
+    const tip2 = document.querySelector('.sat-tip');
+    return { got, all, lockedTip, kelpText: tip2.innerText, tab: window.__game.tab };
+  });
+  ok(j.tab === 'journal' && j.all > j.got && j.got >= 3, `the journal has silhouettes and discovered entries (${j.got} of ${j.all})`);
+  ok(j.lockedTip, 'an undiscovered journal entry has no tooltip');
+  ok(/kelp/i.test(j.kelpText), 'a discovered journal entry has a short octopus-flavoured note');
+  // map: ocean stays hidden until it has been found
+  await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus;
+    g.progress.seaReached = false;
+    g.explored.add(window.__game._cell ? 0 : 0);
+    // mark a sea cell and a land cell
+    const unpack = (n) => n;
+    const land = ((Math.floor(o.x / 100) + 5000) * 10000 + (Math.floor(o.z / 100) + 5000));
+    g.explored.add(land);
+    // a cell far out at sea along the world sea direction
+    const w = g.world, sx = w.dir.x * (w.half + 400), sz = w.dir.z * (w.half + 400);
+    const seaCell = ((Math.floor(sx / 100) + 5000) * 10000 + (Math.floor(sz / 100) + 5000));
+    g.explored.add(seaCell);
+    G.setTab('map');
+    window.__game._seaCell = seaCell;
+  });
+  await sleep(80);
+  const map = await E(() => {
+    const c = document.querySelector('#satchel .sat-map');
+    const txt = document.querySelector('#satchel .sat-page-map')?.innerText || '';
+    const g = window.__game.game, w = g.world;
+    const seaOk = g.progress.seaReached;
+    // sample the canvas for the sea-blue of an unfound ocean label / fill: just check the page has no "Open sea" text
+    return { canvas: !!c, words: /open sea/i.test(txt), sea: seaOk, tab: window.__game.tab };
+  });
+  ok(map.tab === 'map' && map.canvas && !map.words && !map.sea, 'the map is drawn and does not name the ocean before it has been found');
+  await E(() => window.__game.setTab('collection'));
+  await sleep(80);
+  const col = await E(() => {
+    const ports = document.querySelectorAll('#satchel .col-port').length;
+    const rares = document.querySelectorAll('#satchel .col-rare').length;
+    const text = document.querySelector('#satchel .sat-page-col').innerText.replace(/\d+/g, '').trim();
+    const nums = document.querySelector('#satchel .sat-page-col').innerText.match(/\d+/g);
+    return { ports, rares, text, nums, tab: window.__game.tab };
+  });
+  ok(col.tab === 'collection' && col.ports >= 1 && col.rares >= 4, `collection shows baby portraits and rare finds (${col.ports} babies, ${col.rares} rares)`);
+  ok(!col.nums, 'the collection has no numeric counter');
+  // keyboard Q/E and gamepad bumpers are wired (unit-level: setTab already covered)
+  await E(() => { window.__game.game.closeSatchel(); window.__game.game.setPaused(false); });
+}
+
 // ================================================================ keys and layout
 {
-  await E(() => { const G = window.__game; G.game.closeSatchel(); G.game.setPaused(true); });
-  const k = await E(() => document.getElementById('keys').innerText);
-  ok(/Tab/.test(k) && /Satchel/.test(k) && /\bG\b/.test(k) && /\bH\b/.test(k) && /\bV\b/.test(k), 'the Esc controls list names Tab, G, H and V');
+  await E(() => { const G = window.__game; G.game.closeSatchel(); if (G.game.paused) { G.game.paused = false; } G.game.setPaused(true); G.game.hud.setPauseVisible(true); });
+  const k = await E(() => document.getElementById('keys').innerHTML);
+  ok(/Tab/.test(k) && /Satchel/.test(k) && /<kbd>G<\/kbd>/.test(k) && /<kbd>H<\/kbd>/.test(k) && /<kbd>V<\/kbd>/.test(k), 'the Esc controls list names Tab, G, H and V');
   await E(() => { const G = window.__game; G.game.setPaused(false); });
   for (const [w, h] of [[1440, 900], [1280, 800]]) {
     await page.setViewport({ width: w, height: h });
-    await E(() => { const G = window.__game; G.game.inv.reset(); for (const k of ['crab', 'shrimp', 'snail', 'mussel', 'kelp', 'lettuce', 'sponge', 'coral', 'shellhalf', 'pebble', 'moss', 'coconut', 'cap', 'jar', 'urchin', 'worm', 'beetle', 'spawn', 'propagule']) G.give(k, 12); for (const k of ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'tonic', 'meal']) G.give(k, 2); G.game.octopus.buff.shield = 20; G.game.octopus.buff.kelp = 50; G.game.octopus.inkCharges = 2; G.game.openSatchel(); });
+    await E(() => { const G = window.__game; G.game.closeSatchel(); G.game.inv.reset(); for (const k of ['crab', 'shrimp', 'snail', 'mussel', 'kelp', 'lettuce', 'sponge', 'coral', 'shellhalf', 'pebble', 'moss', 'coconut', 'cap', 'jar', 'urchin', 'worm', 'beetle', 'spawn', 'propagule']) G.give(k, 12); for (const k of ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'tonic', 'meal']) G.give(k, 2); G.game.octopus.buff.shield = 20; G.game.octopus.buff.kelp = 50; G.game.octopus.inkCharges = 2; G.game.journal.tab = 'bag'; G.game.satchel.setTab('bag'); G.game.openSatchel(); });
     await sleep(200);
     const L = await E(() => { const p = document.querySelector('.sat-panel').getBoundingClientRect(), r = document.querySelector('.sat-recipes'); return { top: p.top, bottom: p.bottom, left: p.left, right: p.right, vw: innerWidth, vh: innerHeight, scroll: r.scrollHeight - r.clientHeight, slots: document.querySelectorAll('.sat-bag .slot:not(.empty)').length, recs: document.querySelectorAll('.sat-recipes .rec').length }; });
     ok(L.top >= 0 && L.bottom <= L.vh && L.left >= 0 && L.right <= L.vw && L.scroll <= 1 && L.slots === 29 && L.recs >= 11, `layout ${w}x${h}: panel fits the screen (${Math.round(L.bottom - L.top)}px tall), ${L.slots} items, ${L.recs} recipes, no scrolling`);

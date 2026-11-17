@@ -23,6 +23,9 @@ import { Gatherer } from './systems/gather.js';
 import { Abilities } from './systems/abilities.js';
 import { Inventory, FX } from './systems/items.js';
 import { Satchel } from './ui/satchel.js';
+import { Clock } from './ui/clock.js';
+import { Journal } from './systems/journal.js';
+import { Plankton } from './systems/plankton.js';
 import { Levels } from './systems/levels.js';
 import { Shimmer } from './systems/shimmer.js';
 import { SeaBeat } from './systems/seabeat.js';
@@ -80,8 +83,9 @@ export class Game {
     this.deadShown = false;
     this.progress = new Progress();
     this.inv = new Inventory();
-    this.inv.onCraft = (r, all) => this.levels.did('craft', { all });
+    this.inv.onCraft = (r, all) => { this.levels.did('craft', { all }); this.journal.seeItem(r.out); };
     this.levels = new Levels(); this.levels.allBiomes = BIOMES.length; this.freshBadges = new Set();
+    this.journal = new Journal();
     this.shimmer = new Shimmer(this.scene);
     this.seaBeat = new SeaBeat(this.scene);
     this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
@@ -89,6 +93,8 @@ export class Game {
     this.saveEnabled = !params.has('seed') && !params.has('daily') && !params.has('nosave');
     this.satchelOpen = false;
     this.satchel = new Satchel(this.hud.el.satchel, this);
+    this.tideClock = new Clock(this.hud.el.clock);
+    this.plankton = new Plankton(this.scene);
     this.seaMoment = null;
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -198,13 +204,14 @@ void main(){
     this.flowers = new Flowers(this.world, this.scene, this.audio);
     this.inv.reset();
     this.gather = new Gatherer(this.world, this.scene, this.audio);
-    this.gather.onPick = (g) => { this.inv.add(g.kind); this.audio.gather(g.x, g.y, g.z); this.levels.did('gather'); };
+    this.gather.onPick = (g) => { this.inv.add(g.kind); this.audio.gather(g.x, g.y, g.z); this.levels.did('gather'); this.journal.seeItem(g.kind); };
     this.abilities = new Abilities(this, this.gather);
     this.critters = new Critters(this.world, this.scene);
     this.world.scent = []; this.lastScent = null;
     this.runTime = 0; this.deadShown = false; this.threat = 0;
     this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
     this.levels.reset(); this.levels.allBiomes = BIOMES.length; this.freshBadges.clear(); this.lv = { babies: 0, shells: 0, biomeT: 0, rain: 0, chased: false, calmT: 0 };
+    this.journal.reset();
     this.camInit = false;
     this.input.yaw = Math.random() * Math.PI * 2; this.input.pitch = CONFIG.camera.pitch; this.input.zoom = 0;
     this.explored = new Set(); this.saveT = 0; this.pendingSave = null;
@@ -264,6 +271,7 @@ void main(){
     this.satchelOpen = true; this._reLock = null;
     this.hud.setPauseVisible(false);
     this.satchel.open(); this.hud.setSatchelVisible(true);
+    this.tideClock?.update(this.env, true);
     this.setPaused(true);
     this.input.releaseLock();
     this.saveSoon?.('satchel');
@@ -288,6 +296,9 @@ void main(){
     const dir = { ArrowUp: [0, -1], KeyW: [0, -1], ArrowDown: [0, 1], KeyS: [0, 1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0] }[c];
     if (dir) { e.preventDefault(); this.satchel.nav(dir[0], dir[1]); }
     else if (c === 'Enter' || c === 'Space' || c === 'NumpadEnter') { e.preventDefault(); if (!e.repeat) this.satchel.activate(); }
+    else if (!e.repeat && (c === 'KeyQ' || c === 'BracketLeft' || c === 'PageUp')) { e.preventDefault(); this.satchel.prevTab(); }
+    else if (!e.repeat && (c === 'KeyE' || c === 'BracketRight' || c === 'PageDown')) { e.preventDefault(); this.satchel.nextTab(); }
+    else if (!e.repeat && /^Digit[1-4]$/.test(c)) { e.preventDefault(); this.satchel.setTab(['bag','journal','map','collection'][+c.slice(-1) - 1]); }
   }
 
   begin() {
@@ -349,7 +360,9 @@ void main(){
       if (o.hitByCar) { o.hitByCar = false; this.audio.carHit(); }
       this.fx.update(dt, o, { step: (wet, spd) => this.audio.step(wet, spd) });
       this.collect.update(dt, o, this.runTime);
+      const flowerTouches = this.flowers.touches;
       this.flowers.update(dt, o, this.runTime);
+      if (this.flowers.touches > flowerTouches) this.journal.seeHow('flower');
       this.gather.update(dt, o);
       this.abilities.update(dt);
       if (o.restEvent) { o.restEvent = false; this.saveSoon?.('den'); }
@@ -386,10 +399,13 @@ void main(){
     this.shimmer.update(dt, o);
     this.seaBeat.update(dt, o, world.seaLevel);
     if (playing) this.critters.update(dt, o, world.night);
+    if (playing) this.updateJournal();
+    this.plankton?.update(dt, { night: world.night, biome: world.biomeAt(o.x, o.z), o, seaLevel: world.seaLevel });
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);
     this.updateCamera(dt);
     this.updateAtmosphere(dt);
     this.hud.update(o);
+    this.tideClock?.update(this.env, this.clockHidden());
     const coast = clamp(1 + world.distToSea(o.x, o.z) / 420, 0, 1);
     this.audio.update(dt, {
       coast, ambient: this.atmo.ambient, cam: this.camera, health: o.health, moving: o.moving, swim: o.swim, night: world.night,
@@ -404,7 +420,7 @@ void main(){
   applyPerks() { const P = this.levels.perks, o = this.octopus; if (o) { o.perkDry = P.dry; o.perkCamo = P.camo; } }
   updateLevels(dt) {
     const o = this.octopus, w = this.world, L = this.levels, S = this.lv, p = this.progress;
-    if (p.babies > S.babies) { for (let i = S.babies; i < p.babies; i++) L.did('baby'); S.babies = p.babies; }
+    if (p.babies > S.babies) { for (let i = S.babies; i < p.babies; i++) L.did('baby'); S.babies = p.babies; this.journal.seeHow('baby'); }
     if (p.shells > S.shells) { for (let i = S.shells; i < p.shells; i++) L.did('shell'); S.shells = p.shells; }
     S.biomeT -= dt;
     if (S.biomeT <= 0) { S.biomeT = 0.5; L.did('biome', w.biomeAt(o.x, o.z)); }
@@ -559,6 +575,17 @@ void main(){
     this.atmo.update(dt, this.env, this.camera, o, prox, this.view.time);
   }
 
+  clockHidden() {
+    return this.state !== 'playing' || this.paused || this.satchelOpen || !!this.seaBeat?.active || this.hud.el.start?.hidden === false;
+  }
+  updateJournal() {
+    const J = this.journal, o = this.octopus;
+    for (const p of this.predators.list) {
+      if (!p.dead && p.group.visible && Math.hypot(p.x - o.x, p.z - o.z) < 22) J.seePred(p.kind);
+    }
+    for (const id of this.critters.kindsNear(o, 16)) J.seeCritter(id);
+  }
+
   // ------------------------------------------------------------------ loop
   render() { this.renderer.render(this.scene, this.camera); }
   tick = () => {
@@ -570,10 +597,17 @@ void main(){
       if (gp && this.state === 'playing') {
         if (this.satchelOpen) {
           if (gp.back || gp.ink || gp.pause) this.closeSatchel();
-          else { if (gp.navX || gp.navY) this.satchel.nav(gp.navX, gp.navY); if (gp.a) this.satchel.activate(); }
+          else {
+            if (gp.navX || gp.navY) this.satchel.nav(gp.navX, gp.navY);
+            if (gp.a) this.satchel.activate();
+            if (gp.shelter) this.satchel.prevTab();
+            if (gp.boost) this.satchel.nextTab();
+          }
         } else if (gp.back) this.openSatchel();
         else if (gp.pause) this.setPaused(false);
       }
+      if (this.satchelOpen) this.satchel.tick(dt);
+      this.tideClock?.update(this.env, this.clockHidden());
     }
     this.render();
     this.frame++;

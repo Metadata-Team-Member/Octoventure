@@ -11,10 +11,11 @@
 import { ALL_ITEMS, Inventory } from './items.js';
 import { CONFIG } from '../config.js';
 import { Levels } from './levels.js';
+import { Journal, TABS, ENTRY_BY } from './journal.js';
 
 export const SAVE_KEY = 'octo.save.v2';
 export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their save here; it is carried forward on first load, then removed
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 const WEATHER_KINDS = ['clear', 'heatwave', 'rain', 'storm'];
 const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast', 'tonic'];
 const MAX_IDS = 6000, MAX_CELLS = 6000, MAX_DENS = 3;
@@ -41,6 +42,8 @@ export const MIGRATIONS = {
   // v3 (t241u) adds levels & badges. Older saves start at level 1, with what they already did counted towards the badges.
   // v4 (t250u) adds the crafted lethal venom dose (fx.lethal) and kill tallies (lv.st.kills / bigKill); older saves have neither.
   3: (o) => ({ ...o, v: 4, fx: { ...(o.fx && typeof o.fx === 'object' ? o.fx : {}), lethal: false } }),
+  // v5 (t254u) adds the field journal (discovered ids) and the last satchel tab.
+  4: (o) => ({ ...o, v: 5, journal: { seen: [], tab: 'bag' } }),
   2: (o) => ({ ...o, v: 3, lv: { xp: 0, b: [], st: { cells: Array.isArray(o.explored) ? o.explored.length : 0, babies: Array.isArray(o.babies) ? o.babies.length : 0, sea: !!o.sea, shells: Number(o.shells?.n) || 0 } } }),
 };
 
@@ -91,6 +94,7 @@ export function validateSave(o) {
     explored: cells,
     env: { t: num(e.t, 0, 1, 0.35), abs: num(e.abs, 0, 1e9, 0), kind: WEATHER_KINDS.includes(e.kind) ? e.kind : 'clear', target: WEATHER_KINDS.includes(e.target) ? e.target : 'clear', timer: num(e.timer, 0, 1e6, 60), heat: num(e.heat, 0, 1, 0), rain: num(e.rain, 0, 1, 0), dark: num(e.dark, 0, 1, 0) },
     lv: new Levels().load(o.lv).toJSON(),
+    journal: new Journal().load(o.journal).toJSON(),
   };
 }
 /** parse -> migrate -> validate (null when anything is wrong) */
@@ -102,6 +106,7 @@ export function readSaveText(text) {
 // ---------------------------------------------------------------- reading the live game
 const cellKey = (x, z) => (Math.floor(x / 100) + 5000) * 10000 + (Math.floor(z / 100) + 5000);
 export const exploreCell = cellKey;
+export const unpackCell = (n) => ({ ix: Math.floor(n / 10000) - 5000, iz: (n % 10000) - 5000 });
 export function snapshot(game) {
   const o = game.octopus, w = game.world, env = game.env, inv = game.inv;
   const got = []; for (const g of game.gather.collected) got.push(g);
@@ -120,6 +125,7 @@ export function snapshot(game) {
     dens: game.abilities.denList(),
     got, explored: [...game.explored].slice(-MAX_CELLS),
     lv: game.levels.toJSON(),
+    journal: game.journal.toJSON(),
     env: { t: +env.t.toFixed(4), abs: +env.abs.toFixed(1), kind: env.kind, target: env.target, timer: +env.timer.toFixed(1), heat: +env.heat.toFixed(3), rain: +env.rain.toFixed(3), dark: +env.dark.toFixed(3) },
   };
 }
@@ -141,6 +147,8 @@ export function applySave(game, s) {
   game.gather.markCollected(s.got);
   game.explored = new Set(s.explored);
   game.levels.load(s.lv); game.levels.check(); game.levels.drain();      // badges already deserved are granted quietly
+  game.journal.load(s.journal); game.journal.syncItems(game.inv);
+  if (s.babies?.length) game.journal.seeHow('baby');
   const e = game.env, E = s.env;
   e.t = E.t; e.abs = E.abs; e.kind = E.kind; e.target = E.target; e.timer = E.timer; e.heat = E.heat; e.rain = E.rain; e.dark = E.dark;
   e.apply();

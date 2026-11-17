@@ -15,8 +15,9 @@ import { GATHER_COUNT, GATHER_KINDS, HABITAT, BIOME_MATERIALS } from '../src/wor
 import { mulberry32 } from '../src/util/rng.js';
 import { ICON_IDS } from '../src/ui/icons.js';
 import { Levels, BADGES, xpForLevel, levelOf, perks, XP } from '../src/systems/levels.js';
+import { Journal, ENTRIES, TABS, RARE, ENTRY_IDS } from '../src/systems/journal.js';
 import { inkDeter, inkUnder, cloudCovers, INK_NEAR, INK_AQUA_NEAR, INK_BLIND, INK_AQUA_BLIND, INK_BIRD_RANGE, AQUA, FLYERS } from '../src/systems/ink.js';
-import { SAVE_VERSION, SAVE_KEY, LEGACY_KEYS, validateSave, migrate, readSaveText, encodeCode, decodeCode, loadSave, writeSave, clearSave, MIGRATIONS } from '../src/systems/save.js';
+import { SAVE_VERSION, SAVE_KEY, LEGACY_KEYS, validateSave, migrate, readSaveText, encodeCode, decodeCode, loadSave, writeSave, clearSave, MIGRATIONS, exploreCell, unpackCell } from '../src/systems/save.js';
 
 let checks = 0;
 const ok = (c, m) => { assert.ok(c, m); checks++; };
@@ -478,7 +479,7 @@ for (const seed of [1, 42, 2026]) {
 // ================================================================ saves (t238u)
 {
   const fixture = () => ({
-    v: 4, seed: WORLD, fresh: false, saved: 1700000000000,
+    v: 5, seed: WORLD, fresh: false, saved: 1700000000000,
     octo: { x: 120.5, z: -33.25, heading: 1.2, health: 61.5, energy: 40 }, run: 812.4, sea: true,
     shells: { n: 3, o: [4, 9, 12], r: ['r1_2_s3'] }, babies: ['0', 'r4_4_b1'],
     inv: { counts: { crab: 2, kelp: 3, shield: 1 }, seen: ['crab', 'kelp', 'shield'], made: ['shield'] },
@@ -486,11 +487,12 @@ for (const seed of [1, 42, 2026]) {
     dens: [{ x: 10, z: 20 }, { x: -4, z: 8.5 }], got: ['o12', 'o40', 'r1_2_5'], explored: [50005000, 50015000],
     env: { t: 0.62, abs: 900, kind: 'rain', target: 'storm', timer: 55, heat: 0, rain: 0.8, dark: 0.3 },
     lv: { xp: 200, b: ['wander', 'baby1'], st: { cells: 30, biomes: ['bush', 'farm'], sea: false, babies: 2, gathered: 12, crafted: 1, madeAll: false, shells: 3, nightSwim: false, rainDance: 4, storm: false, escapes: 1, kills: 2, bigKill: 1 } },
+    journal: { seen: [], tab: 'bag' },
   });
   const f = fixture(), v = validateSave(f);
   ok(v && JSON.stringify(v) === JSON.stringify(f), 'a good save validates unchanged');
   ok(JSON.stringify(readSaveText(JSON.stringify(f))) === JSON.stringify(f), 'a save round-trips through text');
-  ok(SAVE_VERSION === 4 && SAVE_KEY === 'octo.save.v2' && LEGACY_KEYS.includes('octo.save.v1'), 'save key / version (v1 stays readable through the legacy key)');
+  ok(SAVE_VERSION === 5 && SAVE_KEY === 'octo.save.v2' && LEGACY_KEYS.includes('octo.save.v1'), 'save key / version (v1 stays readable through the legacy key)');
   // corruption
   const junk = ['', 'null', '[]', '42', '"x"', '{', '{"v":1}', '{"v":2}', '{"v":"1","seed":1}', '{"v":2,"seed":9,"octo":{"x":"q","z":1}}', '{"v":2,"seed":-4,"octo":{"x":1,"z":1}}', '{"v":1,"seed":-4,"octo":{"x":1,"z":1}}', '{"v":1,"seed":1.5,"octo":{"x":1,"z":1}}', '{"v":1,"seed":5,"octo":{"x":"a","z":1}}', '{"v":1,"seed":5,"octo":{"x":1e12,"z":1}}', '{"v":-1,"seed":5}', '{"v":99,"seed":5,"octo":{"x":1,"z":1}}', 'not json at all \u0000\ufffd', '{"v":1,"seed":5,"octo":null}'];
   ok(junk.every((t) => readSaveText(t) === null), `${junk.length} kinds of damaged saves are all rejected, none throws`);
@@ -503,9 +505,9 @@ for (const seed of [1, 42, 2026]) {
   // migration
   const old = { v: 0, seed: 77, pos: { x: 5, z: -6 }, hp: 44 };
   const m0 = migrate(old, 1); ok(m0 && m0.v === 1 && m0.octo.x === 5 && m0.octo.health === 44, 'a v0 save is carried to v1');
-  const m02 = migrate(old); ok(m02 && m02.v === 4 && m02.fresh === true && m02.seed === WORLD && m02.fx.lethal === false, 'and on to v4: the one world, a fresh start, no lethal dose');
+  const m02 = migrate(old); ok(m02 && m02.v === 5 && m02.fresh === true && m02.seed === WORLD && m02.fx.lethal === false && Array.isArray(m02.journal?.seen), 'and on to v5: the one world, a fresh start, no lethal dose, empty journal');
   ok(validateSave(m02) && validateSave(m02).seed === WORLD && validateSave(m02).octo.health === 44, 'a migrated save validates');
-  ok(migrate({ v: 5, seed: 1 }) === null && migrate({ v: 1.5 }) === null && migrate({}) === null && migrate(null) === null, 'saves from a newer game or without a version are ignored');
+  ok(migrate({ v: 6, seed: 1 }) === null && migrate({ v: 1.5 }) === null && migrate({}) === null && migrate(null) === null, 'saves from a newer game or without a version are ignored');
   const table = { 0: MIGRATIONS[0], 1: (o) => ({ ...o, v: 2, extra: 'x' }), 2: (o) => ({ ...o, v: 3, more: 1 }) };
   const m3 = migrate({ v: 0, seed: 1 }, 3, table); ok(m3 && m3.v === 3 && m3.extra === 'x' && m3.more === 1, 'migrations chain one step at a time (v0 -> v3)');
   ok(migrate({ v: 1 }, 3, { 1: () => ({ v: 7 }) }) === null && migrate({ v: 1 }, 3, {}) === null && migrate({ v: 1 }, 2, { 1: () => { throw new Error('x'); } }) === null, 'a broken migration step fails safely');
@@ -519,7 +521,7 @@ for (const seed of [1, 42, 2026]) {
     env: { t: 0.62, abs: 900, kind: 'rain', target: 'storm', timer: 55, heat: 0, rain: 0.8, dark: 0.3 },
   };
   const mv = readSaveText(JSON.stringify(v1));
-  ok(mv && mv.v === 4 && mv.fresh === true && mv.seed === WORLD && mv.octo.x === null && mv.octo.z === null, 'a v1 save loads into the one world with no position (a fresh start is picked)');
+  ok(mv && mv.v === 5 && mv.fresh === true && mv.seed === WORLD && mv.octo.x === null && mv.octo.z === null && mv.journal.tab === 'bag', 'a v1 save loads into the one world with no position (a fresh start is picked)');
   ok(mv.inv.counts.crab === 2 && mv.inv.counts.kelp === 3 && mv.inv.counts.shield === 1 && mv.fx.ink === 2 && mv.fx.venom === true && mv.fx.buff.kelp === 40 && mv.fx.buff.tonic === 0, 'v1: the satchel, ink, venom and effects are kept');
   ok(mv.shells.n === 3 && mv.babies.length === 2 && mv.octo.health === 61.5 && mv.octo.energy === 40 && mv.run === 812.4 && mv.sea === true && mv.env.kind === 'rain', 'v1: armour, baby tally, health, clock and weather are kept');
   ok(mv.dens.length === 0 && mv.got.length === 0 && mv.explored.length === 0 && mv.shells.o.length === 0 && mv.shells.r.length === 0, 'v1: everything tied to the old random map is dropped');
@@ -529,9 +531,9 @@ for (const seed of [1, 42, 2026]) {
   const weird = { ...v1, inv: 'x', fx: 7, babies: 'many', shells: null, env: [] }; ok(readSaveText(JSON.stringify(weird)) !== undefined, 'odd field types in a v1 save never throw');
   // v2 -> v3 (levels & badges)
   { const v3 = { ...fixture(), v: 3, fx: { ...fixture().fx } }; delete v3.fx.lethal; delete v3.lv.st.kills; delete v3.lv.st.bigKill; const m = readSaveText(JSON.stringify(v3));
-    ok(m && m.v === 4 && m.fx.lethal === false && m.lv.st.kills === 0 && m.lv.st.bigKill === 0 && m.lv.xp === 200 && m.fx.venom === true && m.octo.x === 120.5, 'a v3 save migrates to v4: no lethal dose, no kills yet, everything else kept'); }
+    ok(m && m.v === 5 && m.fx.lethal === false && m.lv.st.kills === 0 && m.lv.st.bigKill === 0 && m.lv.xp === 200 && m.fx.venom === true && m.octo.x === 120.5 && m.journal.seen.length === 0, 'a v3 save migrates to v5: no lethal dose, no kills yet, empty journal, everything else kept'); }
   { const v2 = { ...fixture(), v: 2 }; delete v2.lv; const m = readSaveText(JSON.stringify(v2));
-    ok(m && m.v === 4 && m.lv.xp === 0 && m.lv.st.cells === 2 && m.lv.st.babies === 2 && m.lv.st.sea === true && m.lv.st.shells === 3 && m.octo.x === 120.5, 'a v2 save migrates to v3: level 1, what it already did counts towards badges, position kept'); }
+    ok(m && m.v === 5 && m.lv.xp === 0 && m.lv.st.cells === 2 && m.lv.st.babies === 2 && m.lv.st.sea === true && m.lv.st.shells === 3 && m.octo.x === 120.5, 'a v2 save migrates forward: level 1, what it already did counts towards badges, position kept'); }
   { const w = fixture(); w.lv = { xp: -5, b: ['hax', 'sea'], st: { cells: 'x', biomes: ['<b>', 'desert'], babies: 1e12 } }; const c = validateSave(w);
     ok(c && c.lv.xp === 0 && c.lv.b.join() === 'sea' && c.lv.st.cells === 0 && c.lv.st.biomes.join() === 'desert' && c.lv.st.babies === 1e7, 'damaged level data is cleaned'); }
   // storage
@@ -543,7 +545,7 @@ for (const seed of [1, 42, 2026]) {
   clearSave(st); ok(!(SAVE_KEY in st.d), 'clear removes it');
   { // a save left by the previous game under the old key is carried forward once, then the old key is forgotten
     const lg = mem({ [LEGACY_KEYS[0]]: JSON.stringify(v1) }), got = loadSave(lg);
-    ok(got && got.v === 4 && got.fresh && got.inv.counts.crab === 2 && !(LEGACY_KEYS[0] in lg.d) && JSON.parse(lg.d[SAVE_KEY]).v === 4, 'a legacy v1 save in storage migrates, is re-saved under the new key and the old one is removed');
+    ok(got && got.v === 5 && got.fresh && got.inv.counts.crab === 2 && !(LEGACY_KEYS[0] in lg.d) && JSON.parse(lg.d[SAVE_KEY]).v === 5, 'a legacy v1 save in storage migrates, is re-saved under the new key and the old one is removed');
     const lg2 = mem({ [LEGACY_KEYS[0]]: '{broken' }); ok(loadSave(lg2) === null && !(LEGACY_KEYS[0] in lg2.d), 'a damaged legacy save is dropped');
     const lg3 = mem({ [SAVE_KEY]: JSON.stringify(f), [LEGACY_KEYS[0]]: JSON.stringify(v1) }); ok(loadSave(lg3).octo.x === f.octo.x, 'a current save wins over a legacy one');
   }
@@ -582,6 +584,24 @@ for (const seed of [1, 42, 2026]) {
   ok(!inkDeter('dog', 15, 0, 0, 0, [cloud]), 'a land hunter well outside the near-edge is not deterred');
 
   ok(AQUA.has('crab') && AQUA.has('gull') && FLYERS.has('eagle') && FLYERS.has('magpie') && FLYERS.has('kookaburra'), 'shore and flying kinds are classified');
+}
+
+
+// ================================================================ field journal, map cells, tabs (t254u)
+{
+  ok(TABS.join() === 'bag,journal,map,collection' && ENTRIES.length >= 30, `journal has ${ENTRIES.length} entries and four satchel pages`);
+  ok(ENTRIES.every((e) => e.title && e.note && e.how && e.glyph && ICON_IDS.includes(e.glyph)), 'every journal entry has a title, note, discovery rule and pictogram');
+  ok(ENTRIES.every((e) => e.glyph !== 'shell' && !/toughen|armou?r|counter/i.test(e.note + e.title)), 'journal notes never mention hidden shell toughening or a baby counter');
+  const J = new Journal();
+  ok(!J.has('kelp') && J.seeItem('kelp') && J.has('kelp') && !J.seeItem('kelp'), 'a material is discovered once, then stays known');
+  ok(J.seePred('dog') && J.has('dog') && J.seeHow('baby') && J.has('octo-baby') && J.seeHow('flower') && J.has('flower'), 'creatures, a baby and a flower can be discovered');
+  J.tab = 'map';
+  const snap = J.toJSON(), J2 = new Journal().load(snap);
+  ok(J2.has('kelp') && J2.has('dog') && J2.tab === 'map' && J2.seen.size === J.seen.size, 'the journal round-trips through JSON');
+  ok(new Journal().load({ seen: ['kelp', 'hax', 7], tab: 'nope' }).tab === 'bag' && !new Journal().load({ seen: ['hax'] }).has('hax'), 'junk journal data is cleaned');
+  const c = exploreCell(120, -40), u = unpackCell(c);
+  ok(u.ix === 1 && u.iz === -1, 'explored cells pack and unpack as 100 m tiles');
+  ok(RARE.includes('jar') && RARE.includes('fungi'), 'rare collection portraits are defined');
 }
 
 console.log(`unit checks passed (${checks} assertions).`);

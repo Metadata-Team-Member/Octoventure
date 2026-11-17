@@ -167,6 +167,13 @@ export class Critters {
     this.crMesh.instanceMatrix.needsUpdate = true;
   }
   /** how many of each are out right now (tests) */
-  counts() { return { skinks: this.sk.filter((c) => c.on).length, trails: this.tr.filter((c) => c.on).length, flies: this.fl.filter((c) => c.on).length, crabs: this.cr.filter((c) => c.on && c.dig < 1).length }; }
+  counts() { return { skinks: this.sk.filter((c) => c.on).length, trails: this.tr.filter((c) => c.on).length, flies: this.fl.filter((c) => c.on).length, crabs: this.cr.filter((c) => c.on && c.dig < 1).length, frogs: this.fr?.filter((c) => c.on).length || 0, hermits: this.hm?.filter((c) => c.on).length || 0, butterflies: this.bu?.filter((c) => c.on).length || 0, wrens: this.wr?.filter((c) => c.on).length || 0 }; }
+  /** kinds of harmless critters currently visible within r metres of the octopus (for the field journal) */
+  kindsNear(o, r = 16) {
+    const out = new Set(), hit = (arr, id, ok) => { for (const c of arr || []) if (c.on && (!ok || ok(c)) && Math.hypot(c.x - o.x, c.z - o.z) < r) out.add(id); };
+    hit(this.sk, 'skink'); hit(this.tr, 'ant'); hit(this.fl, 'dragonfly'); hit(this.cr, 'ghostcrab', (c) => c.dig < 1);
+    hit(this.fr, 'frog'); hit(this.hm, 'hermit'); hit(this.bu, 'butterfly'); hit(this.wr, 'wren');
+    return out;
+  }
   dispose() { for (const m of [this.skMesh, this.antMesh, this.flyMesh, this.crMesh]) { m.geometry.dispose(); this.scene.remove(m); } this.mat.dispose(); this.lineMat.dispose(); }
 }

@@ -137,6 +137,13 @@ export function installDebugHooks(game) {
     nipNow() { return game.tryNip(); },
     setLevel(L) { const lv = game.levels; lv.xp = 15 * (L - 1) * (L + 2); lv.level = L; lv.events.length = 0; },
     get inkClouds() { return game.world.ink.length; },
+    get journal() { return game.journal; },
+    get tab() { return game.satchel.tab; },
+    setTab(id) { game.satchel.setTab(id); return game.satchel.tab; },
+    discover(id) { return game.journal.see(id); },
+    get clockHidden() { return game.clockHidden(); },
+    get plankton() { return game.plankton; },
+
     get inkCool() { return game.octopus.inkCool; },
     get biteCool() { return game.octopus.biteCool; },
     get hiddenIn() { return game.octopus.hiddenIn?.kind ?? null; },

@@ -236,4 +236,25 @@ export class GameAudio {
     // t241u: a soft swell of music - a slow rising chord that hangs in the water
     [196, 294, 392, 494, 587, 784].forEach((f, i) => this.tone(f, 4.2 - i * 0.3, 'sine', 0.035, 0, 0.4 + i * 0.45)); this.tone(98, 5.5, 'triangle', 0.03, 0, 0.2); }
   win() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.5, 'triangle', 0.18, 0, i * 0.16)); }
+  /** satchel: a muffled underwater bed while it is open, a soft plop when something is crafted, a page rustle when a tab turns */
+  menuOpen() {
+    if (!this.ctx || this._menu) return;
+    const c = this.ctx, g = c.createGain(); g.gain.value = 0;
+    const src = c.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true;
+    const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 0.7;
+    src.connect(f); f.connect(g); g.connect(this.master); src.start();
+    g.gain.linearRampToValueAtTime(0.045, c.currentTime + 0.6);
+    this._menu = { src, g, f };
+    this.tone(196, 1.1, 'sine', 0.02, 0, 0); this.tone(247, 1.3, 'sine', 0.016, 0, 0.2);
+  }
+  menuClose() {
+    const m = this._menu; if (!m || !this.ctx) { this._menu = null; return; }
+    const t = this.ctx.currentTime;
+    m.g.gain.cancelScheduledValues(t); m.g.gain.setValueAtTime(m.g.gain.value, t); m.g.gain.linearRampToValueAtTime(0, t + 0.4);
+    setTimeout(() => { try { m.src.stop(); } catch {} }, 450);
+    this._menu = null;
+  }
+  plop() { if (!this.ctx) return; this.tone(280, 0.12, 'sine', 0.06, -160, 0); this.noise(0.12, 900, 0.04, null, 0.8, 0.02); }
+  pageFlip() { if (!this.ctx) return; this.noise(0.18, 2600, 0.03, null, 0.9); this.tone(740, 0.08, 'sine', 0.02, -200, 0.02); }
 }
+

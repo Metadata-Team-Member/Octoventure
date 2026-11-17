@@ -60,9 +60,9 @@ button.chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* ---------------------------------------------------------------- the satchel (Tab): same quiet look as the pause screen */
 #satchel { background: rgba(6, 30, 38, 0.5); }
 #satchel[hidden] { display: none; }
-.sat-panel { display: grid; grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr); gap: 0; width: min(780px, 94vw); max-height: 88vh; background: rgba(8, 38, 48, 0.78); border: 1px solid rgba(255,255,255,0.16); border-radius: 22px; box-shadow: 0 18px 60px rgba(0, 20, 30, 0.5); overflow: hidden; color: #dff6ff; }
-.sat-left { padding: 16px 22px 16px; display: flex; flex-direction: column; gap: 12px; border-right: 1px solid rgba(255,255,255,0.1); min-width: 0; }
-.sat-bag { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; align-content: start; }
+.sat-panel { position: relative; display: flex; flex-direction: column; width: min(780px, 94vw); max-height: 88vh; background: rgba(8, 38, 48, 0.82); border: 1px solid rgba(255,255,255,0.16); border-radius: 22px; box-shadow: 0 18px 60px rgba(0, 20, 30, 0.5); overflow: hidden; color: #dff6ff; }
+.sat-left { padding: 12px 16px 12px; display: flex; flex-direction: column; gap: 10px; border-right: 1px solid rgba(255,255,255,0.1); min-width: 0; overflow: auto; }
+.sat-bag { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; align-content: start; }
 .slot { position: relative; aspect-ratio: 1; border-radius: 12px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.07); padding: 0; cursor: default; color: inherit; font: inherit; display: flex; align-items: center; justify-content: center; }
 .slot.empty { background: rgba(255,255,255,0.025); border-style: dashed; border-color: rgba(255,255,255,0.1); }
 .slot.usable { cursor: pointer; }
@@ -70,11 +70,11 @@ button.chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .slot i, .rec i { display: block; width: 62%; height: 62%; }
 .slot svg, .rec svg { width: 100%; height: 100%; display: block; }
 .slot b, .ing b { position: absolute; right: 4px; bottom: 2px; font: 700 10.5px/1 system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
-.sat-recipes { padding: 22px 22px 18px; display: flex; flex-direction: column; gap: 8px; overflow: auto; min-width: 0; align-content: flex-start; }
-.rec { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; min-height: 52px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.08); color: #dff6ff; cursor: pointer; font: inherit; }
+.sat-recipes { padding: 12px 14px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; overflow: auto; min-width: 0; align-content: start; }
+.rec { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 4px 6px; min-height: 40px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.08); color: #dff6ff; cursor: pointer; font: inherit; }
 .rec.ghost { min-height: 52px; border-style: dashed; background: rgba(255,255,255,0.025); border-color: rgba(255,255,255,0.1); cursor: default; }
-.rec .ing, .rec .res { position: relative; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; }
-.rec .res { width: 44px; height: 44px; border-radius: 10px; background: rgba(255,255,255,0.1); }
+.rec .ing, .rec .res { position: relative; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; }
+.rec .res { width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.1); }
 .rec .res i { width: 76%; height: 76%; }
 .rec .ing i { width: 86%; height: 86%; }
 .rec u { width: 16px; height: 16px; opacity: 0.55; text-decoration: none; display: block; }
@@ -102,7 +102,7 @@ button.chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #code-in:focus { border-color: #fff; }
 
 /* badges (t241u): tiny medallions under the satchel, locked ones are faint silhouettes */
-.sat-badges { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 12px; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); max-width: 330px; }
+.sat-badges { display: flex; gap: 5px; flex-wrap: wrap; padding-top: 8px; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.1); max-width: 100%; }
 .badge { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.04); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); border: 0; padding: 0; color: inherit; font: inherit; cursor: default; }
 .badge i { display: block; width: 16px; height: 16px; filter: brightness(0) invert(1); opacity: 0.12; }
 .badge svg { width: 100%; height: 100%; }
@@ -114,14 +114,107 @@ button.chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .badge:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
 /* level ring (t253u): the only place a level number is shown */
-.sat-head { display: flex; align-items: center; gap: 8px; min-height: 36px; }
-.sat-level { position: relative; width: 36px; height: 36px; flex: none; display: flex; align-items: center; justify-content: center; }
-.sat-level i { display: block; width: 36px; height: 36px; }
-.sat-level svg { width: 100%; height: 100%; display: block; }
-.sat-level b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 700 13px/1 "Segoe UI", system-ui, sans-serif; color: #eaf7ff; text-shadow: 0 1px 2px rgba(0,20,30,0.7); letter-spacing: 0; }
+.sat-head { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 14px 6px; position: relative; z-index: 2; }
 
 /* soft toon tooltip: small cream-on-teal card, only while hovering / focusing an unlocked thing */
 .sat-tip { position: fixed; z-index: 20; max-width: 220px; padding: 8px 11px 9px; border-radius: 12px; background: rgba(14, 42, 54, 0.94); border: 1px solid rgba(255, 226, 170, 0.45); box-shadow: 0 8px 22px rgba(0, 16, 24, 0.45), inset 0 1px 0 rgba(255,255,255,0.08); color: #eef8ff; pointer-events: none; text-align: left; }
 .sat-tip[hidden] { display: none !important; }
 .sat-tip strong { display: block; font: 700 12px/1.2 "Segoe UI", system-ui, sans-serif; color: #fff6d8; letter-spacing: .02em; }
 .sat-tip small { display: block; margin-top: 3px; font: 500 11px/1.35 "Segoe UI", system-ui, sans-serif; color: rgba(223, 246, 255, 0.86); }
+
+.sat-body { position: relative; z-index: 1; min-height: 0; flex: 1; display: flex; }
+.sat-page { display: none; width: 100%; min-height: 0; }
+.sat-page:not([hidden]) { display: flex; }
+.sat-page-bag { display: none; grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr); width: 100%; }
+.sat-page-bag:not([hidden]) { display: grid; min-height: 0; overflow: hidden; }
+.sat-page[hidden] { display: none !important; }
+
+/* den / tide-pool atmosphere (t254u / t255u) */
+.sat-den { position: absolute; inset: -12px; pointer-events: none; z-index: 0; overflow: hidden; }
+.sat-caustic { position: absolute; inset: -20%; background:
+  radial-gradient(ellipse at 20% 30%, rgba(120, 220, 230, 0.16) 0 20%, transparent 50%),
+  radial-gradient(ellipse at 80% 60%, rgba(90, 180, 210, 0.12) 0 24%, transparent 55%),
+  radial-gradient(ellipse at 50% 80%, rgba(180, 255, 230, 0.1) 0 18%, transparent 50%);
+  animation: satCaustic 14s ease-in-out infinite alternate; mix-blend-mode: screen; }
+@keyframes satCaustic { from { transform: translate(-2%, -1%) scale(1); } to { transform: translate(3%, 2%) scale(1.08); } }
+.sat-weed { position: absolute; left: -4%; right: -4%; bottom: -8%; height: 38%;
+  background: linear-gradient(180deg, transparent, rgba(40, 80, 60, 0.18));
+  clip-path: polygon(0 100%, 0 45%, 6% 20%, 10% 55%, 16% 10%, 22% 60%, 30% 18%, 38% 70%, 46% 22%, 54% 64%, 62% 16%, 70% 58%, 78% 24%, 86% 62%, 94% 28%, 100% 50%, 100% 100%);
+  animation: satWeed 7s ease-in-out infinite alternate; opacity: 0.7; }
+@keyframes satWeed { from { transform: skewX(-2deg) translateX(-1%); } to { transform: skewX(3deg) translateX(2%); } }
+.sat-bubbles i { position: absolute; bottom: -8%; width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(200, 240, 255, 0.45); background: rgba(200, 240, 255, 0.12); animation: satBubble 7s linear infinite; }
+.sat-bubbles i:nth-child(1) { left: 12%; animation-duration: 6.5s; animation-delay: 0s; width: 6px; height: 6px; }
+.sat-bubbles i:nth-child(2) { left: 28%; animation-duration: 8s; animation-delay: 1.4s; }
+.sat-bubbles i:nth-child(3) { left: 47%; animation-duration: 7.2s; animation-delay: 2.2s; width: 10px; height: 10px; }
+.sat-bubbles i:nth-child(4) { left: 66%; animation-duration: 9s; animation-delay: 0.8s; }
+.sat-bubbles i:nth-child(5) { left: 84%; animation-duration: 6.8s; animation-delay: 3s; width: 5px; height: 5px; }
+@keyframes satBubble { 0% { transform: translateY(0) scale(0.8); opacity: 0; } 12% { opacity: 0.7; } 100% { transform: translateY(-520%) scale(1.1); opacity: 0; } }
+
+/* portrait + tabs */
+.sat-portrait { position: relative; width: 68px; height: 68px; flex: none; }
+.sat-portrait .por-svg { width: 68px; height: 68px; display: block; color: #c48a2e; overflow: visible; }
+.sat-portrait .por-body { fill: #c48a2e; }
+.sat-portrait .por-rings circle { fill: none; stroke: #4aa8ff; stroke-width: 1.15; }
+.sat-portrait .por-eye { fill: #1a1a1a; }
+.sat-portrait .por-lid { fill: #c48a2e; transform-origin: 50% 0; animation: satBlink 4.8s ease-in-out infinite; }
+.sat-portrait.inked .por-body { filter: brightness(0.75); }
+.sat-portrait.feast .por-rings circle { stroke: #9fe4ff; stroke-width: 1.4; }
+@keyframes satBlink { 0%, 92%, 100% { transform: scaleY(0.15); } 94%, 96% { transform: scaleY(1); } }
+.sat-portrait .sat-level { position: absolute; right: -2px; bottom: -2px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #3b5f7a, #1d3247); box-shadow: inset 0 0 0 1px rgba(74,168,255,0.7); font: 700 10px/18px "Segoe UI", system-ui, sans-serif; color: #eaf7ff; text-align: center; }
+.sat-tabs { display: flex; gap: 6px; margin-left: auto; }
+.sat-tab { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); color: inherit; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.sat-tab i { display: block; width: 20px; height: 20px; }
+.sat-tab svg { width: 100%; height: 100%; display: block; }
+.sat-tab.on { background: rgba(255,154,99,0.7); border-color: transparent; }
+.sat-tab:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* journal */
+.sat-page-journal { flex-direction: column; gap: 10px; padding: 8px 18px 16px; }
+.sat-jlist { display: flex; flex-wrap: wrap; gap: 6px; align-content: start; }
+.sat-jrule { flex-basis: 100%; height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0; }
+.j-ent { width: 32px; height: 32px; border-radius: 8px; border: 0; padding: 0; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; color: inherit; }
+.j-ent i { display: block; width: 22px; height: 22px; filter: brightness(0) invert(1); opacity: 0.14; }
+.j-ent svg { width: 100%; height: 100%; }
+.j-ent.got { background: rgba(255,255,255,0.12); cursor: pointer; }
+.j-ent.got i { filter: none; opacity: 1; }
+.j-ent:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.sat-jpage { margin-top: 4px; padding: 10px 12px; border-radius: 12px; background: rgba(231, 207, 166, 0.16); border: 1px solid rgba(231, 207, 166, 0.3); color: #eef6e4; }
+.sat-jpage strong { display: block; font: 700 13px/1.2 "Segoe UI", system-ui, sans-serif; color: #fff6d8; }
+.sat-jpage small { display: block; margin-top: 4px; font: 500 12px/1.4 "Segoe UI", system-ui, sans-serif; }
+.sat-jpage.flip { animation: satFlip .35s ease-out; }
+@keyframes satFlip { from { transform: rotateX(70deg); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* map (kelp paper) */
+.sat-page-map { padding: 8px 14px 14px; }
+.sat-map { width: 100%; height: min(52vh, 420px); border-radius: 14px; background: #c9d6b4; box-shadow: inset 0 0 0 1px rgba(60,70,40,0.25); display: block; }
+
+/* collection portraits: no counts */
+.sat-page-col { flex-direction: column; gap: 12px; padding: 10px 16px 16px; }
+.sat-col { display: flex; flex-wrap: wrap; gap: 6px; }
+.col-port, .col-rare { width: 36px; height: 36px; border-radius: 8px; border: 0; padding: 0; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; color: inherit; }
+.col-port i, .col-rare i { display: block; width: 22px; height: 22px; filter: brightness(0) invert(1); opacity: 0.14; }
+.col-port svg, .col-rare svg { width: 80%; height: 80%; display: block; }
+.col-port.got, .col-rare.got { background: rgba(255,255,255,0.12); cursor: pointer; }
+.col-port.got i, .col-rare.got i { filter: none; opacity: 1; }
+.sat-rares { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1); }
+
+.sat-ghost { position: fixed; z-index: 30; width: 40px; height: 40px; margin: -20px 0 0 -20px; pointer-events: none; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4)); }
+.sat-ghost i { display: block; width: 40px; height: 40px; }
+.sat-ghost svg { width: 100%; height: 100%; }
+.rec.drop { outline: 2px solid #fff; background: rgba(255,255,255,0.22); }
+
+/* tide-and-sun dial (the one in-play UI) */
+.tide-clock { position: fixed; right: 16px; bottom: 16px; z-index: 4; pointer-events: none; filter: drop-shadow(0 2px 6px rgba(0,20,30,0.35)); }
+.tide-clock[hidden] { display: none !important; }
+.tide-clock .tc-shell { fill: #f3dcc9; stroke: #c9a484; stroke-width: 1.4; }
+.tide-clock .tc-arc { fill: none; stroke: #b08968; stroke-width: 1.1; stroke-dasharray: 2 3; opacity: 0.7; }
+.tide-clock .tc-lip { fill: none; stroke: #b08968; stroke-width: 1.2; }
+.tide-clock .tc-tide { fill: #5aa8c8; opacity: 0.7; }
+.tide-clock .tc-sun circle { fill: #f2c94c; }
+.tide-clock .tc-sun-glow { fill: #ffe28a; opacity: 0.35; }
+.tide-clock .tc-moon circle { fill: #dfe6ff; }
+.tide-clock .tc-moon-cut { fill: #8fa0c8; }
+
+@media (max-width: 700px) {
+  .sat-page-bag:not([hidden]) { display: flex; flex-direction: column; overflow: auto; }
+}

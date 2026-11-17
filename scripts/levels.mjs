@@ -47,10 +47,10 @@ await sleep(400);
 {
   await E(() => window.__game.advance(0.1));
   await page.keyboard.press('Tab'); await sleep(300);
-  const s = await E(() => { window.__game.game.satchel.hideTip(); return { all: document.querySelectorAll('#satchel .badge').length, got: document.querySelectorAll('#satchel .badge.got').length, txt: document.querySelector('#satchel .sat-panel').innerText.replace(/\d+/g, '').trim(), lv: document.querySelector('#satchel .sat-level b')?.textContent }; });
+  const s = await E(() => { window.__game.game.satchel.hideTip(); return { all: document.querySelectorAll('#satchel .badge').length, got: document.querySelectorAll('#satchel .badge.got').length, txt: document.querySelector('#satchel .sat-panel').innerText.replace(/\d+/g, '').trim(), lv: document.querySelector('#satchel .sat-level')?.textContent }; });
   ok(s.all >= 15 && s.got >= 1 && s.got < s.all, `the satchel shows the badges as tokens (${s.got} earned of ${s.all}; the rest are silhouettes)`);
   ok(!/[a-z]{3,}/i.test(s.txt), 'no words in the satchel until a tooltip is shown');
-  const lv = await E(() => document.querySelector('#satchel .sat-level b')?.textContent);
+  const lv = await E(() => document.querySelector('#satchel .sat-level')?.textContent);
   ok(Number(lv) >= 2, `the satchel shows the current level in the ring (${lv})`);
   await shot('satchel-badges');
   await page.keyboard.press('Tab'); await sleep(600);
@@ -90,7 +90,23 @@ await sleep(400);
   ok(s.sea && s.beat && s.badge, 'reaching the sea plays the underwater moment and earns the sea badge');
   ok(!s.after && s.state2 === 'playing', 'then play simply continues');
 }
+// ---- tide-and-sun dial and night plankton (t254u)
+{
+  const c = await E(() => { const G = window.__game, g = G.game; g.closeSatchel(); g.setPaused(false); G.setTime(0.5); g.env.apply(); G.advance(0.05); const el = document.getElementById('clock'); const sun = el.querySelector('.tc-sun'); return { hidden: el.hidden, sunOp: getComputedStyle(sun).opacity, hasTide: !!el.querySelector('.tc-tide') }; });
+  ok(!c.hidden && +c.sunOp > 0.5 && c.hasTide, 'at midday the tide-and-sun dial is visible with the sun on the arc');
+  const n = await E(() => { const G = window.__game, g = G.game; G.setTime(0.02); g.env.apply(); G.advance(0.05); const el = document.getElementById('clock'); const moon = el.querySelector('.tc-moon'); return { moonOp: getComputedStyle(moon).opacity, sunOp: getComputedStyle(el.querySelector('.tc-sun')).opacity }; });
+  ok(+n.moonOp > 0.5 && +n.sunOp < 0.5, 'at night the moon travels the arc instead');
+  const h = await E(() => { const G = window.__game; G.game.openSatchel(); const hide = document.getElementById('clock').hidden; G.game.closeSatchel(); if (G.game.paused) { G.game.paused = false; } G.game.setPaused(false); return hide; });
+  ok(h, 'the dial hides while the satchel is open');
+  const p = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus;
+    G.teleportToOcean(8); G.setTime(0.0); g.env.apply(); G.advance(0.4);
+    const pl = g.plankton; return { on: pl && pl.active, biome: g.world.biomeAt(o.x, o.z), night: g.world.night, op: pl?.mat.opacity || 0 };
+  });
+  ok(p.night > 0.7 && p.on && p.op > 0, `bioluminescent plankton glows in the night sea (biome ${p.biome}, opacity ${p.op.toFixed(2)})`);
+}
 ok(problems.length === 0, `no page errors${problems.length ? ': ' + problems.join(' | ') : ''}`);
 await browser.close();
 console.log(failed ? `\n${failed} FAILED` : '\nall levels / badges / day-night / weather checks passed');
+
 process.exit(failed ? 1 : 0);
