@@ -22,6 +22,17 @@ export const FOG_COLOR = 0xcfe6f2;
 export const CHUNK = 100;
 let _dot;
 /** soft round sprite so particle 'points' are circles, not squares */
+let _halo = null;
+/** a very soft round falloff (for glow halos; no visible edge even when large) */
+export function haloTexture() {
+  if (_halo) return _halo;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'); const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  for (let i = 0; i <= 8; i++) { const t = i / 8; grd.addColorStop(t, `rgba(255,255,255,${(Math.exp(-t * t * 4.5) * (1 - t)).toFixed(3)})`); }
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  _halo = new THREE.CanvasTexture(c);
+  return _halo;
+}
 export function dotTexture() {
   if (_dot) return _dot;
   const c = document.createElement('canvas'); c.width = c.height = 32;

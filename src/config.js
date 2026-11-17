@@ -155,8 +155,8 @@ export const TERRAIN = {
   redsand:   { name: 'Red sand',       color: 0xc0582e, speed: 0.80, dry: 2.00 },
   gibber:    { name: 'Gibber plain',   color: 0x8e4a30, speed: 0.85, dry: 1.80 },
   spinifex:  { name: 'Spinifex',       color: 0xb8a45a, speed: 0.80, dry: 1.70 },
-  fern:      { name: 'Fern floor',     color: 0x2f5a2a, speed: 0.80, dry: 0.45 },
-  mossy:     { name: 'Mossy floor',    color: 0x3f7a34, speed: 0.85, dry: 0.40 },
+  fern:      { name: 'Fern floor',     color: 0x3e6e34, speed: 0.80, dry: 0.45 },
+  mossy:     { name: 'Mossy floor',    color: 0x4c8a3e, speed: 0.85, dry: 0.40 },
 };
 
 /** the active difficulty's multipliers */

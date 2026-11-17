@@ -9,7 +9,7 @@ import { toonMat, outlineMat, outline } from '../world/toon.js';
 import { tint, merge, at } from '../world/models.js';
 import { buildShellGeos } from '../world/geoLib.js';
 import { seat, instanceSpec, geoHeight, shellScale, shellKind, fitDisc } from '../world/placement.js';
-import { dotTexture } from '../world/worldView.js';
+import { dotTexture, haloTexture } from '../world/worldView.js';
 import { CONFIG } from '../config.js';
 import { clamp, lerp, smoothstep as ss } from '../util/rng.js';
 
@@ -213,7 +213,7 @@ class BabyRescue {
     g.position.set(b.x, b.y, b.z);
     col.scene.add(g);
     // t248u: a soft additive glow sprite (was a PointLight: adding / removing a light recompiled every shader mid-game)
-    this.light = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(), color: 0x4f9bff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.light = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), color: 0x4f9bff, transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
     this.light.position.set(0, 0.6, 0); this.light.scale.setScalar(3.2); g.add(this.light);
     // bubbles (joy / ink): points rising from the spot
     this.N = 34;

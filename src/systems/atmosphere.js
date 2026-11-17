@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { clamp, lerp, smoothstep as ss } from '../util/rng.js';
-import { dotTexture, FOG_COLOR } from '../world/worldView.js';
+import { dotTexture, haloTexture, FOG_COLOR } from '../world/worldView.js';
 import { BIOMES, BIOME_INFO } from '../world/biomes.js';
 
 const C = (h) => new THREE.Color(h);
@@ -88,8 +88,8 @@ export class Atmosphere {
     // the octopus's own faint glow, only noticeable in the dark
     // t248u: a soft additive halo sprite instead of a PointLight (a point light costs a lighting term on every lit pixel of every
     // material, all day long, even at intensity 0)
-    this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTexture(), color: 0x5a8cff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
-    this.glow.position.set(0, 1.0, 0); this.glow.scale.setScalar(7);
+    this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), color: 0x5a8cff, transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
+    this.glow.position.set(0, 0.6, 0); this.glow.scale.setScalar(4.5); this.glow.renderOrder = 5;
   }
   attachGlow(octoGroup) { octoGroup.add(this.glow); }
 
