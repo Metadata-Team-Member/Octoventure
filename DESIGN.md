@@ -74,7 +74,9 @@ Tab opens a paused panel (`ui/satchel.js`, `ui/icons.js`): left the items found 
 
 **v3 -> v4 (t250u).** Adds `fx.lethal` (a readied lethal venom dose) and `lv.st.kills` / `lv.st.bigKill`. `MIGRATIONS[3]` sets `lethal: false`; missing kill tallies load as 0.
 
-**v4 -> v5 (t254u).** Adds `journal { seen:[ids], tab }`. `MIGRATIONS[4]` starts an older save with an empty journal on the bag tab; already-held items are filled in on load (`Journal.syncItems`). The key stays `octo.save.v2`. Current `SAVE_VERSION` is 5.
+**v4 -> v5 (t254u).** Adds `journal { seen:[ids], tab }`. `MIGRATIONS[4]` starts an older save with an empty journal on the bag tab; already-held items are filled in on load (`Journal.syncItems`). The key stays `octo.save.v2`. Current `SAVE_VERSION` is 6.
+
+**v5 -> v6.** Adds `lv.st.grotto` (the quiet cave under the reef has been found). `MIGRATIONS[5]` leaves older stats untouched; a missing flag loads as false. The key stays `octo.save.v2`.
 
 **v2 -> v3 (t241u).** Adds `lv {xp, b:[badge ids], st:{cells, biomes:[names], sea, babies, gathered, crafted, madeAll, shells, nightSwim, rainDance, storm, escapes}}`. `MIGRATIONS[2]` starts an older save at level 1 with what it already did (explored cells, babies, sea, shells) counted towards the badges; badges already deserved are granted quietly on load (no shimmer). The key stays `octo.save.v2`.
 
@@ -207,3 +209,11 @@ None can be hurt or killed. Pools stay small and recycle around the player.
 | wander desktop mean / p99 / worst frame | 427 / 495 / 1626 ms | 192 / 256 / 897 ms |
 | wander mobile mean / p99 / worst frame | 128 / 188 / 482 ms | 71 / 132 / 267 ms |
 | heap after the walk (after GC) desktop / mobile | 36.0 / 40.6 MB | 43.1 / 41.5 MB |
+
+## The reef and the quiet cave
+
+Offshore, past the break, the sea floor already holds coral, reef rock and seagrass. Around one hidden grotto (the same place for a given seed: `grottoOf` in `systems/reef.js`) there is a kelp stand, a few rock arches, sand channels, coral heads and sea stars. A school of fish drifts with a swimmer; a turtle patrols the grotto. Caustic light only shows while you are wet. A soft longshore current nudges the octopus only while swimming in the sea (`flowAt`); it fades in the shallows and is gone on land. Swimming still rehydrates.
+
+Anemones grow only on the sea floor. With a piece of coral, or with an urchin, they make a reef light: the rings shine for a while and nothing else changes. The grotto stays quiet until at least one baby has been led to water. Swimming into it then shows the little ones, plays a calm camera drift (no text, no credits) and keeps the "quiet cave" badge. Play continues.
+
+Try `?seed=2026`, then from the console ` __game.teleportToOcean(6)` and `__game.teleportToGrotto()`. `__game.noteBaby()` stands in for a rescue. `__game.grotto` is the cave. Current is `__game.current` while `swim` is high.

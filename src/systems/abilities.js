@@ -76,6 +76,7 @@ export class Abilities {
       case 'mimic': o.buff.mimic = FX.mimic; break;
       case 'tonic': if (o.energy > 96 && o.buff.tonic > 0) return false; o.energy = 100; o.buff.tonic = FX.tonic; o.glowBoost = 0.6; break;
       case 'meal': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.mealHeal); o.buff.feast = FX.mealGlow; o.glowBoost = 1; break;
+      case 'glow': if (o.buff.feast > 20) return false; o.buff.feast = FX.glow; o.glowBoost = 1; break;
       case 'mussel': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.mussel); o.glowBoost = 0.5; break;
       case 'moss': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.moss); o.glowBoost = 0.3; break;
       default: ok = false;
