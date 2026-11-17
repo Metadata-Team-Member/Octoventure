@@ -74,7 +74,9 @@ Tab opens a paused panel (`ui/satchel.js`, `ui/icons.js`): left the items found 
 
 **v3 -> v4 (t250u).** Adds `fx.lethal` (a readied lethal venom dose) and `lv.st.kills` / `lv.st.bigKill`. `MIGRATIONS[3]` sets `lethal: false`; missing kill tallies load as 0.
 
-**v4 -> v5 (t254u).** Adds `journal { seen:[ids], tab }`. `MIGRATIONS[4]` starts an older save with an empty journal on the bag tab; already-held items are filled in on load (`Journal.syncItems`). The key stays `octo.save.v2`. Current `SAVE_VERSION` is 5.
+**v4 -> v5 (t254u).** Adds `journal { seen:[ids], tab }`. `MIGRATIONS[4]` starts an older save with an empty journal on the bag tab; already-held items are filled in on load (`Journal.syncItems`). The key stays `octo.save.v2`.
+
+**v5 -> v6.** `lv.st.rare` lists secret finds (golden shell, pearl, night frog, desert bloom, moonlit race, fairy ring). `MIGRATIONS[5]` leaves older saves without that list; load treats a missing one as empty. Current `SAVE_VERSION` is 6.
 
 **v2 -> v3 (t241u).** Adds `lv {xp, b:[badge ids], st:{cells, biomes:[names], sea, babies, gathered, crafted, madeAll, shells, nightSwim, rainDance, storm, escapes}}`. `MIGRATIONS[2]` starts an older save at level 1 with what it already did (explored cells, babies, sea, shells) counted towards the badges; badges already deserved are granted quietly on load (no shimmer). The key stays `octo.save.v2`.
 
@@ -159,6 +161,21 @@ Four new harmless kinds, each with a journal entry:
 - **Fairy-wren** (bush, farm, suburb, wetland, rainforest, riverbank): hops and pecks, short flits, flies up when startled; sleeps at night.
 
 None can be hurt or killed. Pools stay small and recycle around the player.
+
+## Secrets of night and rain
+
+A few finds that are not gatherables (they do not use the gather stream, so nothing else in the world moves). Each 400 m tile, including the original map's sixteen tiles and every far tile, rolls its own hash. Most tiles have none. On the one world each kind shows up a handful of times and no more.
+
+- **Golden shell** on the beach and the dunes. There whenever you pass.
+- **Pearl shell** in the shallows, or on the wet sand of the beach, estuary and headland.
+- **Glowing frog** in the rainforest, and only at night. By day the spot is empty.
+- **Desert flower** a shut bud until rain has fallen. It stays open a little while after the rain stops, then closes.
+- **Ghost-crab race** on the beach at night: four pale crabs run a short line between two burrows. By day, only the burrows.
+- **Fairy ring** of mushrooms in the bush or the rainforest.
+
+Meeting one (walk up to it while it is actually there) fills its journal entry, which is a silhouette until then, adds a collection portrait, and earns a badge. Nothing is written on the ground. Saved as `lv.st.rare` on save v6.
+
+Try: `?seed=2026`, then `__game.teleportToRare('gold')`. For the frog, `__game.setTime(0.02)` first. For the flower, `__game.setWeather('rain')` and `__game.soakRare()`, or wait out a real shower. For the race, night plus `__game.teleportToRare('moonrace')`.
 
 
 ## Soft & friendly pass (t256u / t257u)

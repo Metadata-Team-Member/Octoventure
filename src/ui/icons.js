@@ -60,6 +60,12 @@ const ICONS = {
   b_spark: s(`<path d="M12 2l1.8 8.2L22 12l-8.2 1.8L12 22l-1.8-8.2L2 12l8.2-1.8z" fill="#9fe4ff"/><circle cx="19" cy="5" r="1.2" fill="#fff"/>`),
   b_fang: s(`<path d="M5 4h14l-2.4 6.5L12 21 7.4 10.5z" fill="#f4efe2"/><path d="M12 6v11" stroke="#d7cfbb" stroke-width="1"/><circle cx="12" cy="9" r="2.6" fill="none" stroke="#4aa8ff" stroke-width="1.4"/>`),
   b_crown: s(`<path d="M3 18 2 7l5 4 5-7 5 7 5-4-1 11z" fill="#f2c94c"/><rect x="3" y="18" width="18" height="3" rx="1" fill="#d9a441"/><circle cx="12" cy="13" r="1.6" fill="#4aa8ff"/>`),
+  r_gold: s(`<path d="M4 16c0-6 3.2-10 8-10s8 4 8 10c0 2-2 4-8 4s-8-2-8-4z" fill="#f2c14a"/><path d="M12 6v10M8 8.5 9 16M16 8.5 15 16" stroke="#e0a020" stroke-width=".9" fill="none"/>`),
+  r_pearl: s(`<path d="M5 16c0-5 2.8-9 7-9s7 4 7 9c0 1.6-1.6 3-7 3s-7-1.4-7-3z" fill="#f3dcc9"/><circle cx="12" cy="13" r="2.4" fill="#fff8ee"/><path d="M12 7v6" stroke="#e0c4ae" stroke-width=".8"/>`),
+  r_frog: s(`<ellipse cx="12" cy="15" rx="6" ry="4" fill="#8dffb0"/><circle cx="8.5" cy="11" r="2.2" fill="#8dffb0"/><circle cx="15.5" cy="11" r="2.2" fill="#8dffb0"/><circle cx="8.5" cy="11" r=".8" fill="#142018"/><circle cx="15.5" cy="11" r=".8" fill="#142018"/>`),
+  r_bloom: s(`<path d="M12 21V12" stroke="#6aaa48" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="9" r="3.2" fill="#ff8fb0"/><circle cx="8" cy="12" r="2.2" fill="#ffb0c4"/><circle cx="16" cy="12" r="2.2" fill="#ffb0c4"/><circle cx="12" cy="9" r="1.1" fill="#f2c14a"/>`),
+  r_race: s(`<ellipse cx="7" cy="15" rx="3" ry="1.6" fill="#f6f1e6"/><ellipse cx="14" cy="12" rx="3" ry="1.6" fill="#f6f1e6"/><ellipse cx="18" cy="16" rx="2.4" ry="1.3" fill="#f6f1e6"/><path d="M3 19h18" stroke="#d9c9a3" stroke-width="1.2" stroke-linecap="round"/>`),
+  r_ring: s(`<circle cx="12" cy="12" r="6.5" fill="none" stroke="#d45a68" stroke-width="2.2"/><circle cx="12" cy="5.2" r="1.5" fill="#f4f0e4"/><circle cx="17.5" cy="9" r="1.5" fill="#f4f0e4"/><circle cx="16" cy="16" r="1.5" fill="#f4f0e4"/><circle cx="8" cy="16" r="1.5" fill="#f4f0e4"/><circle cx="6.5" cy="9" r="1.5" fill="#f4f0e4"/>`),
 
   // ---- journal / tab pictograms (t254u)
   j_gull: s(`<ellipse cx="12" cy="14" rx="6" ry="3.2" fill="#f4f6f8"/><path d="M6 13 Q12 8 18 13" fill="#9aa3ad"/><path d="M16 11l5-3" stroke="#f1a233" stroke-width="1.4" stroke-linecap="round"/><circle cx="14.5" cy="11" r=".8" fill="#222"/>`),

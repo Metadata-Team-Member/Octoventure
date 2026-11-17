@@ -195,6 +195,16 @@ export function installDebugHooks(game) {
     get shimmerActive() { return game.shimmer.active > 0; },
     get seaBeatActive() { return game.seaBeat.active; },
     get critters() { return game.critters.counts(); },
+    rareSpots(id) { return (game.rares?.spotsOf(id) || []).map((s) => ({ id: s.id, x: +s.x.toFixed(1), z: +s.z.toFixed(1) })); },
+    teleportToRare(id) {
+      const list = game.rares?.spotsOf(id) || [];
+      const s = list[0];
+      if (!s) return null;
+      this.teleport(s.x, s.z);
+      return s;
+    },
+    soakRare() { if (game.rares) game.rares.wet = 1; return game.rares?.wet || 0; },
+    get raresFound() { return [...(game.levels?.st.rare || [])]; },
     terrainTypes: Object.keys(TERRAIN),
     game,
   };

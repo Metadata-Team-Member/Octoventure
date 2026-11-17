@@ -9,7 +9,7 @@
 import { icon } from './icons.js';
 import { RECIPES, USABLE, FX, loreOf } from '../systems/items.js';
 import { BADGES } from '../systems/levels.js';
-import { ENTRIES, RARE, TABS } from '../systems/journal.js';
+import { ENTRIES, RARE, SECRET_IDS, TABS } from '../systems/journal.js';
 import { unpackCell, exploreCell } from '../systems/save.js';
 import { drawMap } from './map.js';
 
@@ -262,6 +262,13 @@ export class Satchel {
       if (found) { p.type = 'button'; p.dataset.tip = 'item:' + id; p.dataset.act = 'look'; p.dataset.id = id; }
       rares.append(p);
       void L;
+    }
+    for (const id of SECRET_IDS) {
+      const found = !!g.journal?.has(id);
+      const e = ENTRIES.find((q) => q.id === id);
+      const p = el(found ? 'button' : 'span', 'col-rare' + (found ? ' got' : ''), `<i>${icon(e.glyph)}</i>`);
+      if (found) { p.type = 'button'; p.dataset.tip = 'entry:' + id; }
+      rares.append(p);
     }
     page.append(wall, rares);
   }
