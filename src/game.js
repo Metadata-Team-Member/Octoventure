@@ -2,7 +2,7 @@
 //  Game - ties world, octopus, predators, camera, HUD and audio together.
 // =====================================================================
 import * as THREE from 'three';
-import { CONFIG, TERRAIN } from './config.js';
+import { CONFIG } from './config.js';
 import { WorldData } from './world/worldData.js';
 import { WorldView, FOG_COLOR } from './world/worldView.js';
 import { setFade } from './world/fade.js';
@@ -345,7 +345,7 @@ void main(){
     const control = { mx: fx * inp.f + rx * inp.r, mz: fz * inp.f + rz * inp.r, sprint: inp.sprint, camo: inp.camo, climbKey: inp.climb, pitch: this.input.pitch };
     if (!playing) { control.mx = control.mz = 0; control.camo = false; control.sprint = false; }
 
-    const wasCamo = o.camoWanted, wasLocked = o.camoLocked, wasHealth = o.health, wasWater = o.waterKind;
+    const wasCamo = o.camoWanted, wasHealth = o.health, wasWater = o.waterKind;
     if (this.state === 'menu') { o.update(dt, control, world); }
     else o.update(dt, control, world);
 

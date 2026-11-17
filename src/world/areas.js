@@ -439,7 +439,6 @@ function coastBits(ctx) {
   for (let t = 0.85; t < 1.0; t += 0.004) { const p = w.shorePoint(eu, t); if (w.heightAt(p.x, p.z) < 0.5) { landT = t; break; } }
   const a = w.shorePoint(eu, landT - 0.03), b = w.shorePoint(eu, 1.0 + 0.1);
   const len = Math.hypot(b.x - a.x, b.z - a.z), steps = Math.floor(len / 4);
-  const rot = Math.atan2(w.dir.x, w.dir.z) - Math.PI / 2 + Math.PI;        // planks run along the sea direction
   for (let i = 0; i <= steps; i++) {
     const x = lerp(a.x, b.x, i / steps), z = lerp(a.z, b.z, i / steps);
     prop('plank', x, z, { y: 1.55, rot: Math.atan2(w.dir.x, w.dir.z), collide: false });

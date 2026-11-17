@@ -8,10 +8,10 @@
 //  Everything read back is validated and clamped, so a damaged, hand-edited or foreign save can never break the game: at worst it is ignored.
 //  Versioned: every format change adds a step to MIGRATIONS (older saves are carried forward; saves from a newer game are ignored).
 // =====================================================================
-import { ALL_ITEMS, Inventory } from './items.js';
+import { Inventory } from './items.js';
 import { CONFIG } from '../config.js';
 import { Levels } from './levels.js';
-import { Journal, TABS, ENTRY_BY } from './journal.js';
+import { Journal } from './journal.js';
 
 export const SAVE_KEY = 'octo.save.v2';
 export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their save here; it is carried forward on first load, then removed

@@ -19,7 +19,6 @@ const _qN = new THREE.Quaternion(), _qY = new THREE.Quaternion(), _UP = new THRE
 const TENT = 8, SEG = 12;
 // Australian blue-ringed octopus (Hapalochlaena): small, ochre-yellow/brown body with electric-blue rings.
 const SKIN = new THREE.Color(0xd9a63f);
-const DRY = new THREE.Color(0xc2b085);
 const RING_BLUE = new THREE.Color(0x0a52ff);
 const PALE = new THREE.Color(0xeaf6ff);
 const PALE_EDGE = new THREE.Color(0xb9c6d2);
@@ -519,7 +518,6 @@ export class Octopus {
     // tentacles
     for (let i = 0; i < TENT; i++) {
       const T = this.tentacles[i];
-      const side = Math.cos(T.a);   // x-side
       for (let j = 0; j < SEG; j++) {
         const s = j / (SEG - 1);
         const m = T.segs[j];
@@ -533,9 +531,6 @@ export class Octopus {
         y += (1 - move) * s * s * 0.12 * (1 - camo) * (1 - died);
         y = Math.max(0.07 + (1 - s) * 0.06, y);
         const fwd = Math.cos(ang) * reach, side2 = Math.sin(ang) * reach;
-        // sample ground at the tentacle so it sits on slopes instead of floating
-        const rotated = this.heading;
-        const wx = this.x + Math.sin(rotated) * (side2 * 0 + fwd * 0);
         m.position.set(side2, y, fwd);
       }
     }
