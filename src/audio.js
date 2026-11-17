@@ -185,7 +185,16 @@ export class GameAudio {
   thump(amp, x, y, z) { if (!this.ctx) return; const d = this.at(x, y, z); this.tone(52 + 20 * Math.min(1, amp), 0.16, 'sine', Math.min(0.5, 0.12 + amp * 0.32), -30, 0, d); this.noise(0.1, 140, Math.min(0.3, amp * 0.2), d, 0.8); }
   heartbeat(v = 0.25) { this.tone(62, 0.13, 'sine', v); this.tone(52, 0.16, 'sine', v * 0.8, 0, 0.17); }
   ink() { this.noise(0.6, 800, 0.22); this.tone(210, 0.4, 'sine', 0.12, -120); this.tone(330, 0.2, 'sine', 0.08, -150, 0.05); }
-  bite() { this.noise(0.35, 3000, 0.28, null, 1.2); this.tone(340, 0.3, 'sawtooth', 0.12, 240); }
+  /** venomous bite: a hard beak crunch and a wet hiss of venom */
+  bite() { if (!this.ctx) return; this.swish(0.05, 2600, 0.16, 'bandpass', 2.2, 0.003); this.swish(0.06, 1700, 0.12, 'bandpass', 2.5, 0.003, 0.05); this.swish(0.45, 5200, 0.05, 'highpass', 0.6, 0.04, 0.06, 3000); this.tone(220, 0.18, 'triangle', 0.05, -90, 0.02); }
+  /** beak bite: a quick double click of the beak (crisper when it connects) */
+  snap(hit = false) { if (!this.ctx) return; this.swish(0.035, 3200, hit ? 0.14 : 0.07, 'bandpass', 3, 0.002); this.swish(0.03, 2400, hit ? 0.12 : 0.05, 'bandpass', 3, 0.002, 0.045); if (hit) this.tone(180, 0.09, 'triangle', 0.05, -60, 0.01); }
+  /** a predator bitten to death: a yelp/squawk that drops away, then a soft thud as it falls (bigger animals land heavier) */
+  kill(x, y, z, tier = 2) {
+    if (!this.ctx) return; const d = this.at(x, y, z), f = 900 - tier * 140;
+    this.tone(f, 0.35, 'sawtooth', 0.05, -f * 0.6, 0, d); this.tone(f * 1.5, 0.25, 'sine', 0.04, -f * 0.9, 0.03, d);
+    this.tone(70 + 30 / tier, 0.22, 'sine', 0.08 + tier * 0.03, -25, 0.62, d); this.noise(0.12, 200, 0.05 + tier * 0.02, d, 0.8, 0.62);
+  }
   climb() { this.noise(0.5, 1800, 0.1, null, 1.5); }
   squeeze() { this.noise(0.5, 500, 0.18); this.tone(120, 0.4, 'sine', 0.1, 60); }
   grab() { this.noise(0.25, 260, 0.35); this.tone(130, 0.3, 'sawtooth', 0.14, -60); }

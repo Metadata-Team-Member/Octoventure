@@ -66,6 +66,7 @@ export class Satchel {
     if (B.feast > 0) add('feast', B.feast / FX.feast);
     if (B.tonic > 0) add('tonic', B.tonic / FX.tonic);
     if (o.venomReady) add('gland', 1);
+    if (o.lethalDose) add('dose', 1);
     if (o.inkCharges > 0) add('inksac', null, o.inkCharges);
     if (g.abilities?.dens.length) add('den', null, g.abilities.dens.length);
     this.fxrow.hidden = !this.fxrow.children.length;

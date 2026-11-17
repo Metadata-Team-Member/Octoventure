@@ -32,7 +32,9 @@ export class Input {
     on(window, 'keyup', (e) => this.keys.delete(e.code));
     on(window, 'blur', () => this.keys.clear());
     on(canvas, 'contextmenu', (e) => e.preventDefault());
-    on(canvas, 'mousedown', (e) => { if (e.button === 2) this.pressed.add('Mouse2'); });
+    // t250u: left click = beak bite (only while the mouse is captured: an uncaptured click just captures it), right click = venomous bite
+    on(canvas, 'mousedown', (e) => { if (e.button === 2) this.pressed.add('Mouse2'); else if (e.button === 0 && this.isLocked) this.pressed.add('Mouse0'); });
+    on(document, 'contextmenu', (e) => { if (this.isLocked || e.target === canvas) e.preventDefault(); });
     on(document, 'pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
       if (this.locked) { this.everLocked = true; this.lockFailed = false; this.dragging = false; }
@@ -115,18 +117,18 @@ export class Input {
     let camo = k.has('Space') || k.has('KeyC') || k.has('KeyE') || this.touchCamo;
     let climb = k.has('KeyR');
     const pr = this.pressed;
-    let ink = pr.has('KeyF') || pr.has('KeyQ'), bite = pr.has('KeyB') || pr.has('Mouse2'), pause = false;
+    let ink = pr.has('KeyF') || pr.has('KeyQ'), bite = pr.has('KeyB') || pr.has('Mouse2'), nip = pr.has('Mouse0') || pr.has('KeyX'), pause = false;
     let shelter = pr.has('KeyG'), boost = pr.has('KeyH'), den = pr.has('KeyV'), satchel = false;
-    // gamepad: left stick moves, right stick looks, triggers sprint, A camo, B ink, X bite, Y climb, Start pause
+    // gamepad: left stick moves, right stick looks, LT sprint, RT venomous bite, A camo, B ink, X beak bite, Y climb, Start pause
     const gp = this.pad.poll(dt);
     if (gp) {
       f += gp.f; r += gp.r; sprint = sprint || gp.sprint; camo = camo || gp.camo; climb = climb || gp.climb;
-      ink = ink || gp.ink; bite = bite || gp.bite; pause = gp.pause;
+      ink = ink || gp.ink; bite = bite || gp.bite; nip = nip || gp.nip; pause = gp.pause;
       shelter = shelter || gp.shelter; boost = boost || gp.boost; satchel = gp.back;
       if (gp.lookX || gp.lookY) { this.yaw -= gp.lookX; this.pitch = clamp(this.pitch + gp.lookY, CONFIG.camera.minPitch, CONFIG.camera.maxPitch); }
     }
     pr.clear();
-    return { f: clamp(f, -1, 1), r: clamp(r, -1, 1), sprint, camo, climb, ink, bite, pause, shelter, boost, den, satchel };
+    return { f: clamp(f, -1, 1), r: clamp(r, -1, 1), sprint, camo, climb, ink, bite, nip, pause, shelter, boost, den, satchel };
   }
   dispose() { for (const [el, ev, fn, o] of this.listeners) el.removeEventListener(ev, fn, o); }
 }

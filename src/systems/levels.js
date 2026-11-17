@@ -2,11 +2,11 @@
 //  Levels & badges (t241u / t242u). Pure data + logic (no three.js) so it is unit-testable and saved as-is.
 //
 //  Nothing is ever shown as a number, bar or popup. Experience comes quietly from doing things (new ground, gathering, making,
-//  rescuing, getting away, finding new places). A level-up is felt, not read: a shimmer of light and a soft halo around the
+//  rescuing, getting away, finding new places, and from t250u biting predators to death). A level-up is felt, not read: a shimmer of light and a soft halo around the
 //  octopus with a chime (the octopus never changes size or colour). Each level also gives a tiny hidden perk (it dries and
 //  tires a little more slowly). Badges are discoveries: they only appear, as picture tokens, in the Tab satchel.
 // =====================================================================
-export const XP = { cell: 2, gather: 3, craft: 10, baby: 30, shell: 6, escape: 12, biome: 25, sea: 60, badge: 15, flower: 1, night: 8 };
+export const XP = { kill: 0, cell: 2, gather: 3, craft: 10, baby: 30, shell: 6, escape: 12, biome: 25, sea: 60, badge: 15, flower: 1, night: 8 };
 export const MAX_LEVEL = 30;
 /** total experience needed to BE at level L (L1 = 0, L2 = 60, L3 = 150, L4 = 270, L5 = 420, L10 = 1800) */
 export const xpForLevel = (L) => (L <= 1 ? 0 : 15 * (L - 1) * (L + 2));
@@ -35,6 +35,7 @@ export const BADGES = [
   { id: 'storm',     glyph: 'b_bolt',    test: (s) => s.storm },
   { id: 'escape',    glyph: 'b_eye',     test: (s) => s.escapes >= 1 },
   { id: 'escape10',  glyph: 'b_eyes',    test: (s) => s.escapes >= 10 },
+  { id: 'hunter',    glyph: 'b_fang',    test: (s) => s.kills >= 1 },
   { id: 'level5',    glyph: 'b_spark',   test: (s, L) => L >= 5 },
   { id: 'level10',   glyph: 'b_crown',   test: (s, L) => L >= 10 },
 ];
@@ -45,7 +46,7 @@ export class Levels {
   reset() {
     this.xp = 0; this.level = 1;
     this.badges = new Set();
-    this.st = { cells: 0, biomes: new Set(), sea: false, babies: 0, gathered: 0, crafted: 0, madeAll: false, shells: 0, nightSwim: false, rainDance: 0, storm: false, escapes: 0 };
+    this.st = { cells: 0, biomes: new Set(), sea: false, babies: 0, gathered: 0, crafted: 0, madeAll: false, shells: 0, nightSwim: false, rainDance: 0, storm: false, escapes: 0, kills: 0, bigKill: 0 };
     this.allBiomes = 0;                 // how many land/sea biomes exist (set by the game)
     this.events = [];                   // [{type:'level', level} | {type:'badge', id}] drained by the game each frame
   }
@@ -84,6 +85,7 @@ export class Levels {
       case 'rain': s.rainDance++; this.check(); return;          // seconds out in the rain (no experience, just the badge)
       case 'storm': if (s.storm) return; s.storm = true; break;
       case 'flower': break;
+      case 'kill': s.kills++; s.bigKill = Math.max(s.bigKill, Math.min(4, arg?.tier || 1)); this.add(arg?.xp || 0); this.check(); return;
       default: return;
     }
     this.add(XP[kind] || 0);
@@ -93,7 +95,7 @@ export class Levels {
   toJSON() {
     const s = this.st;
     return { xp: Math.round(this.xp), b: BADGE_IDS.filter((id) => this.badges.has(id)),
-      st: { cells: s.cells, biomes: [...s.biomes], sea: s.sea, babies: s.babies, gathered: s.gathered, crafted: s.crafted, madeAll: s.madeAll, shells: s.shells, nightSwim: s.nightSwim, rainDance: Math.round(s.rainDance), storm: s.storm, escapes: s.escapes } };
+      st: { cells: s.cells, biomes: [...s.biomes], sea: s.sea, babies: s.babies, gathered: s.gathered, crafted: s.crafted, madeAll: s.madeAll, shells: s.shells, nightSwim: s.nightSwim, rainDance: Math.round(s.rainDance), storm: s.storm, escapes: s.escapes, kills: s.kills, bigKill: s.bigKill } };
   }
   /** load a (possibly damaged / hand-edited) saved object; never throws, never queues events */
   load(o) {
@@ -103,7 +105,7 @@ export class Levels {
     this.xp = n(o.xp, 1e8); this.level = levelOf(this.xp);
     if (Array.isArray(o.b)) for (const id of o.b) if (BADGE_IDS.includes(id)) this.badges.add(id);
     const t = o.st || {}, s = this.st;
-    s.cells = n(t.cells); s.babies = n(t.babies); s.gathered = n(t.gathered); s.crafted = n(t.crafted); s.shells = n(t.shells); s.escapes = n(t.escapes); s.rainDance = n(t.rainDance);
+    s.cells = n(t.cells); s.babies = n(t.babies); s.gathered = n(t.gathered); s.crafted = n(t.crafted); s.shells = n(t.shells); s.escapes = n(t.escapes); s.rainDance = n(t.rainDance); s.kills = n(t.kills); s.bigKill = n(t.bigKill, 4);
     s.sea = !!t.sea; s.madeAll = !!t.madeAll; s.nightSwim = !!t.nightSwim; s.storm = !!t.storm;
     if (Array.isArray(t.biomes)) for (const b of t.biomes.slice(0, 40)) if (typeof b === 'string' && /^[a-z]{2,16}$/.test(b)) s.biomes.add(b);
     return this;

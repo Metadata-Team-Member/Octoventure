@@ -14,7 +14,7 @@ import { Levels } from './levels.js';
 
 export const SAVE_KEY = 'octo.save.v2';
 export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their save here; it is carried forward on first load, then removed
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 const WEATHER_KINDS = ['clear', 'heatwave', 'rain', 'storm'];
 const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast', 'tonic'];
 const MAX_IDS = 6000, MAX_CELLS = 6000, MAX_DENS = 3;
@@ -39,6 +39,8 @@ export const MIGRATIONS = {
     };
   },
   // v3 (t241u) adds levels & badges. Older saves start at level 1, with what they already did counted towards the badges.
+  // v4 (t250u) adds the crafted lethal venom dose (fx.lethal) and kill tallies (lv.st.kills / bigKill); older saves have neither.
+  3: (o) => ({ ...o, v: 4, fx: { ...(o.fx && typeof o.fx === 'object' ? o.fx : {}), lethal: false } }),
   2: (o) => ({ ...o, v: 3, lv: { xp: 0, b: [], st: { cells: Array.isArray(o.explored) ? o.explored.length : 0, babies: Array.isArray(o.babies) ? o.babies.length : 0, sea: !!o.sea, shells: Number(o.shells?.n) || 0 } } }),
 };
 
@@ -83,7 +85,7 @@ export function validateSave(o) {
     shells: { n: Math.floor(num(sh.n, 0, 100000, 0)), o: (Array.isArray(sh.o) ? sh.o.filter((n) => Number.isInteger(n) && n >= 0 && n < 100000).slice(0, MAX_IDS) : []), r: ids(sh.r, ID_RE) },
     babies: ids(o.babies, ID_RE, 2000),
     inv,
-    fx: { buff, ink: Math.floor(num(fx.ink, 0, 20, 0)), venom: !!fx.venom },
+    fx: { buff, ink: Math.floor(num(fx.ink, 0, 20, 0)), venom: !!fx.venom, lethal: !!fx.lethal },
     dens,
     got: ids(o.got, ID_RE),
     explored: cells,
@@ -114,7 +116,7 @@ export function snapshot(game) {
     shells: { n: game.progress.shells, o: shellO, r: shellR },
     babies: [...game.progress.rescued].map(String),
     inv: inv.toJSON(),
-    fx: { buff, ink: o.inkCharges, venom: o.venomReady },
+    fx: { buff, ink: o.inkCharges, venom: o.venomReady, lethal: !!o.lethalDose },
     dens: game.abilities.denList(),
     got, explored: [...game.explored].slice(-MAX_CELLS),
     lv: game.levels.toJSON(),
@@ -133,7 +135,7 @@ export function applySave(game, s) {
   game.collect.restore(s.shells.o, s.shells.r, s.babies);
   game.inv.load(s.inv);
   for (const k of BUFFS) o.buff[k] = s.fx.buff[k];
-  o.inkCharges = s.fx.ink; o.venomReady = s.fx.venom;
+  o.inkCharges = s.fx.ink; o.venomReady = s.fx.venom; o.lethalDose = !!s.fx.lethal;
   o.kelpF = o.buff.kelp > 0 ? 1 : 0; o.mimicF = o.buff.mimic > 0 ? 1 : 0; o.feastF = o.buff.feast > 0 ? 1 : 0; o.jarF = o.buff.jar > 0 ? 1 : 0;
   for (const d of s.dens) game.abilities.addDen(d.x, d.z, false);
   game.gather.markCollected(s.got);

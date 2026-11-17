@@ -113,7 +113,7 @@ export const CONFIG = {
   // ---- Abilities (all discovered by play; keys are only listed in the README) ----------------------
   abilities: {
     inkCooldown: 9, inkRadius: 6.5, inkLife: 7,          // F / Q (or gamepad B): only works in water
-    biteCooldown: 28, biteRange: 3.6, biteScare: 9,      // right-click / B (or gamepad X): last resort
+    biteCooldown: 14, biteRange: 3.6, biteScare: 9,      // venomous bite: right-click / B (gamepad RT). Cooldown now lives in systems/combat.js BITE
     climbPush: 0.55,                                     // seconds of pushing into a fence/wall before the octopus climbs by itself (R / gamepad Y: instantly)
     hideNoticeMult: 0.22,                                // sight range multiplier while tucked into a shell / tin / under a rock
     swimSpeedMult: 1.2,                                  // extra speed in deep sea water (on top of the wading boost)

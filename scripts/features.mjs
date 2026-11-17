@@ -112,7 +112,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     return { none, cdNone, used, cd, st, again, far, ign: dog.ignore };
   });
   ok(r.none === false && r.cdNone === 0, 'the bite needs an adjacent predator (and keeps its cooldown otherwise)');
-  ok(r.used && r.cd >= 20 && r.st === 'flee', `the bite scares an adjacent dog off (cooldown ${r.cd.toFixed(0)} s)`);
+  ok(r.used && r.cd >= 10 && r.st === 'flee', `at level 1 the venomous bite only scares an adjacent dog off (cooldown ${r.cd.toFixed(0)} s)`);
   ok(r.again === false, 'second bite refused while on cooldown');
   ok(r.ign > 10, 'the scared predator stays away for a good while');
   const ring = await E(() => { const G = window.__game, o = G.game.octopus; o.biteCool = 0; o.alarm = 1; G.advance(0.2); const a = o.ringBlue.emissiveIntensity; o.alarm = 0; G.advance(0.2); const b = o.ringBlue.emissiveIntensity; return { a, b }; });
@@ -340,8 +340,8 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const p0 = { x: o.x, z: o.z }; G.mockPad(pad([0, -1, 0, 0])); g.advance(1); out.moved = Math.hypot(o.x - p0.x, o.z - p0.z);
     // right stick looks
     const y0 = g.input.yaw; G.mockPad(pad([0, 0, 1, 0])); g.advance(0.5); out.looked = Math.abs(g.input.yaw - y0);
-    // triggers sprint
-    G.mockPad(pad([0, -1, 0, 0], [7])); g.advance(1); out.sprint = o.sprinting;
+    // LT sprints (RT is the venomous bite since t250u)
+    G.mockPad(pad([0, -1, 0, 0], [6])); g.advance(1); out.sprint = o.sprinting;
     // A = camo
     G.mockPad(pad([0, 0, 0, 0], [0])); g.advance(0.6); out.camo = o.camoWanted;
     G.mockPad(pad([0, 0, 0, 0])); g.advance(1.2);
@@ -349,7 +349,8 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const q = w.waters.find((a) => a.kind === 'pond' || a.kind === 'puddle'); G.teleport(q.x, q.z); g.advance(0.2);
     G.mockPad(pad([0, 0, 0, 0], [1])); g.advance(0.1); G.mockPad(pad([0, 0, 0, 0])); g.advance(0.05); out.ink = G.inkClouds;
     const dog = G.spawnPredator('dog', 2, 0); g.advance(0.05); dog.state = 'chase'; o.biteCool = 0;
-    G.mockPad(pad([0, 0, 0, 0], [2])); g.advance(0.1); G.mockPad(pad([0, 0, 0, 0])); g.advance(0.05); out.bite = G.biteCool;
+    G.mockPad(pad([0, 0, 0, 0], [7])); g.advance(0.1); G.mockPad(pad([0, 0, 0, 0])); g.advance(0.05); out.bite = G.biteCool;
+    o.nipCool = 0; G.mockPad(pad([0, 0, 0, 0], [2])); g.advance(0.02); out.nip = o.nipT > 0; G.mockPad(pad([0, 0, 0, 0])); g.advance(0.05);
     G.clearPredators();
     // Y = climb
     const c = G.teleportToClimbable('fence'); o.pushT = 0;
@@ -363,10 +364,11 @@ const uiBefore = await E(() => document.body.innerText.trim());
   });
   ok(r.moved > 6 * 0.42, `left stick moves (${r.moved.toFixed(1)} m)`);
   ok(r.looked > 0.5, `right stick looks (${r.looked.toFixed(2)} rad)`);
-  ok(r.sprint, 'trigger sprints');
+  ok(r.sprint, 'LT sprints');
   ok(r.camo, 'A holds camouflage');
   ok(r.ink === 1, 'B makes an ink cloud (in water)');
-  ok(r.bite > 20, 'X bites');
+  ok(r.bite > 10, `RT is the venomous bite (cooldown ${r.bite?.toFixed?.(1)})`);
+  ok(r.nip, 'X is the beak bite');
   ok(r.climb, 'Y climbs');
   ok(r.paused, 'Start pauses');
   const resumed = await E(() => { const G = window.__game; const g = G.game; return g.paused; });
@@ -502,7 +504,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   });
   ok(r.inPause && r.hiddenWhilePlaying, 'the controls list lives only inside the pause overlay (hidden while playing)');
   ok(r.shown && r.cols === 2 && r.rows.length >= 8, `pause shows a two-column key / action list (${r.rows.length} rows)`);
-  ok(['Move', 'Look', 'Sprint', 'Camouflage (hold)', 'Pause'].every((a) => r.rows.some((x) => x[1] === a)), 'it lists move, look, sprint, camouflage and pause');
+  ok(['Move', 'Look', 'Sprint', 'Camouflage (hold)', 'Bite', 'Venomous bite', 'Pause'].every((a) => r.rows.some((x) => x[1] === a)), 'it lists move, look, sprint, camouflage, bite, venomous bite and pause');
   ok(/gamepad/i.test(r.pad), 'a compact gamepad line follows the list');
   ok(!r.leak, 'no hidden mechanics are mentioned in the controls list');
   ok(!/move|sprint|esc/i.test(r.startHas), `the start screen carries no controls or hints ("${r.startHas.replace(/\s+/g, ' ').trim()}")`);

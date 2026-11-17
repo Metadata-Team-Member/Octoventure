@@ -27,6 +27,7 @@ import { Levels } from './systems/levels.js';
 import { Shimmer } from './systems/shimmer.js';
 import { SeaBeat } from './systems/seabeat.js';
 import { Critters } from './systems/critters.js';
+import { TIER, PEOPLE, BITE, killTier, nipsFor, killXP, lethal } from './systems/combat.js';
 import { BIOMES } from './world/biomes.js';
 import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell } from './systems/save.js';
 import { clamp, damp, lerp, mulberry32 } from './util/rng.js';
@@ -284,7 +285,7 @@ void main(){
 
   begin() {
     if (this.state !== 'menu') return;
-    if (this.pendingSave) { const s = this.pendingSave, o = this.octopus; this.pendingSave = null; o.health = s.octo.health; o.energy = s.octo.energy; for (const k in s.fx.buff) o.buff[k] = s.fx.buff[k]; o.inkCharges = s.fx.ink; o.venomReady = s.fx.venom; }
+    if (this.pendingSave) { const s = this.pendingSave, o = this.octopus; this.pendingSave = null; o.health = s.octo.health; o.energy = s.octo.energy; for (const k in s.fx.buff) o.buff[k] = s.fx.buff[k]; o.inkCharges = s.fx.ink; o.venomReady = s.fx.venom; o.lethalDose = !!s.fx.lethal; }
     this.input.requestLock();
     this.audio.start(); this.audio.resume();
     this.state = 'playing';
@@ -331,7 +332,7 @@ void main(){
       this.env.updatePuddles(dt, o);
       // abilities: ink (water only) and the venom bite (last resort)
       if (o.alive) {
-        if (inp.ink) this.tryInk(); if (inp.bite) this.tryBite();
+        if (inp.ink) this.tryInk(); if (inp.bite) this.tryBite(); if (inp.nip) this.tryNip();
         if (inp.shelter) this.abilities.quickShelter(); if (inp.boost) this.abilities.quickBoost(); if (inp.den) this.abilities.use('den');
       }
       this.leaveScent(o);
@@ -424,18 +425,53 @@ void main(){
     this.audio.ink();
     return true;
   }
-  /** venom bite: scares off an adjacent predator; long cooldown, so it really is a last resort */
+  /**
+   * Beak bite (t250u, left click / X / pad X): a quick nip at whatever is right in front. The octopus lunges either way (a snap of
+   * the beak at the air if nothing is there). A nipped animal flinches; small ones (up to one tier above what the octopus can kill)
+   * back off for a moment; enough nips finish something the octopus's level can kill, otherwise it just bolts.
+   */
+  tryNip() {
+    const o = this.octopus;
+    if (o.nipCool > 0 || o.tunnel || o.carried || !o.alive) return false;
+    o.nipCool = BITE.nipCooldown; o.nipT = 1; o.nipHard = 0;
+    const p = this.predators.nearest(o, BITE.nipRange * (o.sz / 0.42));
+    this.audio.snap(!!p);
+    if (!p) return false;
+    const tier = TIER[p.kind] ?? 2, kt = killTier(this.levels.level);
+    o.shake = Math.max(o.shake, 0.2);
+    if (p.nip() <= 0) {
+      if (tier <= kt) this.killPredator(p, false);
+      else { p.scare(CONFIG.abilities.biteScare * 0.6); p.hp = nipsFor(tier); }
+    } else if (tier <= kt + 1) p.scare(BITE.nipScare);
+    return true;
+  }
+  /**
+   * Venomous bite (t250u / t251u, right click / B / pad RT): tetrodotoxin from the bacteria in its saliva goes in with the bite.
+   * At low levels it is a deterrent (the predator bolts for a good while); from level 3 it kills small predators, then bigger ones
+   * as the octopus levels up (systems/combat.js). A crafted lethal dose makes the next one lethal to any predator (never people).
+   * The venom gland (amber rings) still makes it reach further and frighten for longer.
+   */
   tryBite() {
     const o = this.octopus, A = CONFIG.abilities;
-    if (o.biteCool > 0 || o.tunnel || o.carried) return false;
-    const V = o.venomReady;                                            // venom gland: the next bite reaches further and scares for longer
-    const p = this.predators.bite(o, A.biteRange * (V ? FX.venomRange : 1), A.biteScare * (V ? FX.venomScare : 1));
-    if (!p) return false;
+    if (o.biteCool > 0 || o.tunnel || o.carried || !o.alive) return false;
+    const V = o.venomReady;
+    const p = this.predators.nearest(o, A.biteRange * (V ? FX.venomRange : 1));
+    if (!p) { if (o.nipT <= 0) { o.nipT = 1; o.nipHard = 0.3; this.audio.snap(false); } return false; }     // nothing in reach: a snap at the air, venom kept
+    const dose = o.lethalDose && (TIER[p.kind] ?? 2) < PEOPLE;
     o.venomReady = false;
-    o.biteCool = A.biteCooldown; o.biteFlash = 1; o.shake = Math.max(o.shake, 0.55);
+    o.biteCool = BITE.venomCooldown; o.biteFlash = 1; o.nipT = 1; o.nipHard = 0.6; o.shake = Math.max(o.shake, 0.55);
     this.fx.venom(o.x, o.y, o.z, p.x - o.x, p.z - o.z);
     this.audio.bite();
+    if (lethal(p.kind, this.levels.level, dose)) { if (dose) o.lethalDose = false; this.killPredator(p, true); }
+    else p.scare(A.biteScare * (V ? FX.venomScare : 1));
     return true;
+  }
+  killPredator(p, venom) {
+    const tier = Math.min(4, TIER[p.kind] ?? 2);
+    p.die();
+    this.audio.kill(p.x, p.y + 0.5, p.z, tier);
+    this.levels.did('kill', { tier, venom, xp: killXP(tier, venom) });
+    this.kills = (this.kills || 0) + 1;
   }
   /** the dogs' trail: a breadcrumb of scent points that fade after half a minute (water washes it away) */
   leaveScent(o) {

@@ -41,10 +41,11 @@ npm run build:dist   # normal multi-file build into dist/ (for hosting on any st
 |---|---|---|
 | Move (relative to the camera) | **W A S D** or arrow keys | left stick |
 | Look around | just move the mouse (click Play once to capture it) | right stick |
-| Sprint (dries you out 2x faster) | **Shift** | LT / RT |
+| Sprint (dries you out 2x faster) | **Shift** | LT |
 | Camouflage (hold) | **Space**, **C** or **E** | A (hold) |
 | Ink cloud (only works in water) | **F** or **Q** | B |
-| Venom bite (last resort, long recharge) | **B** or right-click | X |
+| Bite (beak) | left click or **X** | X |
+| Venomous bite (recharges slowly) | right-click or **B** | RT |
 | Climb a fence / wall at once | **R** (or just keep pushing into it) | Y (hold) |
 | Satchel (pauses the game) | **Tab** (**Esc** or **Tab** again to close) | View / Back |
 | Quick keys for what you carry (listed on the pause screen) | **G**, **H**, **V** | LB, RB |
@@ -67,7 +68,7 @@ There is **no HUD, timer, tutorial, markers or hint text**. Everything is read f
 * The octopus **dries out** (about 6.5 min from full on ordinary ground, faster on some surfaces and at midday or in heatwaves). Its **colour fades toward grey as it dries**. Find water: puddles, ponds, streams, tide pools, drips, taps, sprinklers, bird baths, pet bowls, bin lids after rain, dew at dawn, rain, the sea. Wading is faster than walking.
 * **Predators** (gull, cat, dog, fox, crab, eagle, person, magpie, kookaburra) each behave differently; you read them by body language - heads turning toward you, freezing, crouching, wings up, calls - and by your **blue rings flashing** when you have been noticed.
 * **Camouflage:** your body takes the ground colour and the rings fade; while camouflaged predators cannot hurt you and wander off. It costs energy (rings go paler as it runs out) and freezes you. **Cars ignore camouflage** - they are not looking - so listen: engine noise swells as one approaches and it will honk if it is bearing down on you.
-* **Abilities found by playing:** squeeze through drains, pipes, culverts and fence holes (walk into the mouth); hide in tins, shells, logs and under slabs; ink cloud in water blinds attackers; venom bite scares one off; climb fences and walls.
+* **Abilities found by playing:** squeeze through drains, pipes, culverts and fence holes (walk into the mouth); hide in tins, shells, logs and under slabs; ink cloud in water blinds attackers; a quick beak bite (left click) and a venomous bite (right click) that grows more dangerous as you grow in experience; climb fences and walls.
 * **Little octopuses** are hiding around the world; finding one plays a small scene. Nothing is counted on screen.
 * **The sea** is somewhere in the one world, no compass or map (you start at a different place each game, so its direction is never a given); clues: sand and dunes, gulls and surf, pale haze, a sea breeze, streams drifting to the coast, Norfolk pines, a lighthouse. **Reaching it does not end the game**: you can swim, dive (look down), explore the reef and rock pools and walk back inland. Dying (0 health) stops the octopus and offers **Restart game**.
 * The world has 13 biomes: suburb, town, farm, bush, riverbank, wetland, dunes, beach, headland, estuary, red desert, rainforest gully and the sea.

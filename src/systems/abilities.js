@@ -6,6 +6,7 @@
 //    wrap       kelp draped over the body; slows drying on land
 //    feast      the blue rings glow brighter; health comes back at once
 //    gland      amber rings: the next bite reaches further and scares for much longer
+//    dose       violet flicker in the rings: the next venomous bite is lethal to any predator (single use)
 //    hideaway   you tuck inside a glass jar; birds can't get at you; slow going
 //    tonic      urchin + mangrove seed: camouflage energy refilled, then it drains slowly for a while
 //    meal       worm + frog spawn: full health and long-glowing rings
@@ -70,6 +71,7 @@ export class Abilities {
       case 'wrap': if (o.buff.kelp > 0) return false; o.buff.kelp = FX.kelp; break;
       case 'feast': o.health = Math.min(100, o.health + FX.feastHeal); o.buff.feast = FX.feast; o.glowBoost = 1; break;
       case 'gland': if (o.venomReady) return false; o.venomReady = true; break;
+      case 'dose': if (o.lethalDose) return false; o.lethalDose = true; o.glowBoost = 0.4; break;      // t250u: the next venomous bite kills any predator
       case 'mimic': o.buff.mimic = FX.mimic; break;
       case 'tonic': if (o.energy > 96 && o.buff.tonic > 0) return false; o.energy = 100; o.buff.tonic = FX.tonic; o.glowBoost = 0.6; break;
       case 'meal': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.mealHeal); o.buff.feast = FX.mealGlow; o.glowBoost = 1; break;

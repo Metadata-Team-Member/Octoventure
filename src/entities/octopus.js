@@ -6,7 +6,10 @@ import { CONFIG, TERRAIN, diff } from '../config.js';
 import { clamp, damp, dampAngle, lerp } from '../util/rng.js';
 import { FX } from '../systems/items.js';
 const BIRD_CAUSES = new Set(['gull', 'eagle', 'magpie', 'kookaburra']);
-const INK_TINT = new THREE.Color(0x3a3350), VENOM_TINT = new THREE.Color(0xffd23f);
+const INK_TINT = new THREE.Color(0x3a3350), VENOM_TINT = new THREE.Color(0xffd23f), LETHAL_TINT = new THREE.Color(0xa45bff);
+// scratch objects for animate() (no per-frame allocation)
+const _ground = new THREE.Color(), _camoT = new THREE.Color(), _camoD = new THREE.Color(), _grey = new THREE.Color();
+const _qN = new THREE.Quaternion(), _qY = new THREE.Quaternion(), _UP = new THREE.Vector3(0, 1, 0), _nV = new THREE.Vector3();
 
 const TENT = 8, SEG = 12;
 // Australian blue-ringed octopus (Hapalochlaena): small, ochre-yellow/brown body with electric-blue rings.
@@ -161,7 +164,7 @@ export class Octopus {
     this.tmpN = { x: 0, y: 1, z: 0 };
     this.wetness = 0.5;
     this.splashT = 0;
-    this.inkCool = 0; this.biteCool = 0; this.biteReady = 1; this.hiddenIn = null; this.hideBlend = 0;
+    this.inkCool = 0; this.biteCool = 0; this.nipCool = 0; this.nipT = 0; this.nipHard = 0; this.lethalDose = false; this.biteReady = 1; this.hiddenIn = null; this.hideBlend = 0;
     this.tunnel = null; this.climb = null; this.pushT = 0; this.carried = null; this.swim = 0; this.dive = 0; this.invuln = 0;
     this.shake = 0; this.thump = 0; this.group.visible = true; this.pendingBabyGlow = 0;
     this.armor = 0;                // hidden: fraction of damage absorbed (set by the game from collected shells)
@@ -171,7 +174,7 @@ export class Octopus {
     this.inkCharges = 0; this.venomReady = false; this.moveMult = 1;
   }
 
-  greyOf(c) { const l = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; return new THREE.Color(l * 0.95 + 0.06, l * 0.95 + 0.06, l * 0.95 + 0.06); }
+  greyOf(c, out = new THREE.Color()) { const l = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; return out.setRGB(l * 0.95 + 0.06, l * 0.95 + 0.06, l * 0.95 + 0.06); }
   get camoActive() { return this.camoBlend > 0.85; }     // fully blended
   /** hidden: predators can't hurt or track you. Immediate while the key is held (and energy lasts), brief grace while fading out. */
   get camoProtected() { return this.alive && (this.camoWanted || this.camoBlend > 0.5 || !!this.tunnel || this.invuln > 0 || this.shieldClosed > 0.75); }
@@ -206,7 +209,7 @@ export class Octopus {
     this.waterKind = water ? water.kind : null;
 
     for (const k in this.buff) this.buff[k] = Math.max(0, this.buff[k] - dt);
-    this.inkCool = Math.max(0, this.inkCool - dt); this.biteCool = Math.max(0, this.biteCool - dt); this.invuln = Math.max(0, this.invuln - dt);
+    this.inkCool = Math.max(0, this.inkCool - dt); this.biteCool = Math.max(0, this.biteCool - dt); this.nipCool = Math.max(0, this.nipCool - dt); this.invuln = Math.max(0, this.invuln - dt);
     this.shake = Math.max(0, this.shake - dt * 2.2);
     this.thump = Math.max(0, (this.thump || 0) - dt * 5);
     if (this.alive && !this.won && (this.tunnel || this.climb || this.carried)) {
@@ -431,13 +434,13 @@ export class Octopus {
     const died = this.alive ? 0 : clamp(this.deadT / 1.2, 0, 1);
 
     // colour: skin -> dry & pale -> grey when dead; camo blends toward the ground colour
-    const ground = new THREE.Color(TERRAIN[this.terrain].color);
+    const ground = _ground.set(TERRAIN[this.terrain].color);
     this.camoColor.lerp(ground, 1 - Math.exp(-6 * dt));
     const col = this.mat.color;
     // colour drains toward grey as health falls: full colour at 100, grey near 0
-    col.copy(SKIN).lerp(this.greyOf(SKIN), dry * 0.95).lerp(DEAD, died);
+    col.copy(SKIN).lerp(this.greyOf(SKIN, _grey), dry * 0.95).lerp(DEAD, died);
     // camouflage: blend toward ground colour (a touch darker, like a shadow-pattern)
-    const camoTarget = this.camoColor.clone().multiplyScalar(0.92);
+    const camoTarget = _camoT.copy(this.camoColor).multiplyScalar(0.92);
     col.lerp(camoTarget, camo * 0.96);
     if (this.inkCharges > 0) col.lerp(INK_TINT, 0.18 * Math.min(1, this.inkCharges / 2));   // a full ink sac shows through the skin
     this.mat.roughness = lerp(0.3, 0.85, Math.max(dry * 0.8, camo));
@@ -449,13 +452,13 @@ export class Octopus {
     const alarm = this.alive ? this.alarm : 0;
     const vis = (1 - camo) * (1 - died);
     const ringColor = this.ringBlue.color;
-    ringColor.copy(RING_BLUE).lerp(RING_FLASH, Math.max(shimmer * 0.25, alarm * pulse * 0.8)).lerp(this.greyOf(RING_BLUE), dry * 0.85);
+    ringColor.copy(RING_BLUE).lerp(RING_FLASH, Math.max(shimmer * 0.25, alarm * pulse * 0.8)).lerp(this.greyOf(RING_BLUE, _grey), dry * 0.85);
     this.ringBlue.emissive.copy(ringColor);
     this.ringBlue.emissiveIntensity = (0.2 + 0.08 * shimmer + alarm * (0.05 + 0.5 * pulse)) * vis + 0.02;
     // when camouflaged the rings fade into the ground colour
     ringColor.lerp(camoTarget, camo * 0.9);
     this.ringBlue.emissive.lerp(camoTarget, camo * 0.9);
-    this.ringBlack.color.set(0x07070a).lerp(camoTarget.clone().multiplyScalar(0.7), camo * 0.9);
+    this.ringBlack.color.set(0x07070a).lerp(_camoD.copy(camoTarget).multiplyScalar(0.7), camo * 0.9);
     // camouflage energy cue: while hidden the (dark) rings get lighter and lighter as the camo runs out
     const warn = camo * Math.pow(1 - clamp(this.energy / CONFIG.camo.maxEnergy, 0, 1), 1.15);
     ringColor.lerp(PALE, warn);
@@ -467,6 +470,7 @@ export class Octopus {
     this.wasCooling = this.biteCool > 0;
     this.readyFlash = Math.max(0, (this.readyFlash || 0) - dt * 1.2); this.biteFlash = Math.max(0, (this.biteFlash || 0) - dt * 2.5); this.glowBoost = Math.max(0, (this.glowBoost || 0) - dt * 0.35);
     const readyPulse = ready && this.alarm > 0.25 ? 0.55 * (0.5 + 0.5 * Math.sin(this.flashT * 3.4)) * (1 - camo) : 0;
+    if (this.lethalDose) { const k = 0.55 * (0.6 + 0.4 * Math.sin(this.flashT * 2.7)); ringColor.lerp(LETHAL_TINT, k); this.ringBlue.emissive.lerp(LETHAL_TINT, k); }   // t250u: a violet flicker = a lethal dose is ready
     if (this.venomReady) { ringColor.lerp(VENOM_TINT, 0.6 * (0.7 + 0.3 * Math.sin(this.flashT * 1.6))); this.ringBlue.emissive.lerp(VENOM_TINT, 0.6); }
     this.ringBlue.emissiveIntensity += this.feastF * (0.75 + 0.25 * Math.sin(this.flashT * 1.3)) * vis;
     this.ringBlue.emissiveIntensity += (readyPulse + this.readyFlash * 0.8 + this.biteFlash * 1.2 + this.glowBoost * 1.4) * (1 - died);
@@ -479,6 +483,10 @@ export class Octopus {
     this.body.scale.set(1 + camo * 0.12 + died * 0.2, squash, 1 + camo * 0.12 + died * 0.2);
     this.body.position.y = 0.0 - died * 0.05 + Math.abs(Math.sin(t * 2.2)) * 0.04 * move;
     this.body.rotation.z = Math.sin(t * 1.1) * 0.03 * move;
+    // t250u bite lunge: the mantle darts forward and dips (harder for the venomous bite), then settles back
+    this.nipT = Math.max(0, this.nipT - dt * 4);
+    const lunge = Math.sin(this.nipT * Math.PI) * (1 + this.nipHard);
+    this.body.position.z = lunge * 0.12; this.body.rotation.x = lunge * 0.22;
     for (const e of this.eyes) {
       e.eye.scale.setScalar(this.alive ? (camo > 0.5 ? 0.75 : 1) : 0.6);
       e.pupil.scale.y = this.alive ? 1 : 0.2;
@@ -520,8 +528,8 @@ export class Octopus {
     const tiltX = Math.atan2(n.z, n.y) * 0.0, tiltZ = 0;
     this.group.position.set(this.x, this.y + 0.02, this.z);
     this.group.rotation.set(0, this.heading, 0);
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(n.x, n.y, n.z));
-    const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.heading);
+    const q = _qN.setFromUnitVectors(_UP, _nV.set(n.x, n.y, n.z));
+    const yaw = _qY.setFromAxisAngle(_UP, this.heading);
     this.group.quaternion.copy(q.multiply(yaw));
     void tiltX; void tiltZ;
   }

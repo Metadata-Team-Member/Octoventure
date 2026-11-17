@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { CONFIG, diff } from '../config.js';
 import { clamp, damp, dampAngle, angleDiff, lerp } from '../util/rng.js';
+import { TIER, nipsFor } from '../systems/combat.js';
 
 let RND = Math.random;
 const _up = new THREE.Vector3(0, 1, 0), _sv = new THREE.Vector3(), _sn = { x: 0, y: 1, z: 0 };
@@ -286,6 +287,29 @@ export class Predator {
     this.state = this.spec.flying ? 'climb' : 'flee'; this.fleeT = sec; this.timer = Math.min(sec, 4); this.ignore = sec + 6; this.lastSeen = null; this.alertT = 0;
     this.blind = 0; if (this.carrying) this.release();
     this.cue(0.45);
+  }
+  /** beak nip (t250u): a flinch (the whole body jerks back) and one nip closer to the end */
+  nip() { this.flinch = 1; this.hp = (this.hp ?? nipsFor(TIER[this.kind] ?? 2)) - 1; return this.hp; }
+  /** killed by a bite: it stops, keels over onto its side (birds drop to the ground), lies still, then sinks away */
+  die() {
+    if (this.dead) return;
+    if (this.carrying) this.release();
+    this.dead = true; this.deadT = 0; this.state = 'dead'; this.speed = 0; this.lunge = 0; this.cue(0);
+    this.deadH = (this.alt || 0) + (this.lift || 0); this.alt = 0; this.lift = 0; this.deadSide = RND() < 0.5 ? -1 : 1;
+    if (this.shadowDisc) this.shadowDisc.visible = false;
+  }
+  updateDead(dt) {
+    this.deadT += dt;
+    const gy = this.world.heightAt(this.x, this.z), f = Math.min(1, this.deadT / 0.75), e = f * f * (3 - 2 * f);
+    const sink = Math.max(0, this.deadT - 3.5) * 0.45 * this.scale;
+    this.y = gy + this.deadH * (1 - f * f) + 0.28 * this.scale * e - sink; this.groundY = gy;
+    this.group.position.set(this.x, this.y, this.z);
+    this.group.rotation.set(0, this.heading + (this.spec.side ? Math.PI / 2 : 0), this.deadSide * Math.PI * 0.5 * e);
+    const p = this.parts;
+    if (p.legs) p.legs.forEach((l, i) => { l.rotation.x = 0.25 * e * (i % 2 ? 1 : -1); });
+    if (p.wings) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * 0.15; });
+    if (p.head) p.head.rotation.y = 0;
+    p.g.position.set(0, 0, 0); p.g.rotation.x = 0; p.g.scale.y = 1;
   }
   release() { this.carrying = false; this.state = 'leave'; this.timer = 5; this.ignore = 10; this.target = null; }
 
@@ -697,6 +721,10 @@ export class Predator {
     const lungeOff = this.state === 'attack' ? Math.sin(this.lunge * Math.PI) * 0.9 : 0;
     p.g.position.set(0, (s.hop ? Math.abs(Math.sin(t * 3.2)) * 0.18 * mv : Math.abs(Math.sin(t * 3.2)) * 0.06 * mv), lungeOff);
     p.g.rotation.x = this.state === 'attack' ? -Math.sin(this.lunge * Math.PI) * 0.25 : 0;
+    if (this.flinch > 0) {      // nipped: a sharp jerk back and up
+      this.flinch = Math.max(0, this.flinch - (dt || 0.016) * 3.5);
+      p.g.position.z -= Math.sin(this.flinch * Math.PI) * 0.35; p.g.rotation.x += this.flinch * 0.3;
+    }
   }
 
   dispose(scene) {
@@ -777,16 +805,23 @@ export class PredatorManager {
     }
   }
   spawn(kind, x, z) { return this.add(new Predator(kind, x, z, this.world, this.scene)); }
-  /** venom bite: scare off the closest predator within reach (returns it, or null) */
-  bite(player, range, sec) {
+  /** the closest living predator within reach of the octopus (birds only when they are down low); null if none */
+  nearest(player, range) {
     let best = null, bd = range;
     for (const p of this.list) {
-      const d = Math.hypot(p.x - player.x, p.z - player.z) - (p.spec.flying ? 0 : 0);
-      if (d < bd && (!p.spec.flying || p.alt < 3)) { bd = d; best = p; }
+      if (p.dead) continue;
+      const d = Math.hypot(p.x - player.x, p.z - player.z) - 0.35 * p.scale;      // measured to the animal's near side, roughly
+      if (d < bd && (!p.spec.flying || p.alt + (p.lift || 0) < 3)) { bd = d; best = p; }
     }
+    return best;
+  }
+  /** venom bite as a deterrent: scare off the closest predator within reach (returns it, or null) */
+  bite(player, range, sec) {
+    const best = this.nearest(player, range);
     if (best) best.scare(sec);
     return best;
   }
+  get living() { let n = 0; for (const p of this.list) if (!p.dead) n++; return n; }
   update(dt, player) {
     let threat = 0; let hurt = 0; const R = CONFIG.predators.activeRadius;
     const events = [];
@@ -802,12 +837,14 @@ export class PredatorManager {
       const p = this.list[i];
       if (p.far && Math.hypot(p.x - player.x, p.z - player.z) > 300) { p.dispose(this.scene); this.list.splice(i, 1); continue; }
       if (p.storm && w.weatherKind !== 'storm' && Math.hypot(p.x - player.x, p.z - player.z) > 60) { p.dispose(this.scene); this.list.splice(i, 1); continue; }
+      if (p.dead && p.deadT > 6.5) { p.dispose(this.scene); this.list.splice(i, 1); continue; }      // bitten to death: gone once it has sunk away
     }
     for (const p of this.list) {
       const d = Math.hypot(p.x - player.x, p.z - player.z);
       const near = d < R;
       p.group.visible = d < CONFIG.graphics.fogFar + 20;
       if (p.shadowDisc && !p.group.visible) p.shadowDisc.visible = false;
+      if (p.dead) { p.updateDead(dt); continue; }
       if (!near) continue;
       hurt += p.update(dt, player, this.world);
       // ground-thump: every footfall of a heavy walker shakes the ground under the octopus (felt through the camera + a low thud)

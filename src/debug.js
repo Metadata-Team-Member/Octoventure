@@ -134,6 +134,8 @@ export function installDebugHooks(game) {
     get dom() { return document.body.innerText.trim(); },
     inkNow() { return game.tryInk(); },
     biteNow() { return game.tryBite(); },
+    nipNow() { return game.tryNip(); },
+    setLevel(L) { const lv = game.levels; lv.xp = 15 * (L - 1) * (L + 2); lv.level = L; lv.events.length = 0; },
     get inkClouds() { return game.world.ink.length; },
     get inkCool() { return game.octopus.inkCool; },
     get biteCool() { return game.octopus.biteCool; },
