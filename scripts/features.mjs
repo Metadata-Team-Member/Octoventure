@@ -261,9 +261,37 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
     const out = {};
     G.clearPredators(); G.teleport(w.start.x, w.start.z); g.advance(0.2); o.health = 100; o.armor = 0; o.invuln = 0;
-    // --- cat: stalk, then pounce
-    let cat = G.spawnPredator('cat', 15, 0); cat.state = 'alert'; cat.alertT = 0.01; const seq = [];
-    for (let i = 0; i < 200; i++) { g.advance(0.05); if (seq[seq.length - 1] !== cat.state) seq.push(cat.state); }
+    // --- cat: stalk, then pounce. A random start can put a fence between them, so stand on a clear 12 m line.
+    G.freezeTime(true); G.setTime(0.5); G.setWeather('clear');
+    const open = (() => {
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      const clear = (x, z, dx, dz) => {
+        for (let t = 0; t <= 12; t += 1) {
+          const px = x + dx * t, pz = z + dz * t;
+          if (w.heightAt(px, pz) < 0.55) return false;
+          const r = w.resolve(px, pz, 0.9);
+          if (r.hit || Math.hypot(r.x - px, r.z - pz) > 0.2) return false;
+        }
+        return true;
+      };
+      const hx = w.home?.x ?? 0, hz = w.home?.z ?? 0;
+      for (let ring = 0; ring < 40; ring++) {
+        const n = ring === 0 ? 1 : 12;
+        for (let a = 0; a < n; a++) {
+          const ang = (a / n) * Math.PI * 2;
+          const x = hx + Math.cos(ang) * ring * 7, z = hz + Math.sin(ang) * ring * 7;
+          for (const [dx, dz] of dirs) if (clear(x, z, dx, dz)) return { x, z, dx, dz };
+        }
+      }
+      return null;
+    })();
+    if (open) G.teleport(open.x, open.z);
+    g.advance(0.05); o.health = 100; o.alive = true; o.camoWanted = false; o.camoBlend = 0;
+    const cdx = open ? open.dx * 8 : 8, cdz = open ? open.dz * 8 : 0;
+    let cat = G.spawnPredator('cat', cdx, cdz); cat.state = 'alert'; cat.alertT = 0.01; cat.cool = 0;
+    cat.heading = Math.atan2(-cdx, -cdz);
+    const seq = [];
+    for (let i = 0; i < 240; i++) { g.advance(0.05); if (seq[seq.length - 1] !== cat.state) seq.push(cat.state); if (cat.state === 'pounce') break; }
     out.cat = seq.join('>');
     G.clearPredators(); o.health = 100;
     // --- gull: circles overhead and calls another gull
