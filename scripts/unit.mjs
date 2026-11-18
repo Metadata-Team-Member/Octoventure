@@ -467,7 +467,7 @@ for (const seed of [1, 42, 2026]) {
   ok(killTier(1) === 0 && killTier(2) === 0 && killTier(3) === 1 && killTier(5) === 2 && killTier(8) === 3 && killTier(12) === 4 && killTier(30) === 4, 'the venomous bite kills bigger predators as the octopus levels up (L1-2 deterrent only)');
   ok(!lethal('crab', 1) && lethal('crab', 3) && !lethal('cat', 5) && lethal('cat', 8) && !lethal('dog', 11) && lethal('dog', 12), 'small first, then cats/foxes, then dogs and eagles');
   ok(lethal('dog', 1, true) && lethal('eagle', 1, true) && !lethal('human', 30, true) && !lethal('human', 30), 'a lethal dose kills any predator at any level; people are never killed');
-  ok(Object.keys(TIER).length === 9 && nipsFor(1) < nipsFor(4) && nipsFor(TIER.human) > 1e6, 'beak nips needed grow with size (people: never)');
+  ok(Object.keys(TIER).length === 12 && nipsFor(1) < nipsFor(4) && nipsFor(TIER.human) > 1e6, 'beak nips needed grow with size (people: never)');
   ok(killXP(4, true) > killXP(1, false) && killXP(1, false) > 0, 'kills give experience, bigger and venomous more');
   ok(BITE.nipCooldown < 1 && BITE.venomCooldown > 5, 'beak bite is quick, the venomous bite has a real cooldown');
   const L = new Levels(); L.did('kill', { tier: 2, xp: killXP(2, true) }); ok(L.st.kills === 1 && L.st.bigKill === 2 && L.badges.has('hunter') && L.xp >= killXP(2, true), 'a kill counts, earns experience and the hunter badge');
