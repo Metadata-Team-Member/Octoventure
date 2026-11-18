@@ -222,16 +222,42 @@ const uiBefore = await E(() => document.body.innerText.trim());
   for (const kind of ['gull', 'cat', 'dog', 'fox', 'crab', 'eagle', 'human', 'magpie', 'kookaburra', 'snake', 'goanna', 'heron']) {
     const r = await E((kind) => {
       const G = window.__game, g = G.game, o = g.octopus, w = g.world;
-      G.clearPredators(); G.freezeTime(true); G.setTime(0.45); G.setWeather('clear');
-      G.teleport(w.start.x, w.start.z); g.advance(0.2); o.health = 100; o.energy = 100; o.armor = 0;
+      G.clearPredators();
+      G.freezeTime(true); G.setTime(0.5); G.setWeather('clear');
+      const env = g.env;
+      env.heat = 0; env.rain = 0; env.dark = 0; env.kind = 'clear'; env.timer = 1e9; env.apply();
+      // stand on moist ground so the dry rate is the low, fixed one (seed 2026, noon, clear)
+      const moist = new Set(['swamp', 'mud', 'fern', 'wet', 'bank', 'forest', 'litter']);
+      let spot = null;
+      const hx = w.start.x, hz = w.start.z;
+      for (let ring = 0; ring < 40 && !spot; ring++) {
+        const n = ring === 0 ? 1 : 12;
+        for (let a = 0; a < n && !spot; a++) {
+          const ang = (a / n) * Math.PI * 2;
+          const x = hx + Math.cos(ang) * ring * 6, z = hz + Math.sin(ang) * ring * 6;
+          const t = w.typeAt(x, z);
+          if (!moist.has(t) || w.waterAt(x, z) || w.isSea(x, z) || w.heightAt(x, z) < 0.55) continue;
+          spot = { x, z };
+        }
+      }
+      G.teleport(spot ? spot.x : hx, spot ? spot.z : hz);
+      g.advance(0.2); o.health = 100; o.energy = 100; o.armor = 0; o.alive = true; o.lastDamage = null;
       const p = G.spawnPredator(kind, 3, 0); if (p.spec.swoop) { p.alt = 3; p.home = { x: o.x + 3, z: o.z }; }
       p.state = p.spec.flying ? 'alert' : 'chase'; p.alertT = 0.1;
-      G.pressKey('Space'); const h0 = o.health;
-      const seen = new Set(); for (let i = 0; i < 160; i++) { g.advance(0.05); seen.add(p.state); }
+      G.pressKey('Space');
+      const seen = new Set();
+      let drop = 0;
+      for (let i = 0; i < 160; i++) {
+        const before = o.health;
+        g.advance(0.05);
+        const lost = before - o.health;
+        if (lost > 1) drop += lost; // a bite lands in one step; drying is a trickle and is not counted
+        seen.add(p.state);
+      }
       G.releaseKey('Space'); G.freezeTime(false);
-      return { drop: h0 - o.health, seen: [...seen].join(',') };
+      return { drop, seen: [...seen].join(',') };
     }, kind);
-    ok(r.drop < 5, `${kind}: no damage while camouflaged (lost ${r.drop.toFixed(1)} to drying; states ${r.seen})`);
+    ok(r.drop < 0.5, `${kind}: no damage while camouflaged (predator loss ${r.drop.toFixed(1)}; states ${r.seen})`);
   }
   await E(() => { window.__game.clearPredators(); });
   // ...but cars can't be fooled
