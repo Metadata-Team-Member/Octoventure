@@ -447,8 +447,9 @@ const uiBefore = await E(() => document.body.innerText.trim());
     g.advance(0.05); d.aware = 1; d.awareV = 1; d.headTurn = 0; d.heading = Math.PI; d.toPlayer = -Math.PI / 2; d.sync(0.016);   // body still pointing away
     out.lookDeg = Math.abs(d.parts.head.rotation.y) * 57.3; out.aware = d.awareV;
     G.clearPredators();
-    const c = G.spawnPredator('cat', 12, 0); g.advance(0.2); const calm = c.parts.head.rotation.y;
-    out.calmLook = Math.abs(calm) * 57.3;
+    // hold it calm: a 0.2 s tick is enough for the idle glance to pass the old 5 deg check
+    const c = G.spawnPredator('cat', 12, 0); c.state = 'wander'; c.aware = 0; c.awareV = 0; c.headTurn = 0; c.speed = 1; c.sync(0);
+    out.calmLook = Math.abs(c.parts.head.rotation.y) * 57.3;
     // scene-wide: no sprite is parented to any predator
     let anySprite = 0; g.scene.traverse((n) => { if (n.isSprite && n.parent && n.parent !== g.scene && n.parent.parent !== g.scene) anySprite++; });
     out.anySprite = anySprite;
@@ -473,7 +474,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     out.ratio = {};
     for (const k of ['human', 'dog', 'cat', 'gull', 'magpie']) { const p = G.spawnPredator(k, 40, 0); p.group.rotation.set(0, 0, 0); p.group.scale.x; p.sync(0); const b = box(p.group); out.ratio[k] = +(Math.max(b.h, b.len) / octoLen).toFixed(1); G.clearPredators(); }
     // footstep thump: a person walks past, the camera/ground gets a jolt
-    G.setTime(12); G.freezeTime(true);
+    G.setTime(0.5); G.freezeTime(true);
     G.setHealth(100);
     const h = G.spawnPredator('human', 9, 0); h.state = 'wander'; h.target = { x: o.x + 3, z: o.z + 3 }; h.speed = 2.2; h.act = 1;
     let maxT = 0, thumps = 0;
@@ -610,10 +611,17 @@ const uiBefore = await E(() => document.body.innerText.trim());
   const r = await E(async () => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world, out = {};
     const settle = (n) => { for (let i = 0; i < n; i++) G.advance(0.05); };
-    const loss1 = () => { G.teleport(o.x, o.z); o.health = 100; o.wetness = 0; const h0 = o.health; settle(60); return h0 - o.health; };
+    G.clearPredators(); G.freezeTime(true); G.setTime(0.45); G.setWeather('clear'); g.env.rain = 0; g.env.heat = 0; g.env.apply();
+    const loss1 = () => { G.clearPredators(); G.teleport(o.x, o.z); o.health = 100; o.wetness = 0; const h0 = o.health; settle(60); return h0 - o.health; };
     // average over a few spots round about (shade, a tree or a puddle nearby changes any single reading)
     const loss = () => { const x0 = o.x, z0 = o.z; let t = 0; for (const [dx, dz] of [[0, 0], [25, 0], [-25, 0], [0, 25], [0, -25]]) { G.teleport(x0 + dx, z0 + dz); settle(2); t += loss1(); } G.teleport(x0, z0); return t / 5; };
-    G.teleport(w.start.x, w.start.z); settle(10); out.lossStart = loss();
+    // a Daily/New start can leave w.start already inland, so walk toward the sea until the air is moist
+    let sx = w.start.x, sz = w.start.z;
+    for (let s = 0; s <= 5000; s += 80) {
+      const x = w.start.x + w.dir.x * s, z = w.start.z + w.dir.z * s;
+      if ((w.harshAt(x, z) ?? 0) < 0.15) { sx = x; sz = z; break; }
+    }
+    G.teleport(sx, sz); settle(10); out.lossStart = loss();
     // 3 km inland (away from the sea), and then keep walking: the old map ended at 800 u
     const ix = -w.dir.x, iz = -w.dir.z;
     const tele = (d) => { G.teleport(w.start.x + ix * d, w.start.z + iz * d); settle(40); };
