@@ -38,8 +38,8 @@ ok(startText === 'Play', `start screen shows only a Play button (text: "${startT
 await page.click('#play');
 ok(await page.evaluate(() => window.__game.state) === 'playing', 'Play button starts the game');
 const f0 = await page.evaluate(() => window.__game.frame);
-await sleep(1500);
-const f1 = await page.evaluate(() => window.__game.frame);
+let f1 = f0;
+for (let i = 0; i < 8 && f1 <= f0; i++) { await sleep(500); f1 = await page.evaluate(() => window.__game.frame); }   // software GL can take a couple of seconds for the first frame
 ok(f1 > f0, `game loop is running (frame ${f0} -> ${f1})`);
 ok(await page.evaluate(() => window.__game.health) <= 100, 'health starts at/below 100');
 
@@ -155,12 +155,28 @@ const spd = await page.evaluate(() => {
 });
 ok(spd.water.kind && spd.water.speed > spd.land.speed * 1.2, `faster in water (${spd.water.speed.toFixed(1)} in ${spd.water.kind} on ${spd.water.terrain}, vs ${spd.land.speed.toFixed(1)} on ${spd.land.terrain})`);
 const shallow = await page.evaluate(() => {
-  const G = window.__game, w = G.game.world, st = w.start;
+  const G = window.__game, w = G.game.world, st = w.start, env = G.game.env;
+  const saved = { frozen: env.frozen, t: env.t, target: env.target, timer: env.timer, heat: env.heat, rain: env.rain, dark: env.dark, kind: env.kind };
   w.rain.length = 0;   // moving rain clouds would make this flaky
-  for (let d = 0; d < 1500; d++) { const x = st.x + w.dir.x * d, z = st.z + w.dir.z * d; if (w.isShallow(x, z) && !w.isSea(x, z) && !w.waterAt(x, z)) { G.teleport(x, z); G.setHealth(40); G.advance(0.3); return { kind: G.waterKind, h: G.health, state: G.state }; } }
-  return null;
+  G.freezeTime(true); G.setTime(0.5); G.setWeather('clear');
+  env.heat = 0; env.rain = 0; env.dark = 0; env.kind = 'clear'; env.apply();
+  // the wet band is thin, and a random start can walk the centre ray over it: sample a few parallels
+  let found = null, tries = 0;
+  for (const off of [0, 12, -12, 28, -28]) {
+    const ox = -w.dir.z * off, oz = w.dir.x * off;
+    for (let d = 0; d < 2200 && tries < 6; d += 4) {
+      const x = st.x + w.dir.x * d + ox, z = st.z + w.dir.z * d + oz;
+      if (!(w.isShallow(x, z) && !w.isSea(x, z) && !w.waterAt(x, z))) continue;
+      tries++;
+      G.teleport(x, z); G.setHealth(40); G.advance(0.5);
+      if (G.waterKind === 'sea' && G.health > 40 && G.state === 'playing') { found = { kind: G.waterKind, h: G.health, state: G.state }; break; }
+    }
+    if (found) break;
+  }
+  Object.assign(env, saved); env.apply();
+  return found;
 });
-ok(shallow && shallow.kind === 'sea' && shallow.h > 40 && shallow.state === 'playing', 'sea shallows count as water (fast + rehydrating)');
+ok(shallow && shallow.kind === 'sea' && shallow.h > 40 && shallow.state === 'playing', `sea shallows count as water (fast + rehydrating${shallow ? `: ${shallow.h.toFixed(0)}` : ''})`);
 
 // ---- water rehydrates ------------------------------------------------------------
 const reh = await page.evaluate(() => {

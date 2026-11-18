@@ -176,15 +176,18 @@ export class Satchel {
     show('.wear-shield', o.buff?.shield > 0);
     show('.wear-mimic', o.buff?.mimic > 0);
     const body = this.portrait.querySelector('.por-body');
-    if (body) {
-      const grey = 1 - Math.max(0, Math.min(1, (o.health ?? 100) / 100));
-      const tint = `rgb(${Math.round(196 - grey * 80)},${Math.round(140 - grey * 40)},${Math.round(46 + grey * 40)})`;
+    const c = o.mat?.color, rings = o.ringBlue?.color;
+    if (body && c) {
+      const tint = `rgb(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)})`;
       body.style.fill = tint;
       body.style.stroke = tint;
       this.portrait.querySelectorAll('.por-lid').forEach((n) => { n.style.fill = tint; });
     }
+    if (rings) {
+      const tint = `rgb(${Math.round(rings.r * 255)},${Math.round(rings.g * 255)},${Math.round(rings.b * 255)})`;
+      this.portrait.querySelectorAll('.por-rings .dot').forEach((n) => { n.style.fill = tint; });
+    }
     this.portrait.classList.toggle('feast', (o.buff?.feast || 0) > 0 || (o.buff?.tonic || 0) > 0);
-    this.portrait.classList.toggle('inked', (o.inkCharges || 0) > 0);
   }
 
   renderBag() {
