@@ -102,9 +102,9 @@ button.chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #code-in:focus { border-color: #fff; }
 
 /* badges (t241u): tiny medallions under the satchel, locked ones are faint silhouettes */
-.sat-badges { display: flex; gap: 5px; flex-wrap: wrap; padding-top: 8px; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.1); max-width: 100%; }
-.badge { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.04); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); border: 0; padding: 0; color: inherit; font: inherit; cursor: default; }
-.badge i { display: block; width: 16px; height: 16px; filter: brightness(0) invert(1); opacity: 0.12; }
+.sat-badges { display: flex; gap: 3px; flex-wrap: wrap; padding-top: 8px; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.1); max-width: 100%; }
+.badge { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.04); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); border: 0; padding: 0; color: inherit; font: inherit; cursor: default; }
+.badge i { display: block; width: 14px; height: 14px; filter: brightness(0) invert(1); opacity: 0.12; }
 .badge svg { width: 100%; height: 100%; }
 .badge.got { background: radial-gradient(circle at 35% 30%, #3b5f7a, #1d3247); box-shadow: inset 0 0 0 1px rgba(242,201,76,0.55), 0 0 6px rgba(159,228,255,0.25); cursor: pointer; }
 .badge.got i { filter: none; opacity: 1; }

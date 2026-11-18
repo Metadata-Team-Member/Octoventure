@@ -15,7 +15,7 @@ import { Journal } from './journal.js';
 
 export const SAVE_KEY = 'octo.save.v2';
 export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their save here; it is carried forward on first load, then removed
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 const WEATHER_KINDS = ['clear', 'heatwave', 'rain', 'storm'];
 const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast', 'tonic'];
 const MAX_TRAIL = 1200;
@@ -51,6 +51,8 @@ export const MIGRATIONS = {
   5: (o) => ({ ...o, v: 6 }),
   // v7 adds den decorations and anything the octopus is carrying home.
   6: (o) => ({ ...o, v: 7, decor: Array.isArray(o.decor) ? o.decor : [], carry: null }),
+  // v8 records which rare finds have been met (lv.st.rare). Older saves simply have none; load treats a missing list as empty.
+  7: (o) => ({ ...o, v: 8 }),
   2: (o) => ({ ...o, v: 3, lv: { xp: 0, b: [], st: { cells: Array.isArray(o.explored) ? o.explored.length : 0, babies: Array.isArray(o.babies) ? o.babies.length : 0, sea: !!o.sea, shells: Number(o.shells?.n) || 0 } } }),
 };
 

@@ -7,7 +7,8 @@
 //  tires a little more slowly). The current level is shown only in the Tab satchel, as a number inside a ring. Badges are
 //  discoveries: picture tokens in the satchel; a short tooltip names an unlocked one (locked ones stay silent silhouettes).
 // =====================================================================
-export const XP = { kill: 0, cell: 2, gather: 3, craft: 10, baby: 30, shell: 6, escape: 12, biome: 25, sea: 60, badge: 15, flower: 1, night: 8 };
+import { RARE_SET } from './rares.js';
+export const XP = { kill: 0, cell: 2, gather: 3, craft: 10, baby: 30, shell: 6, escape: 12, biome: 25, sea: 60, badge: 15, flower: 1, night: 8, rare: 8 };
 export const MAX_LEVEL = 30;
 /** total experience needed to BE at level L (L1 = 0, L2 = 60, L3 = 150, L4 = 270, L5 = 420, L10 = 1800) */
 export const xpForLevel = (L) => (L <= 1 ? 0 : 15 * (L - 1) * (L + 2));
@@ -41,6 +42,12 @@ export const BADGES = [
   { id: 'level10',    glyph: 'b_crown',   title: 'Tenth shine',  note: 'Ten shimmers of growing stronger.', test: (s, L) => L >= 10 },
   { id: 'grotto',     glyph: 'b_grotto',  title: 'The quiet cave', note: 'The little ones, waiting in a cave under the reef.', test: (s) => s.grotto },
   { id: 'home',       glyph: 'b_home',    title: 'A home',       note: 'A den dressed with things you found.', test: (s) => s.home },
+  { id: 'sgold',      glyph: 'r_gold',    title: 'Golden shell', note: 'A shell the colour of sunlight.', test: (s) => s.rare.has('gold') },
+  { id: 'spearl',     glyph: 'r_pearl',   title: 'Pearl shell',  note: 'A pale pearl, held in a shell.', test: (s) => s.rare.has('pearl') },
+  { id: 'sfrog',      glyph: 'r_frog',    title: 'Night frog',   note: 'A small frog that glows, and only after dark.', test: (s) => s.rare.has('glowfrog') },
+  { id: 'sbloom',     glyph: 'r_bloom',   title: 'After rain',   note: 'A desert flower that opens once the rain has been.', test: (s) => s.rare.has('rainbloom') },
+  { id: 'srace',      glyph: 'r_race',    title: 'Moonlit race', note: 'Pale crabs racing the sand under the moon.', test: (s) => s.rare.has('moonrace') },
+  { id: 'sring',      glyph: 'r_ring',    title: 'Fairy ring',   note: 'A circle of mushrooms, off the path.', test: (s) => s.rare.has('ring') },
 ];
 export const BADGE_IDS = BADGES.map((b) => b.id);
 
@@ -49,7 +56,7 @@ export class Levels {
   reset() {
     this.xp = 0; this.level = 1;
     this.badges = new Set();
-    this.st = { cells: 0, biomes: new Set(), sea: false, babies: 0, gathered: 0, crafted: 0, madeAll: false, shells: 0, nightSwim: false, rainDance: 0, storm: false, escapes: 0, kills: 0, bigKill: 0, grotto: false, home: false };
+    this.st = { cells: 0, biomes: new Set(), sea: false, babies: 0, gathered: 0, crafted: 0, madeAll: false, shells: 0, nightSwim: false, rainDance: 0, storm: false, escapes: 0, kills: 0, bigKill: 0, grotto: false, home: false, rare: new Set() };
     this.allBiomes = 0;                 // how many land/sea biomes exist (set by the game)
     this.events = [];                   // [{type:'level', level} | {type:'badge', id}] drained by the game each frame
   }
@@ -89,6 +96,7 @@ export class Levels {
       case 'storm': if (s.storm) return; s.storm = true; break;
       case 'grotto': if (s.grotto) return; s.grotto = true; break;
       case 'home': if (s.home) return; s.home = true; break;
+      case 'rare': if (!RARE_SET.has(arg) || s.rare.has(arg)) return; s.rare.add(arg); break;
       case 'flower': break;
       case 'kill': s.kills++; s.bigKill = Math.max(s.bigKill, Math.min(4, arg?.tier || 1)); this.add(arg?.xp || 0); this.check(); return;
       default: return;
@@ -100,7 +108,7 @@ export class Levels {
   toJSON() {
     const s = this.st;
     return { xp: Math.round(this.xp), b: BADGE_IDS.filter((id) => this.badges.has(id)),
-      st: { cells: s.cells, biomes: [...s.biomes], sea: s.sea, babies: s.babies, gathered: s.gathered, crafted: s.crafted, madeAll: s.madeAll, shells: s.shells, nightSwim: s.nightSwim, rainDance: Math.round(s.rainDance), storm: s.storm, escapes: s.escapes, kills: s.kills, bigKill: s.bigKill, grotto: !!s.grotto, home: !!s.home } };
+      st: { cells: s.cells, biomes: [...s.biomes], sea: s.sea, babies: s.babies, gathered: s.gathered, crafted: s.crafted, madeAll: s.madeAll, shells: s.shells, nightSwim: s.nightSwim, rainDance: Math.round(s.rainDance), storm: s.storm, escapes: s.escapes, kills: s.kills, bigKill: s.bigKill, grotto: !!s.grotto, home: !!s.home, rare: [...s.rare].sort() } };
   }
   /** load a (possibly damaged / hand-edited) saved object; never throws, never queues events */
   load(o) {
@@ -112,6 +120,8 @@ export class Levels {
     const t = o.st || {}, s = this.st;
     s.cells = n(t.cells); s.babies = n(t.babies); s.gathered = n(t.gathered); s.crafted = n(t.crafted); s.shells = n(t.shells); s.escapes = n(t.escapes); s.rainDance = n(t.rainDance); s.kills = n(t.kills); s.bigKill = n(t.bigKill, 4);
     s.sea = !!t.sea; s.madeAll = !!t.madeAll; s.nightSwim = !!t.nightSwim; s.storm = !!t.storm; s.grotto = !!t.grotto || this.badges.has('grotto'); s.home = !!t.home || this.badges.has('home');
+    s.rare = new Set();
+    if (Array.isArray(t.rare)) for (const id of t.rare) if (RARE_SET.has(id)) s.rare.add(id);
     if (Array.isArray(t.biomes)) for (const b of t.biomes.slice(0, 40)) if (typeof b === 'string' && /^[a-z]{2,16}$/.test(b)) s.biomes.add(b);
     return this;
   }

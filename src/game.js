@@ -33,6 +33,7 @@ import { SeaBeat } from './systems/seabeat.js';
 import { Critters } from './systems/critters.js';
 import { Reef } from './systems/reef.js';
 import { Decor } from './systems/decor.js';
+import { RareFinds } from './systems/rares.js';
 import { TOON } from './world/toon.js';
 import { TIER, PEOPLE, BITE, killTier, nipsFor, killXP, lethal } from './systems/combat.js';
 import { BIOMES } from './world/biomes.js';
@@ -195,7 +196,7 @@ void main(){
   // ------------------------------------------------------------------ worlds
   newWorld(seed, save = null) {
     const hadWorld = this.hadWorld;
-    if (this.view) { this.decor?.clear(); this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); this.critters?.dispose(); }
+    if (this.view) { this.rares?.dispose(); this.decor?.clear(); this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); this.critters?.dispose(); }
     // ONE fixed world for everyone (CONFIG.worldSeed); ?seed= is a dev/debug override only. Each new game starts somewhere else in it.
     const dbg = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
     const s = seed ?? dbg ?? CONFIG.worldSeed;
@@ -233,6 +234,7 @@ void main(){
     if (save) { applySave(this, save); this.pendingSave = save; }
     else if (hadWorld && this.saveEnabled) clearSave();          // a brand new world replaces whatever was saved
     if (this.reef) this.reef.seen = !!this.levels.st.grotto;
+    this.rares = new RareFinds(this);
     this.lv.babies = this.progress.babies; this.lv.shells = this.progress.shells; this.applyPerks();
     this.updateCamera(0.016, true);
   }
@@ -443,6 +445,7 @@ void main(){
     this.shimmer.update(dt, o);
     this.seaBeat.update(dt, o, world.seaLevel);
     if (playing) { this.critters.preds = this.predators.list; this.critters.update(dt, o, world.night, world.raining ? (this.env?.rain || 1) : 0); }
+    if (playing) this.rares?.update(dt, o);
     if (playing) this.updateJournal();
     this.plankton?.update(dt, { night: world.night, biome: world.biomeAt(o.x, o.z), o, seaLevel: world.seaLevel });
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);

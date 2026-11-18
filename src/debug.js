@@ -206,6 +206,16 @@ export function installDebugHooks(game) {
     get decorPieces() { return (game.decor?.list || []).map((p) => ({ id: p.id, x: p.x, z: p.z, rot: p.rot })); },
     dropDecor() { return game.decor.dropHere(); },
     nudgeDecor() { return game.decor.list.length ? game.decor.nudge(0) : false; },
+    rareSpots(id) { return (game.rares?.spotsOf(id) || []).map((s) => ({ id: s.id, x: +s.x.toFixed(1), z: +s.z.toFixed(1) })); },
+    teleportToRare(id) {
+      const list = game.rares?.spotsOf(id) || [];
+      const s = list[0];
+      if (!s) return null;
+      this.teleport(s.x, s.z);
+      return s;
+    },
+    soakRare() { if (game.rares) game.rares.wet = 1; return game.rares?.wet || 0; },
+    get raresFound() { return [...(game.levels?.st.rare || [])]; },
     terrainTypes: Object.keys(TERRAIN),
     game,
   };
