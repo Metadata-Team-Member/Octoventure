@@ -36,6 +36,16 @@ npm run build:dist   # normal multi-file build into dist/ (for hosting on any st
 ```
 `play/index.html` is committed on purpose so a double-click always works. The public site is the same single file, published to the `gh-pages` branch and served by GitHub Pages (`npm run deploy:pages` rebuilds and publishes it).
 
+## Check and publish
+
+Pull requests, and every push to `main`, run the test suite on Node 22. After that run passes on `main`, the site is published the same way as `npm run deploy:pages` (GitHub token only, no other secrets).
+
+```bash
+npm ci
+npm run build
+npm test
+```
+
 ## Controls
 | Action | Keys / mouse | Gamepad |
 |---|---|---|

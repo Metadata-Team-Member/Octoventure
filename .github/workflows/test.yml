@@ -1,0 +1,23 @@
+name: test
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install headless Chrome
+        run: |
+          npx --yes @puppeteer/browsers install chrome@stable
+          CHROME=$(find "$HOME/.cache/puppeteer" -type f -name chrome -path '*chrome-linux64/chrome' | head -1)
+          test -n "$CHROME"
+          echo "CHROME_PATH=$CHROME" >> "$GITHUB_ENV"
+      - run: npm run build
+      - run: npm test
