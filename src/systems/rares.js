@@ -369,6 +369,7 @@ export class RareFinds {
     this.game.levels?.did('rare', id);
     if (knew) return;
     const y = this.game.world?.heightAt(s.x, s.z) || 0;
+    if (id === 'rainbloom') this.game.collectPollen?.('pd', 0xf0b429, s.x, y, s.z);
     this.game.audio?.gather?.(s.x, y, s.z);
     this.game.saveSoon?.('rare');
   }

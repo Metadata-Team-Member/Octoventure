@@ -370,7 +370,7 @@ function scatterGround(ctx) {
     if (tp !== 'lawn' && tp !== 'grass' && tp !== 'pasture' && !(tp === 'litter' && rnd() < 0.3)) continue;
     const h = w.heightAt(x, z);
     if (h < 1 || w.isRoad(x, z, 1)) continue;
-    flowers.push({ x, z, y: h, color: rnd.pick(tp === 'litter' ? [0xffe066, 0xffffff, 0xd96a3a] : [0xffe066, 0xff8fa3, 0xffffff, 0xc77dff, 0xff9f45]), s: rnd.range(0.7, 1.2) });
+    flowers.push({ x, z, y: h, color: rnd.pick(tp === 'litter' ? [0xffe066, 0xffffff, 0xd96a3a] : [0xffe066, 0xff8fa3, 0xffffff, 0xc77dff, 0xff9f45, 0xe24b4b, 0x6aa6ff]), s: rnd.range(0.7, 1.2) });
   }
 }
 

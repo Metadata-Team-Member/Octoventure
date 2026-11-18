@@ -12,6 +12,7 @@ import { toonMat } from '../world/toon.js';
 import { flowerPieces, FLOWER } from '../world/geoLib.js';
 import { dotTexture } from '../world/worldView.js';
 import { applyFade } from '../world/fade.js';
+import { pollenOf, POLLEN_COLOR } from './items.js';
 
 export const FLOWER_FX = {
   touch: 0.3, touchPerSize: 0.6,       // touch radius = touch + touchPerSize * octopus size (u)
@@ -22,6 +23,7 @@ export const FLOWER_FX = {
   sip: 0.8,                             // health restored per sip (maxHealth is 100: roughly 2-3 s of life)
   poolN: 8, critterN: 3, sparkN: 24,
   critterChance: 0.22,
+  pollenWait: 36,                       // seconds before the same flower has pollen again
 };
 const CELL = 6;
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _ax = new THREE.Vector3();
@@ -51,6 +53,28 @@ export class Flowers {
     const wing = new THREE.PlaneGeometry(1, 1); wing.translate(0.5, 0, 0); wing.rotateX(-Math.PI / 2);
     this.wingGeo = wing; this.bodyGeo = new THREE.CapsuleGeometry(0.4, 1.2, 2, 5); this.bodyGeo.rotateX(Math.PI / 2);
     for (let i = 0; i < FLOWER_FX.critterN; i++) this.critters.push(this._makeCritter());
+    this.bees = [];
+    for (let i = 0; i < 2; i++) this.bees.push(this._makeBee());
+    const gp = new Float32Array(8 * 3); gp.fill(0); for (let i = 0; i < 8; i++) gp[i * 3 + 1] = -999;
+    const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.BufferAttribute(gp, 3));
+    this.glintMat = new THREE.PointsMaterial({ color: 0xfff6c8, size: 2.4, sizeAttenuation: false, map: dotTexture(), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.glint = new THREE.Points(gg, this.glintMat); this.glint.frustumCulled = false; this.glint.renderOrder = 4; scene.add(this.glint);
+    const pp = new Float32Array(16 * 3); const pv = new Float32Array(16 * 3); this.puffP = pp; this.puffV = pv; this.puffL = new Float32Array(16); this.puffI = 0;
+    for (let i = 0; i < 16; i++) pp[i * 3 + 1] = -999;
+    const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pp, 3));
+    this.puffMat = new THREE.PointsMaterial({ color: 0xffe066, size: 3.2, sizeAttenuation: false, map: dotTexture(), transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.puffPts = new THREE.Points(pg, this.puffMat); this.puffPts.frustumCulled = false; this.puffPts.renderOrder = 5; scene.add(this.puffPts);
+    this.onPollen = null;
+  }
+
+  _makeBee() {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xe9eef4, side: THREE.DoubleSide });
+    const bodyMat = new THREE.MeshBasicMaterial({ color: 0xe6b422 });
+    const root = new THREE.Group(); root.visible = false; root.scale.setScalar(0.07);
+    const body = new THREE.Mesh(this.bodyGeo, bodyMat);
+    const wl = new THREE.Mesh(this.wingGeo, mat), wr = new THREE.Mesh(this.wingGeo, mat); wr.scale.x = -1;
+    root.add(body, wl, wr); this.scene.add(root);
+    return { root, wl, wr, on: false, buzz: false, t: 0, flower: null, ph: Math.random() * 6 };
   }
 
   _makeLive() {
@@ -101,7 +125,7 @@ export class Flowers {
       for (const f of hits) if (!f.live && Math.abs((f.y ?? o.y) - o.y) < 1.2) this.touch(f, o);
     }
     for (let i = this.live.length - 1; i >= 0; i--) if (!this._anim(this.live[i], dt)) { this._finish(this.live[i]); this.live.splice(i, 1); }
-    this._sparks(dt); this._critters(dt);
+    this._sparks(dt); this._critters(dt); this._bees(dt, o); this._glints(o); this._puffs(dt);
   }
 
   /** the octopus brushes flower f. Returns the live record, or null if nothing happens (all pool slots busy / no instance) */
@@ -130,6 +154,14 @@ export class Flowers {
     }
     this.audio?.flower?.(_p.x, _p.y + 0.3, _p.z, dew);
     if (this.rand() < F.critterChance) this._lift(_p.x, _p.y + FLOWER.headY * _s.y, _p.z, f.color ?? 0xffffff);
+    if ((f.polAt ?? 0) <= now) {
+      f.polAt = now + F.pollenWait;
+      const id = pollenOf(f.color ?? 0xffe066);
+      const hex = POLLEN_COLOR[id] ?? 0xffe066;
+      this._puff(_p.x, _p.y + FLOWER.headY * _s.y, _p.z, hex);
+      for (const b of this.bees) if (b.flower === f && !b.buzz) { b.buzz = true; b.t = 0; b.flower = null; }
+      this.onPollen?.(id, hex, _p.x, _p.y + 0.3, _p.z);
+    }
     return rec;
   }
 
@@ -203,11 +235,79 @@ export class Flowers {
     }
   }
 
+  _bees(dt, o) {
+    if (!o) return;
+    const near = this.near(o.x, o.z, 9, this._beeNear ??= []);
+    for (const b of this.bees) {
+      if (b.buzz) {
+        b.t += dt;
+        const a = b.ph + b.t * 8;
+        b.root.visible = true;
+        b.root.position.set(o.x + Math.cos(a) * 0.55, o.y + 0.35, o.z + Math.sin(a) * 0.55);
+        const k = Math.sin(b.t * 70) * 0.6;
+        b.wl.rotation.z = k; b.wr.rotation.z = -k;
+        if (b.t > 2.6) { b.buzz = false; b.root.visible = false; }
+        continue;
+      }
+      if (!b.flower) {
+        b.flower = near.length ? near[(b.ph * 10 | 0) % near.length] : null;
+        b.t = 0;
+      }
+      b.t += dt;
+      if (b.t > 6) { b.flower = null; b.root.visible = false; continue; }
+      if (!b.flower) { b.root.visible = false; continue; }
+      b.root.visible = true;
+      b.root.position.set(b.flower.x, (b.flower.y ?? o.y) + 0.5, b.flower.z);
+      const k = Math.sin(this.t * 40 + b.ph) * 0.35;
+      b.wl.rotation.z = k; b.wr.rotation.z = -k;
+    }
+  }
+
+  _glints(o) {
+    const pos = this.glint.geometry.attributes.position;
+    if (!o?.alive) { for (let i = 0; i < 8; i++) pos.setY(i, -999); pos.needsUpdate = true; return; }
+    const near = this.near(o.x, o.z, 7, this._gNear ??= []);
+    let n = 0;
+    for (let i = 0; i < near.length && n < 8; i++) {
+      const f = near[i];
+      if (f.live || (f.polAt ?? 0) > this.t) continue;
+      pos.setXYZ(n++, f.x, (f.y ?? 0) + 0.55 + Math.sin(this.t * 5 + f.x) * 0.03, f.z);
+    }
+    for (let i = n; i < 8; i++) pos.setY(i, -999);
+    pos.needsUpdate = true;
+    this.glintMat.opacity = 0.45 + 0.4 * (0.5 + 0.5 * Math.sin(this.t * 6));
+  }
+
+  _puff(x, y, z, hex) {
+    this.puffMat.color.setHex(hex);
+    const k = 6;
+    for (let j = 0; j < k; j++) {
+      const i = this.puffI++ % 16, a = this.rand() * 6.283, sp = 0.25 + this.rand() * 0.45;
+      this.puffP[i * 3] = x; this.puffP[i * 3 + 1] = y; this.puffP[i * 3 + 2] = z;
+      this.puffV[i * 3] = Math.cos(a) * sp; this.puffV[i * 3 + 1] = 0.4 + this.rand() * 0.5; this.puffV[i * 3 + 2] = Math.sin(a) * sp;
+      this.puffL[i] = 0.7;
+    }
+  }
+  _puffs(dt) {
+    let any = false;
+    for (let i = 0; i < 16; i++) {
+      if (this.puffL[i] <= 0) continue; any = true;
+      this.puffL[i] -= dt; this.puffV[i * 3 + 1] -= 1.2 * dt;
+      this.puffP[i * 3] += this.puffV[i * 3] * dt; this.puffP[i * 3 + 1] += this.puffV[i * 3 + 1] * dt; this.puffP[i * 3 + 2] += this.puffV[i * 3 + 2] * dt;
+      if (this.puffL[i] <= 0) { this.puffL[i] = 0; this.puffP[i * 3 + 1] = -999; }
+    }
+    if (any || this._puffOn) this.puffPts.geometry.attributes.position.needsUpdate = true;
+    this._puffOn = any;
+  }
+
   dispose() {
     for (const r of this.live) this._finish(r);
     for (const s of this.pool) { this.scene.remove(s.root); s.mat.dispose(); }
     for (const c of this.critters) { this.scene.remove(c.root); c.mat.dispose(); c.bodyMat.dispose(); }
+    for (const b of this.bees) this.scene.remove(b.root);
     this.scene.remove(this.sPts); this.sPts.geometry.dispose(); this.sMat.dispose();
+    this.scene.remove(this.glint); this.glint.geometry.dispose(); this.glintMat.dispose();
+    this.scene.remove(this.puffPts); this.puffPts.geometry.dispose(); this.puffMat.dispose();
     for (const g of [this.geo.stem, this.geo.centre, this.geo.petal, this.wingGeo, this.bodyGeo]) g.dispose();
   }
 }

@@ -15,7 +15,7 @@ import { Journal } from './journal.js';
 
 export const SAVE_KEY = 'octo.save.v2';
 export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their save here; it is carried forward on first load, then removed
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 const WEATHER_KINDS = ['clear', 'heatwave', 'rain', 'storm'];
 const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast', 'tonic'];
 const MAX_TRAIL = 1200;
@@ -53,6 +53,19 @@ export const MIGRATIONS = {
   6: (o) => ({ ...o, v: 7, decor: Array.isArray(o.decor) ? o.decor : [], carry: null }),
   // v8 records which rare finds have been met (lv.st.rare). Older saves simply have none; load treats a missing list as empty.
   7: (o) => ({ ...o, v: 8 }),
+  // v9 records which pollen colours have been gathered (lv.st.pollen). Older saves have none.
+  8: (o) => {
+    const st0 = o.lv && o.lv.st && typeof o.lv.st === 'object' ? o.lv.st : {};
+    const st = {
+      ...st0,
+      pollen: Array.isArray(st0.pollen) ? st0.pollen : [],
+      homes: Array.isArray(st0.homes) ? st0.homes : [],
+      pois: Array.isArray(st0.pois) ? st0.pois : [],
+      maze: !!st0.maze, mazewet: !!st0.mazewet, rainbow: !!st0.rainbow, secret: !!st0.secret,
+    };
+    const lv = o.lv && typeof o.lv === 'object' ? { ...o.lv, st } : o.lv;
+    return { ...o, v: 9, lv };
+  },
   2: (o) => ({ ...o, v: 3, lv: { xp: 0, b: [], st: { cells: Array.isArray(o.explored) ? o.explored.length : 0, babies: Array.isArray(o.babies) ? o.babies.length : 0, sea: !!o.sea, shells: Number(o.shells?.n) || 0 } } }),
 };
 
@@ -132,6 +145,8 @@ export const exploreCell = cellKey;
 export const unpackCell = (n) => ({ ix: Math.floor(n / 10000) - 5000, iz: (n % 10000) - 5000 });
 export function snapshot(game) {
   const o = game.octopus, w = game.world, env = game.env, inv = game.inv;
+  const indoors = game.places?.indoor && game.places.outdoor;
+  const px = indoors ? game.places.outdoor.x : o.x, pz = indoors ? game.places.outdoor.z : o.z;
   const got = []; for (const g of game.gather.collected) got.push(g);
   const shellO = [], shellR = [];
   w.shells.forEach((s, i) => { if (!s.got) return; if (s.reg) { if (s.id) shellR.push(s.id); } else shellO.push(i); });
@@ -139,7 +154,7 @@ export function snapshot(game) {
   const buff = {}; for (const k of BUFFS) buff[k] = +o.buff[k].toFixed(1);
   return {
     v: SAVE_VERSION, seed: w.seed, saved: Date.now(),
-    octo: { x: +o.x.toFixed(2), z: +o.z.toFixed(2), heading: +o.heading.toFixed(3), health: +o.health.toFixed(1), energy: +o.energy.toFixed(1) },
+    octo: { x: +px.toFixed(2), z: +pz.toFixed(2), heading: +o.heading.toFixed(3), health: +o.health.toFixed(1), energy: +o.energy.toFixed(1) },
     run: +game.runTime.toFixed(1), sea: !!game.progress.seaReached,
     shells: { n: game.progress.shells, o: shellO, r: shellR },
     babies: [...game.progress.rescued].map(String),

@@ -284,6 +284,7 @@ export class Satchel {
       me: o ? { x: o.x, z: o.z } : null,
       decor: g.decor?.list || [],
       known: g.levels?.st?.biomes || null,
+      marks: (g.places?.marks() || []).filter((p) => seen(p.x, p.z)),
     });
     this.paintHome();
   }

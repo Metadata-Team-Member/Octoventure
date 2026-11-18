@@ -8,8 +8,27 @@
 import { GATHER_KINDS } from '../world/gather.js';
 
 export const RAW = GATHER_KINDS;                                   // crab shrimp snail mussel kelp lettuce sponge coral shellhalf pebble moss coconut cap jar + urchin worm beetle spawn propagule
-export const MADE = ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'tonic', 'meal', 'dose', 'glow'];
-export const ALL_ITEMS = [...RAW, ...MADE];
+/** pollen brushed off a flower. Not a world spawn: it is taken from the flower itself. */
+export const POLLEN = ['py', 'pp', 'pu', 'pw', 'pr', 'pb', 'pd'];
+export const POLLEN_COLOR = { py: 0xffe066, pp: 0xff8fa3, pu: 0xc77dff, pw: 0xf7f4ee, pr: 0xe24b4b, pb: 0x6aa6ff, pd: 0xf0b429 };
+const POLLEN_NEAR = [[0xffe066, 'py'], [0xff9f45, 'pr'], [0xd96a3a, 'pr'], [0xff8fa3, 'pp'], [0xffffff, 'pw'], [0xf7f4ee, 'pw'], [0xc77dff, 'pu'], [0xe24b4b, 'pr'], [0x6aa6ff, 'pb'], [0xf0b429, 'pd']];
+/** nearest pollen id for a flower colour */
+export function pollenOf(hex) {
+  const n = hex >>> 0;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  let best = 'py', bd = 1e12;
+  for (let i = 0; i < POLLEN_NEAR.length; i++) {
+    const h = POLLEN_NEAR[i][0], id = POLLEN_NEAR[i][1];
+    const dr = r - ((h >> 16) & 255), dg = g - ((h >> 8) & 255), db = b - (h & 255);
+    const d = dr * dr + dg * dg + db * db;
+    if (d < bd) { bd = d; best = id; }
+  }
+  return best;
+}
+export const DYE = POLLEN.map((id) => 'dye' + id);
+export const DYE_COLOR = Object.fromEntries(POLLEN.map((id) => ['dye' + id, POLLEN_COLOR[id]]));
+export const MADE = ['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'hideaway', 'mimic', 'tonic', 'meal', 'dose', 'glow', ...DYE, 'bait', 'glowmix', 'rainbow'];
+export const ALL_ITEMS = [...RAW, ...POLLEN, ...MADE];
 
 /** names and short octopus-flavoured notes, shown only as satchel tooltips (never in the world, never on locked or unfound things) */
 export const LORE = {
@@ -35,6 +54,23 @@ export const LORE = {
   ochre:     { name: 'Red ochre',     note: 'Warm red earth. It stains the skin like camouflage.' },
   fungi:     { name: 'Ghost fungi',   note: 'A pale night cap. Strange and potent.' },
   anemone:   { name: 'Anemone',      note: 'A soft flower of the reef. It closes if you touch it.' },
+  py:        { name: 'Yellow pollen', note: 'Dust from a yellow flower. It stains the arm tips.' },
+  pp:        { name: 'Pink pollen',   note: 'Dust from a pink flower.' },
+  pu:        { name: 'Purple pollen', note: 'Dust from a purple flower.' },
+  pw:        { name: 'White pollen',  note: 'Dust from a white flower.' },
+  pr:        { name: 'Red pollen',    note: 'Dust from a red flower.' },
+  pb:        { name: 'Blue pollen',   note: 'Dust from a blue flower.' },
+  pd:        { name: 'Desert pollen', note: 'Dust from the flower that opens after rain.' },
+  dyepy:     { name: 'Yellow dye',    note: 'A yellow stain for a den. Set it down beside one.' },
+  dyepp:     { name: 'Pink dye',      note: 'A pink stain for a den. Set it down beside one.' },
+  dyepu:     { name: 'Purple dye',    note: 'A purple stain for a den. Set it down beside one.' },
+  dyepw:     { name: 'White dye',     note: 'A white stain for a den. Set it down beside one.' },
+  dyepr:     { name: 'Red dye',       note: 'A red stain for a den. Set it down beside one.' },
+  dyepb:     { name: 'Blue dye',      note: 'A blue stain for a den. Set it down beside one.' },
+  dyepd:     { name: 'Desert dye',    note: 'A warm gold stain for a den. Set it down beside one.' },
+  bait:      { name: 'Sweet bait',    note: 'A sweet dust. Something hunting you goes to sniff it instead.' },
+  glowmix:   { name: 'Glow mix',      note: 'Pollen and a night-glow. It lights a den.' },
+  rainbow:   { name: 'Rainbow dust',  note: 'Every colour of pollen, mixed.' },
   shield:    { name: 'Shell shield',  note: 'Two shells close around you when you keep still.' },
   den:       { name: 'Den',           note: 'A little home of pebbles, set down where you stand.' },
   inksac:    { name: 'Ink sac',       note: 'Three full squirts of ink, even on dry ground.' },
@@ -76,6 +112,12 @@ export const RECIPES = [
   { id: 'glow-coral', out: 'glow', in: { anemone: 1, coral: 1 } },
   { id: 'glow-urchin', out: 'glow', in: { anemone: 1, urchin: 1 } },
 ];
+for (const id of POLLEN) {
+  RECIPES.push({ id: 'dye-' + id, out: 'dye' + id, in: { [id]: 2 } });
+  RECIPES.push({ id: 'bait-' + id, out: 'bait', in: { [id]: 3 } });
+}
+RECIPES.push({ id: 'glowmix', out: 'glowmix', in: { pb: 1, fungi: 1 } });
+RECIPES.push({ id: 'rainbow', out: 'rainbow', in: { py: 1, pp: 1, pu: 1, pw: 1, pr: 1, pb: 1, pd: 1 } });
 
 /** how long each effect lasts (s) and how strong it is */
 export const FX = {
@@ -91,10 +133,12 @@ export const FX = {
   mussel: 20, moss: 12,           // eaten straight from the satchel (health)
   denRest: 2.4, denDry: 0.15, denMax: 3,  // resting inside a den: health per second, drying multiplier, dens kept
   glow: 70,                   // reef light: rings shine, no heal
+  bait: 8,                    // seconds a sweet bait keeps calling
+  glowmix: 50,                // seconds a den stays lit
 };
 
 /** things you can use straight from the satchel (a click / Enter / quick key) */
-export const USABLE = new Set(['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'dose', 'hideaway', 'mimic', 'mussel', 'moss', 'tonic', 'meal', 'glow']);
+export const USABLE = new Set(['shield', 'den', 'inksac', 'wrap', 'feast', 'gland', 'dose', 'hideaway', 'mimic', 'mussel', 'moss', 'tonic', 'meal', 'glow', 'bait', 'glowmix', 'rainbow', ...DYE]);
 
 export class Inventory {
   constructor() { this.reset(); }

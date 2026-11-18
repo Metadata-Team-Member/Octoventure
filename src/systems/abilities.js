@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { toonMat } from '../world/toon.js';
 import { seat } from '../world/placement.js';
-import { USABLE, FX } from './items.js';
+import { USABLE, FX, DYE_COLOR } from './items.js';
 import { lerp } from '../util/rng.js';
 
 const _m = new THREE.Matrix4();
@@ -77,9 +77,29 @@ export class Abilities {
       case 'tonic': if (o.energy > 96 && o.buff.tonic > 0) return false; o.energy = 100; o.buff.tonic = FX.tonic; o.glowBoost = 0.6; break;
       case 'meal': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.mealHeal); o.buff.feast = FX.mealGlow; o.glowBoost = 1; break;
       case 'glow': if (o.buff.feast > 20) return false; o.buff.feast = FX.glow; o.glowBoost = 1; break;
+      case 'bait': {
+        const w = g.world;
+        w.bait = { x: o.x + Math.sin(o.heading) * 1.2, z: o.z + Math.cos(o.heading) * 1.2, t: FX.bait };
+        break;
+      }
+      case 'glowmix': {
+        const den = this.dens[this.dens.length - 1];
+        if (!den) return false;
+        if (!this.denGlow) {
+          this.denGlow = { mesh: new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff1c4, transparent: true, opacity: 0.55, depthWrite: false })), until: 0 };
+          this.denGlow.mesh.userData.noOutline = true;
+          this.denRoot.add(this.denGlow.mesh);
+        }
+        const y = g.world.heightAt(den.x, den.z) || 0;
+        this.denGlow.mesh.position.set(den.x, y + 0.45, den.z);
+        this.denGlow.mesh.visible = true;
+        this.denGlow.until = this.clock + FX.glowmix;
+        break;
+      }
+      case 'rainbow': o.buff.feast = Math.max(o.buff.feast, 8); o.glowBoost = 1; this.game.levels?.did('rainbow'); break;
       case 'mussel': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.mussel); o.glowBoost = 0.5; break;
       case 'moss': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.moss); o.glowBoost = 0.3; break;
-      default: ok = false;
+      default: ok = DYE_COLOR[id] ? this.placeDye(id) : false;
     }
     if (!ok) return false;
     inv.take(id); A.use?.(id);
@@ -99,6 +119,22 @@ export class Abilities {
     if (n('mussel') && o.health < 88) return this.use('mussel');
     if (n('moss') && o.health < 90) return this.use('moss');
     return false;
+  }
+  /** a dye only works beside a den: it becomes a coloured bead in the ring */
+  placeDye(id) {
+    const decor = this.game.decor, o = this.game.octopus;
+    if (!decor || decor.carry || !o) return false;
+    let den = null, bd = 8;
+    for (const d of this.dens) {
+      const dist = Math.hypot(d.x - o.x, d.z - o.z);
+      if (dist < bd) { bd = dist; den = d; }
+    }
+    if (!den) return false;
+    decor.carry = id;
+    const placed = decor.tryPlace(den);
+    if (!placed) decor.carry = null;
+    decor.syncCarryMesh();
+    return placed;
   }
   placeDen(x, z) {
     const g = this.game, w = g.world, o = g.octopus;
@@ -169,6 +205,7 @@ export class Abilities {
     // mimic
     this.mimic.visible = o.mimicF > 0.02;
     if (this.mimic.visible) this.mimic.scale.setScalar(Math.max(0.001, o.mimicF));
+    if (this.denGlow) this.denGlow.mesh.visible = this.clock < this.denGlow.until;
   }
   /** a den's position may be asked for (save) */
   denList() { return this.dens.map((d) => ({ x: +d.x.toFixed(2), z: +d.z.toFixed(2) })); }

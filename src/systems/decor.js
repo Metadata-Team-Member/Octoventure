@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
 import { seat } from '../world/placement.js';
-import { ALL_ITEMS } from './items.js';
+import { ALL_ITEMS, DYE_COLOR } from './items.js';
 
 export const DECOR_NEAR = 3.4;
 export const DECOR_MAX = 8;
@@ -66,6 +66,7 @@ export class Decor {
     this.mat = toonMat({ vertexColors: true, roughness: 0.7 });
     this.bead = new THREE.SphereGeometry(1, 6, 5);
     this.beadMat = toonMat({ color: 0xe7c98a });
+    this.dyeMat = {};
     this.carryMesh = null;
     this.visitor = null;
   }
@@ -161,8 +162,12 @@ export class Decor {
 
   attach(p) {
     const geos = this.game.gather?.geos;
-    const geo = geos?.[p.id] || this.bead;
-    const mesh = new THREE.Mesh(geo, geo === this.bead ? this.beadMat : this.mat);
+    const dye = DYE_COLOR[p.id];
+    const geo = dye ? this.bead : (geos?.[p.id] || this.bead);
+    let material = this.mat;
+    if (dye) material = this.dyeMat[p.id] ??= toonMat({ color: dye });
+    else if (geo === this.bead) material = this.beadMat;
+    const mesh = new THREE.Mesh(geo, material);
     mesh.matrixAutoUpdate = false;
     mesh.frustumCulled = true;
     this.root.add(mesh);
@@ -199,7 +204,8 @@ export class Decor {
       o.group.add(this.carryMesh);
     }
     if (this.carryMesh.geometry !== geo) this.carryMesh.geometry = geo;
-    this.carryMesh.material = geo === this.bead ? this.beadMat : this.mat;
+    const dye = DYE_COLOR[this.carry];
+    this.carryMesh.material = dye ? (this.dyeMat[this.carry] ??= toonMat({ color: dye })) : (geo === this.bead ? this.beadMat : this.mat);
     this.carryMesh.scale.setScalar(geo === this.bead ? 0.2 : 1.45);
     this.carryMesh.visible = true;
   }

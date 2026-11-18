@@ -61,6 +61,14 @@ function babyDoodle(c, x, y, s) {      // a tiny octopus with a heart
   for (let i = 0; i < 4; i++) { const ax = x - s * 0.45 + i * s * 0.3; c.beginPath(); c.moveTo(ax, y + s * 0.2); c.quadraticCurveTo(ax + (i % 2 ? 0.2 : -0.2) * s, y + s * 0.55, ax, y + s * 0.8); c.stroke(); }
   c.fillStyle = 'rgba(70,140,230,0.9)'; c.beginPath(); c.arc(x - s * 0.2, y - s * 0.25, s * 0.09, 0, 6.28); c.arc(x + s * 0.2, y - s * 0.25, s * 0.09, 0, 6.28); c.fill();
 }
+function roomDoodle(c, x, y, s) {
+  c.strokeRect(x - s, y - s * 0.7, s * 2, s * 1.4);
+  c.strokeRect(x - s * 0.35, y - s * 0.05, s * 0.7, s * 0.45);
+}
+function mazeDoodle(c, x, y, s) {
+  c.strokeRect(x - s, y - s, s * 2, s * 2);
+  c.beginPath(); c.moveTo(x - s, y); c.lineTo(x, y); c.lineTo(x, y - s * 0.4); c.stroke();
+}
 function puddleDoodle(c, x, y, s) { c.fillStyle = 'rgba(90, 170, 220, 0.55)'; c.beginPath(); c.ellipse(x, y, s, s * 0.55, 0.3, 0, 6.28); c.fill(); c.strokeStyle = 'rgba(40, 100, 150, 0.55)'; c.stroke(); }
 
 /** the compass rose: an octopus whose eight arms point to N, NE, E, ...; the N arm curls up and carries the letter */
@@ -202,6 +210,13 @@ export function drawMap(ctx, W, H, d) {
   ctx.fillStyle = 'rgba(90, 60, 30, 0.7)';
   for (const p of d.decor || []) { const [x, y] = to(p.x, p.z); ctx.beginPath(); ctx.arc(x, y, 2.1, 0, 6.28); ctx.fill(); }
   for (const b of d.babies || []) { const [x, y] = to(b.x, b.z); babyDoodle(ctx, x, y, 6); }
+  for (const m of d.marks || []) {
+    const [x, y] = to(m.x, m.z);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.1;
+    if (m.kind === 'room') roomDoodle(ctx, x, y, 7);
+    else if (m.kind === 'maze') mazeDoodle(ctx, x, y, 6);
+    else { ctx.beginPath(); ctx.arc(x, y, 3.2, 0, 6.28); ctx.stroke(); }
+  }
   ctx.restore();
 
   // ---- 5. labels (hand-lettered, slightly angled and curved, never overlapping each other, the icons or the compass)

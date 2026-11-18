@@ -22,7 +22,7 @@ import { Flowers } from './systems/flowers.js';
 import { Effects } from './systems/effects.js';
 import { Gatherer } from './systems/gather.js';
 import { Abilities } from './systems/abilities.js';
-import { Inventory, FX } from './systems/items.js';
+import { Inventory, FX, POLLEN, POLLEN_COLOR } from './systems/items.js';
 import { Satchel } from './ui/satchel.js';
 import { Clock } from './ui/clock.js';
 import { Journal } from './systems/journal.js';
@@ -33,6 +33,7 @@ import { SeaBeat } from './systems/seabeat.js';
 import { Critters } from './systems/critters.js';
 import { Reef } from './systems/reef.js';
 import { Decor } from './systems/decor.js';
+import { Places } from './systems/places.js';
 import { RareFinds } from './systems/rares.js';
 import { TOON } from './world/toon.js';
 import { TIER, PEOPLE, BITE, killTier, nipsFor, killXP, lethal } from './systems/combat.js';
@@ -96,7 +97,7 @@ export class Game {
     this.deadShown = false;
     this.progress = new Progress();
     this.inv = new Inventory();
-    this.inv.onCraft = (r, all) => { this.levels.did('craft', { all }); this.journal.seeItem(r.out); };
+    this.inv.onCraft = (r, all) => { this.levels.did('craft', { all }); this.journal.seeItem(r.out); if (r.out === 'rainbow') this.levels.did('rainbow'); };
     this.levels = new Levels(); this.levels.allBiomes = BIOMES.length; this.freshBadges = new Set();
     this.journal = new Journal();
     this.shimmer = new Shimmer(this.scene);
@@ -196,7 +197,7 @@ void main(){
   // ------------------------------------------------------------------ worlds
   newWorld(seed, save = null) {
     const hadWorld = this.hadWorld;
-    if (this.view) { this.rares?.dispose(); this.decor?.clear(); this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); this.critters?.dispose(); }
+    if (this.view) { this.places?.dispose(); this.rares?.dispose(); this.decor?.clear(); this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); this.critters?.dispose(); }
     // ONE fixed world for everyone (CONFIG.worldSeed); ?seed= is a dev/debug override only. Each new game starts somewhere else in it.
     const dbg = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
     const s = seed ?? dbg ?? CONFIG.worldSeed;
@@ -218,6 +219,7 @@ void main(){
     this.progress.reset();
     this.collect = new Collectibles(this.world, this.scene, this.progress, this.audio);
     this.flowers = new Flowers(this.world, this.scene, this.audio);
+    this.flowers.onPollen = (id, hex, x, y, z) => this.collectPollen(id, hex, x, y, z);
     this.inv.reset();
     this.gather = new Gatherer(this.world, this.scene, this.audio);
     this.gather.onPick = (g) => { this.inv.add(g.kind); this.audio.gather(g.x, g.y, g.z); this.levels.did('gather'); this.journal.seeItem(g.kind); };
@@ -235,6 +237,8 @@ void main(){
     else if (hadWorld && this.saveEnabled) clearSave();          // a brand new world replaces whatever was saved
     if (this.reef) this.reef.seen = !!this.levels.st.grotto;
     this.rares = new RareFinds(this);
+    this.places = new Places(this);
+    this.places.applyDebug(this.params);
     this.lv.babies = this.progress.babies; this.lv.shells = this.progress.shells; this.applyPerks();
     this.updateCamera(0.016, true);
   }
@@ -379,19 +383,26 @@ void main(){
     const control = { mx: fx * inp.f + rx * inp.r, mz: fz * inp.f + rz * inp.r, sprint: inp.sprint, camo: inp.camo, climbKey: inp.climb, pitch: this.input.pitch };
     if (!playing) { control.mx = control.mz = 0; control.camo = false; control.sprint = false; }
 
+    if (this.places?.locking) { control.mx = 0; control.mz = 0; control.sprint = false; }
     const wasCamo = o.camoWanted, wasHealth = o.health, wasWater = o.waterKind;
+    const indoors = !!this.places?.indoor;
     if (this.state === 'menu') { o.update(dt, control, world); }
-    else o.update(dt, control, world);
+    else o.update(dt, control, indoors ? this.places.proxy : world);
     this.reef?.update(dt, this);
-    if (playing) this.decor?.update(dt);
+    if (playing && !this.places?.indoor) this.decor?.update(dt);
 
     if (playing) {
       this.runTime += dt;
-      const cell = exploreCell(o.x, o.z);
-      if (!this.explored.has(cell)) { this.explored.add(cell); this.levels.did('cell'); }
-      this.recordTrail(o.x, o.z);
+      this.places?.update(dt, o);
+      const away = !!this.places?.indoor;
+      if (!away) {
+        const cell = exploreCell(o.x, o.z);
+        if (!this.explored.has(cell)) { this.explored.add(cell); this.levels.did('cell'); }
+        this.recordTrail(o.x, o.z);
+      }
       this.saveT += dt; if (this.saveT >= 30) { this.saveT = 0; this.saveNow('timer'); }
       this.env.update(dt);
+      if (!away) {
       this.env.updatePuddles(dt, o);
       // abilities: ink (water only) and the venom bite (last resort)
       if (o.alive) {
@@ -405,6 +416,7 @@ void main(){
       if (o.hitByCar) { o.hitByCar = false; this.audio.carHit(); }
       this.fx.update(dt, o, { step: (wet, spd) => this.audio.step(wet, spd) });
       this.collect.update(dt, o, this.runTime);
+      if (this.world.bait) { this.world.bait.t -= dt; if (this.world.bait.t <= 0) this.world.bait = null; }
       const flowerTouches = this.flowers.touches;
       this.flowers.update(dt, o, this.runTime);
       if (this.flowers.touches > flowerTouches) this.journal.seeHow('flower');
@@ -415,7 +427,6 @@ void main(){
       if (o.climbEvent) { o.climbEvent = null; this.audio.climb(); }
       if (o.hideEvent) o.hideEvent = null;
       this.threat = damp(this.threat ?? 0, ev.threat, 4, dt);
-      // warning display: the blue rings flash while a predator is on to us
       if (!this.forceAlarm) o.alarm = damp(o.alarm, this.threat > 0.04 ? 1 : 0, 9, dt);
       for (const e of ev.events) {
         if (e.type === 'alert') this.audio.creature(e.kind, e.x, e.y ?? 1.5, e.z);
@@ -426,10 +437,15 @@ void main(){
       if (o.health < wasHealth - 4 && wasHealth - o.health > dt * 30) this.audio.hurt();
       if (o.camoWanted && !wasCamo) { this.audio.camo(true); }
       if (!o.camoWanted && wasCamo) { this.audio.camo(false); }
-      if (o.waterKind && !wasWater) this.audio.splash(o.waterKind, o.speed);       // only when coming in from dry land (not puddle -> stream hand-overs)
+      if (o.waterKind && !wasWater) this.audio.splash(o.waterKind, o.speed);
+      } else {
+        this.abilities.update(dt);
+        this.threat = damp(this.threat ?? 0, 0, 4, dt);
+        o.alarm = damp(o.alarm, 0, 8, dt);
+      }
       this.updateLevels(dt);
       if (!o.alive) this.onDeath();
-      else if (world.isSea(o.x, o.z) && o.y < world.seaLevel - 0.2 && this.progress.markSea(this.runTime)) this.onSeaReached();
+      else if (!away && world.isSea(o.x, o.z) && o.y < world.seaLevel - 0.2 && this.progress.markSea(this.runTime)) this.onSeaReached();
     } else {
       this.threat = damp(this.threat ?? 0, 0, 4, dt);
       o.alarm = damp(o.alarm, 0, 6, dt);
@@ -444,16 +460,18 @@ void main(){
     this.updateGrottoMoment(dt);
     this.shimmer.update(dt, o);
     this.seaBeat.update(dt, o, world.seaLevel);
-    if (playing) { this.critters.preds = this.predators.list; this.critters.update(dt, o, world.night, world.raining ? (this.env?.rain || 1) : 0); }
-    if (playing) this.rares?.update(dt, o);
+    if (playing && !this.places?.indoor) { this.critters.preds = this.predators.list; this.critters.update(dt, o, world.night, world.raining ? (this.env?.rain || 1) : 0); }
+    if (playing && !this.places?.indoor) this.rares?.update(dt, o);
     if (playing) this.updateJournal();
-    this.plankton?.update(dt, { night: world.night, biome: world.biomeAt(o.x, o.z), o, seaLevel: world.seaLevel });
-    this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);
+    if (!this.places?.indoor) this.plankton?.update(dt, { night: world.night, biome: world.biomeAt(o.x, o.z), o, seaLevel: world.seaLevel });
+    const viewAt = this.places?.indoor && this.places.outdoor ? { x: this.places.outdoor.x, y: o.y, z: this.places.outdoor.z } : { x: o.x, y: o.y, z: o.z };
+    this.view.update(dt, viewAt, this.camera);
+    if (this.places?.indoor && this.view) this.view.root.visible = false;
     this.updateCamera(dt);
     this.updateAtmosphere(dt);
     this.hud.update(o);
     this.tideClock?.update(this.env, this.clockHidden());
-    const coast = clamp(1 + world.distToSea(o.x, o.z) / 420, 0, 1);
+    const coast = this.places?.indoor ? 0.35 : clamp(1 + world.distToSea(o.x, o.z) / 420, 0, 1);
     this.audio.update(dt, {
       coast, ambient: this.atmo.ambient, cam: this.camera, health: o.health, moving: o.moving, swim: o.swim, night: world.night,
       car: this.carInfo ? { dist: this.carInfo.dist, x: this.carInfo.x, y: world.heightAt(this.carInfo.x, this.carInfo.z) + 1, z: this.carInfo.z, horn: this.carInfo.horn, speed: this.carInfo.speed } : null,
@@ -471,9 +489,9 @@ void main(){
     if (p.babies > S.babies) { for (let i = S.babies; i < p.babies; i++) L.did('baby'); S.babies = p.babies; this.journal.seeHow('baby'); }
     if (p.shells > S.shells) { for (let i = S.shells; i < p.shells; i++) L.did('shell'); S.shells = p.shells; }
     S.biomeT -= dt;
-    if (S.biomeT <= 0) { S.biomeT = 0.5; L.did('biome', w.biomeAt(o.x, o.z)); }
-    if (o.waterKind && w.night > 0.7) L.did('night');
-    if (w.raining && !o.waterKind && o.moving) { S.rain += dt; if (S.rain >= 1) { S.rain -= 1; L.did('rain'); } }
+    if (S.biomeT <= 0 && !this.places?.indoor) { S.biomeT = 0.5; L.did('biome', w.biomeAt(o.x, o.z)); }
+    if (!this.places?.indoor && o.waterKind && w.night > 0.7) L.did('night');
+    if (!this.places?.indoor && w.raining && !o.waterKind && o.moving) { S.rain += dt; if (S.rain >= 1) { S.rain -= 1; L.did('rain'); } }
     if (this.env.boltEvent && o.alive) L.did('storm');
     // getting away: something was really on to us, and then everything stayed calm for a few seconds
     if (this.threat > 0.5) { S.chased = true; S.calmT = 0; }
@@ -567,6 +585,17 @@ void main(){
   }
 
   /** first arrival in the open sea: a quiet moment (camera drifts out to sea, surf swells, gentle fade) - and play simply continues */
+  /** pollen brushed from a flower: into the satchel, the journal, and a short tint on the arm tips */
+  collectPollen(id, hex, x, y, z) {
+    if (!POLLEN.includes(id)) return false;
+    this.inv.add(id);
+    this.journal.seeItem(id);
+    this.levels.did('pollen', id);
+    this.octopus.pollenCol.setHex(hex || POLLEN_COLOR[id] || 0xffe066);
+    this.octopus.pollenT = 4.5;
+    return true;
+  }
+
   onSeaReached() {
     this.levels.did('sea');
     this.seaMoment = { t: 0, dur: 7 };
@@ -617,7 +646,7 @@ void main(){
     // swimming at depth: the camera drops down beside the octopus so the water is visible around it
     const dv = o.dive || 0;
     const want = _camWant.set(tx + off.x, ty + C.height * 0.4 * k + off.y * (1 - dv * 0.8) - dv * 0.5 * k, tz + off.z);
-    const gy = this.world.heightAt(want.x, want.z);
+    const gy = this.places?.indoor ? 0 : this.world.heightAt(want.x, want.z);
     if (want.y < gy + 0.9 * k) want.y = gy + 0.9 * k;
     if (!this.camInit || snap) { this.camPos.copy(want); this.camInit = true; }
     else this.camPos.lerp(want, 1 - Math.exp(-14 * dt));

@@ -314,11 +314,17 @@ const uiBefore = await E(() => document.body.innerText.trim());
     if (open) G.teleport(open.x, open.z);
     g.advance(0.05); o.health = 100; o.alive = true; o.camoWanted = false; o.camoBlend = 0;
     const cdx = open ? open.dx * 8 : 8, cdz = open ? open.dz * 8 : 0;
-    let cat = G.spawnPredator('cat', cdx, cdz); cat.state = 'alert'; cat.alertT = 0.01; cat.cool = 0;
+    let cat = G.spawnPredator('cat', cdx, cdz); cat.state = 'alert'; cat.alertT = 0.45; cat.cool = 0;
     cat.heading = Math.atan2(-cdx, -cdz);
-    const seq = [];
-    for (let i = 0; i < 240; i++) { g.advance(0.05); if (seq[seq.length - 1] !== cat.state) seq.push(cat.state); if (cat.state === 'pounce') break; }
-    out.cat = seq.join('>');
+    const seq = []; let stalkSp = 0, wiggle = 0;
+    for (let i = 0; i < 280; i++) {
+      g.advance(0.05);
+      if (cat.state === 'stalk') stalkSp = Math.max(stalkSp, cat.speed);
+      if (cat.state === 'wiggle') wiggle += 0.05;
+      if (seq[seq.length - 1] !== cat.state) seq.push(cat.state);
+      if (cat.state === 'pounce') break;
+    }
+    out.cat = seq.join('>'); out.catSp = stalkSp; out.catW = wiggle; out.catWalk = cat.spec.walk;
     G.clearPredators(); o.health = 100;
     // --- gull: circles overhead and calls another gull
     const g1 = G.spawnPredator('gull', 12, 0), g2 = G.spawnPredator('gull', 30, 8); g1.state = 'alert'; g1.alertT = 0.01;
@@ -355,7 +361,9 @@ const uiBefore = await E(() => document.body.innerText.trim());
     out.human = { grabbed, dropped, lost: hGrab - o.health, carriedY: 0 };
     return out;
   });
-  ok(/alert>stalk>pounce/.test(r.cat) || /stalk>pounce/.test(r.cat), `cats stalk slowly, then pounce (${r.cat})`);
+  ok(/alert>stalk>wiggle>pounce/.test(r.cat), `cats freeze, stalk, wiggle, then pounce (${r.cat})`);
+  ok(r.catSp > 0.05 && r.catSp < r.catWalk * 0.4, `a stalking cat stays under 40% of its walk (${r.catSp.toFixed(2)} vs ${r.catWalk})`);
+  ok(r.catW >= 0.5, `the pre-pounce wiggle lasts at least half a second (${r.catW.toFixed(2)} s)`);
   ok(r.gull.maxLift > 3 && r.gull.called, `gulls circle overhead and call others (lift ${r.gull.maxLift.toFixed(1)} m, called: ${r.gull.called})`);
   ok(/swoop/.test(r.magpie.states) && r.magpie.lost > 3, `magpies swoop from their tree (${r.magpie.states}; ${r.magpie.lost.toFixed(0)} damage)`);
   ok(/track/.test(r.dog), `dogs follow scent trails (${r.dog})`);

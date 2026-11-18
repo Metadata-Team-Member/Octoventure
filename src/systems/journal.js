@@ -3,7 +3,7 @@
 //  Each creature, plant and material the octopus has actually met is drawn in; the rest stay silhouettes.
 //  Saved as a list of ids (and the last satchel tab) on save v5.
 // =====================================================================
-import { RAW, MADE, loreOf } from './items.js';
+import { RAW, MADE, POLLEN, loreOf } from './items.js';
 
 /** satchel pages, in the order of the shell tabs */
 export const TABS = ['bag', 'journal', 'map', 'collection'];
@@ -48,6 +48,7 @@ export const ENTRIES = [
   { id: 'moss',       group: 'plant',    glyph: 'moss',      title: 'Dew moss',         note: loreOf('moss').note, how: 'item:moss' },
   { id: 'fungi',      group: 'plant',    glyph: 'fungi',     title: 'Ghost fungi',      note: loreOf('fungi').note, how: 'item:fungi' },
   { id: 'propagule',  group: 'plant',    glyph: 'propagule', title: 'Propagule',        note: loreOf('propagule').note, how: 'item:propagule' },
+  ...POLLEN.map((id) => { const L = loreOf(id); return { id, group: 'pollen', glyph: id, title: L.name, note: L.note, how: 'item:' + id }; }),
   // ---- materials (the rest of what can be gathered)
   ...RAW.filter((id) => !['kelp', 'lettuce', 'moss', 'fungi', 'propagule'].includes(id)).map((id) => {
     const L = loreOf(id);
@@ -59,6 +60,22 @@ export const ENTRIES = [
   { id: 'rare-bloom', group: 'secret', glyph: 'r_bloom', title: 'After rain',   note: 'A desert flower. It opens only after the rain has stopped, and only for a little while.', how: 'rare:rainbloom' },
   { id: 'rare-race',  group: 'secret', glyph: 'r_race',  title: 'Moonlit race', note: 'Pale crabs that race the sand, and only under the moon.', how: 'rare:moonrace' },
   { id: 'rare-ring',  group: 'secret', glyph: 'r_ring',  title: 'Fairy ring',   note: 'A circle of mushrooms, easy to walk past.', how: 'rare:ring' },
+  { id: 'homes',       group: 'home', glyph: 'b_home',    title: 'Indoors',       note: 'A house with a flap at your height. The room inside is its own.', how: 'place:home' },
+  { id: 'lay-lounge',  group: 'home', glyph: 'b_home',    title: 'A lounge',      note: 'A couch to go under, and a sunny patch by the window.', how: 'place:lounge' },
+  { id: 'lay-kitchen', group: 'home', glyph: 'b_home',    title: 'A kitchen',     note: 'A table to climb, and a sink left dripping.', how: 'place:kitchen' },
+  { id: 'lay-laundry', group: 'home', glyph: 'b_home',    title: 'A laundry',     note: 'A bath with the tap left on.', how: 'place:laundry' },
+  { id: 'lay-hall',    group: 'home', glyph: 'b_home',    title: 'A hallway',     note: 'A rug, a shelf, and the long way through.', how: 'place:hall' },
+  { id: 'find-button', group: 'home', glyph: 'cap',       title: 'A lost button', note: 'A small round button, under something.', how: 'place:button' },
+  { id: 'find-marble', group: 'home', glyph: 'pebble',    title: 'A marble',      note: 'A glass marble, rolled where the floor is quiet.', how: 'place:marble' },
+  { id: 'find-glass',  group: 'home', glyph: 'r_pearl',   title: 'Sea glass',     note: 'A piece of sea glass, sitting up on a shelf.', how: 'place:glass' },
+  { id: 'find-photo',  group: 'home', glyph: 'b_map',     title: 'A beach photo', note: 'A picture of sand and water, left on the shelf.', how: 'place:photo' },
+  { id: 'maze',        group: 'place', glyph: 'b_maze',   title: 'The hedges',    note: 'A maze of round hedges. The middle has water.', how: 'place:maze' },
+  { id: 'poi-shed',    group: 'place', glyph: 'b_home',   title: 'A shed',        note: 'Webs, a shelf of bits, and a watering can.', how: 'place:shed' },
+  { id: 'poi-drain',   group: 'place', glyph: 'b_wave',   title: 'A storm drain', note: 'A dark pipe that comes out in another street.', how: 'place:drain' },
+  { id: 'poi-garden',  group: 'place', glyph: 'b_leaf',   title: 'A shared garden', note: 'Vegetable beds, a scarecrow, and a hose that drips.', how: 'place:garden' },
+  { id: 'poi-light',   group: 'place', glyph: 'b_sun',    title: 'The light',     note: 'A tall light on the coast.', how: 'place:light' },
+  { id: 'poi-play',    group: 'place', glyph: 'b_star',   title: 'A playground',  note: 'Sand, and a little fountain.', how: 'place:play' },
+  { id: 'secret-nest', group: 'place', glyph: 'b_secret', title: 'A little light', note: 'It was not there until a house and the maze were both known.', how: 'place:secret' },
 ];
 export const ENTRY_IDS = ENTRIES.map((e) => e.id);
 export const ENTRY_BY = Object.fromEntries(ENTRIES.map((e) => [e.id, e]));
@@ -94,6 +111,7 @@ export class Journal {
   syncItems(inv) {
     if (!inv) return;
     for (const id of RAW) if (inv.seen?.has(id) || inv.count?.(id) > 0) this.seeItem(id);
+    for (const id of POLLEN) if (inv.seen?.has(id) || inv.count?.(id) > 0) this.seeItem(id);
     for (const id of MADE) if (inv.seen?.has(id) || inv.made?.has(id)) this.seeItem(id);
   }
   entries(group) { return group ? ENTRIES.filter((e) => e.group === group) : ENTRIES; }
