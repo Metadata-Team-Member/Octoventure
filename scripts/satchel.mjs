@@ -342,8 +342,37 @@ const fresh = () => E(() => { const G = window.__game, g = G.game, o = g.octopus
   await sleep(200);
   const tabs = await E(() => [...document.querySelectorAll('#satchel .sat-tab')].map((b) => b.dataset.id).join());
   ok(tabs === 'bag,journal,map,collection', `shell tabs list the four pages (${tabs})`);
-  const port = await E(() => { const p = document.querySelector('#satchel .sat-portrait'); return { lv: p?.querySelector('.sat-level')?.textContent, eyes: !!p?.querySelector('.por-eye') }; });
-  ok(port.lv === '4' && port.eyes, 'the octopus portrait shows the current level');
+  const port = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus, root = document.getElementById('satchel');
+    G.freezeTime(true); G.setTime(0.5); G.setWeather('clear');
+    o.camoBlend = 0; o.camoWanted = false; o.mimicF = 0; o.inkCharges = 0; o.alive = true;
+    const snap = (h) => {
+      G.setHealth(h); o.animate(0.016); g.satchel.renderPortrait();
+      const body = root.querySelector('.por-body');
+      const m = body.style.fill.match(/[\d.]+/g).map(Number);
+      const c = o.mat.color;
+      const sat = Math.max(m[0], m[1], m[2]) - Math.min(m[0], m[1], m[2]);
+      const err = Math.max(Math.abs(m[0] - c.r * 255), Math.abs(m[1] - c.g * 255), Math.abs(m[2] - c.b * 255));
+      return { sat, err };
+    };
+    const full = snap(100);
+    const low = snap(6);
+    G.setHealth(100); o.animate(0.016); g.satchel.renderPortrait();
+    const p = root.querySelector('.sat-portrait');
+    root.hidden = true;
+    const paused = getComputedStyle(root.querySelector('.por-lid')).animationPlayState;
+    root.hidden = false;
+    return {
+      lv: p.querySelector('.sat-level')?.textContent,
+      eyes: !!p.querySelector('.por-eye'),
+      arms: p.querySelectorAll('.por-arms path').length,
+      rings: p.querySelectorAll('.por-rings .dot').length,
+      full, low, paused,
+    };
+  });
+  ok(port.lv === '4' && port.eyes && port.arms === 8 && port.rings >= 3, `the octopus portrait shows the current level (${port.lv}, ${port.arms} arms, ${port.rings} rings)`);
+  ok(port.full.err < 1.5 && port.low.err < 1.5 && port.low.sat < port.full.sat * 0.55, `portrait matches the octopus and greys as health falls (full sat ${port.full.sat.toFixed(0)}, low ${port.low.sat.toFixed(0)})`);
+  ok(port.paused === 'paused', 'the portrait blink pauses while the satchel is closed');
   await E(() => window.__game.setTab('journal'));
   await sleep(100);
   const j = await E(() => {
