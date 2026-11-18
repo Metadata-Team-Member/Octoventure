@@ -272,5 +272,5 @@ Ants, beetles and the little crabs (the ones you can pick up, and the ones that 
 
 ## Checks
 
-Pull requests and pushes to `main` run `npm ci`, `npm run build` and `npm test` on Node 22 (headless Chrome for the browser suites). After that run is green on `main`, the same publish script as `npm run deploy:pages` updates the site, using the GitHub token only. The publish workflow starts only once this workflow file is on `main`.
+Pull requests and pushes to `main` run `npm ci`, `npm run build` and `npm test` on Node 22 (headless Chrome for the browser suites). After that run is green on `main`, the same publish script as `npm run deploy:pages` updates the site. In Actions the clone and push use the Actions token in the GitHub URL and do not print it. On your own machine the script still uses whatever origin you already have. The workflow can also be started by hand. It only runs from `main` once this file is there.
 
