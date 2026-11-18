@@ -74,7 +74,7 @@ await sleep(500);
     out.slotsAfter = G.inv.slots().map((s) => s.id).join();
     return out;
   });
-  ok(r.kinds === 21, `all 21 gatherable kinds exist in the world (${r.kinds})`);
+  ok(r.kinds === 22, `all 22 gatherable kinds exist in the world (${r.kinds})`);
   ok(r.slot >= 0 && r.got && r.count === 1, 'walking over a kelp frond picks it up (it is shown first, then taken)');
   ok(r.anims >= 1 && r.animsAfter === 0, 'a small pick-up animation plays and then ends');
   ok(r.text, 'picking something up shows no text and no pop-up');

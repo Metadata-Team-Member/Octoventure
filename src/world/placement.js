@@ -73,7 +73,7 @@ export function instanceSpec(cat, sub, o, geoH = 1) {
       if (sub === 'coral') return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: 0, bury: 0.03 };
       return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s * 0.7, sz: o.s, tilt: 0.8, bury: 0.2 * geoH * o.s * 0.7 };
     case 'shell': return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: 1, bury: 0.01 };
-    case 'gather': return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: GATHER_TILT[sub] ?? 0.5, bury: sub === 'kelp' || sub === 'sponge' || sub === 'coral' ? 0.02 : 0.005 };
+    case 'gather': return { x: o.x, z: o.z, rot: o.rot, sx: o.s, sy: o.s, sz: o.s, tilt: GATHER_TILT[sub] ?? 0.5, bury: sub === 'kelp' || sub === 'sponge' || sub === 'coral' || sub === 'anemone' ? 0.02 : 0.005 };
     case 'prop': {
       const s = o.s;
       const sp = { x: o.x, z: o.z, rot: o.rot, sx: s, sy: s, sz: s, tilt: sub === 'drain' ? 1 : TILT_PROPS.has(sub) ? 0.8 : 0, bury: TILT_PROPS.has(sub) && !THIN.has(sub) ? 0.03 : 0 };

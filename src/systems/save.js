@@ -15,7 +15,7 @@ import { Journal } from './journal.js';
 
 export const SAVE_KEY = 'octo.save.v2';
 export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their save here; it is carried forward on first load, then removed
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 const WEATHER_KINDS = ['clear', 'heatwave', 'rain', 'storm'];
 const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast', 'tonic'];
 const MAX_TRAIL = 1200;
@@ -47,8 +47,10 @@ export const MIGRATIONS = {
   3: (o) => ({ ...o, v: 4, fx: { ...(o.fx && typeof o.fx === 'object' ? o.fx : {}), lethal: false } }),
   // v5 (t254u) adds the field journal (discovered ids) and the last satchel tab.
   4: (o) => ({ ...o, v: 5, journal: { seen: [], tab: 'bag' } }),
-  // v6 adds den decorations and anything the octopus is carrying home.
-  5: (o) => ({ ...o, v: 6, decor: Array.isArray(o.decor) ? o.decor : [], carry: null }),
+  // v6 adds the quiet-cave flag on the level stats (missing means not found).
+  5: (o) => ({ ...o, v: 6 }),
+  // v7 adds den decorations and anything the octopus is carrying home.
+  6: (o) => ({ ...o, v: 7, decor: Array.isArray(o.decor) ? o.decor : [], carry: null }),
   2: (o) => ({ ...o, v: 3, lv: { xp: 0, b: [], st: { cells: Array.isArray(o.explored) ? o.explored.length : 0, babies: Array.isArray(o.babies) ? o.babies.length : 0, sea: !!o.sea, shells: Number(o.shells?.n) || 0 } } }),
 };
 
