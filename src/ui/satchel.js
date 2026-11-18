@@ -18,11 +18,48 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
 const OCTO_SVG = `<svg class="por-svg" viewBox="0 0 64 64" aria-hidden="true">
-  <ellipse class="por-body" cx="32" cy="28" rx="16" ry="14"/>
-  <g class="por-arms">${[0,1,2,3,4,5].map((i) => { const a = (-40 + i * 16) * Math.PI / 180, x = 32 + Math.sin(a) * 14, y = 36 + Math.cos(a) * 16; return `<path d="M32 34 Q${(32+x)/2} ${34+(y-34)*0.3} ${x} ${y}" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>`; }).join('')}</g>
-  <g class="por-rings">${[[26,24],[38,24],[32,20],[28,30],[36,30]].map(([x,y]) => `<circle cx="${x}" cy="${y}" r="2.1"/>`).join('')}</g>
-  <g class="por-eyes"><circle class="por-eye" cx="26.5" cy="25" r="2.3"/><circle class="por-eye" cx="37.5" cy="25" r="2.3"/><rect class="por-lid" x="23.5" y="22.4" width="6" height="5.2" rx="1"/><rect class="por-lid" x="34.5" y="22.4" width="6" height="5.2" rx="1"/></g>
-  <g class="wear wear-kelp" hidden>${[[22,18],[42,18],[32,14]].map(([x,y],i) => `<path d="M${x} ${y} C${x-4} ${y+10} ${x+4} ${y+16} ${x} ${y+22}" fill="none" stroke="#6a7a2a" stroke-width="2" stroke-linecap="round"/>`).join('')}</g>
+  <g class="por-arm-ink">
+    <path d="M17 33c-8 2-10 11-5 17" stroke-width="6.6"/>
+    <path d="M23 37c-8 4-8 12-1 16" stroke-width="6.2"/>
+    <path d="M29 40c-4 6-5 12-1 16" stroke-width="5.8"/>
+    <path d="M35 40c4 6 5 12 1 16" stroke-width="5.8"/>
+    <path d="M41 37c8 4 8 12 1 16" stroke-width="6.2"/>
+    <path d="M47 33c8 2 10 11 5 17" stroke-width="6.6"/>
+    <path d="M15 29c-9 1-12 8-8 15" stroke-width="5.6"/>
+    <path d="M49 29c9 1 12 8 8 15" stroke-width="5.6"/>
+  </g>
+  <g class="por-body">
+    <g class="por-arms">
+      <path d="M17 33c-8 2-10 11-5 17" stroke-width="4.6"/>
+      <path d="M23 37c-8 4-8 12-1 16" stroke-width="4.3"/>
+      <path d="M29 40c-4 6-5 12-1 16" stroke-width="4"/>
+      <path d="M35 40c4 6 5 12 1 16" stroke-width="4"/>
+      <path d="M41 37c8 4 8 12 1 16" stroke-width="4.3"/>
+      <path d="M47 33c8 2 10 11 5 17" stroke-width="4.6"/>
+      <path d="M15 29c-9 1-12 8-8 15" stroke-width="3.8"/>
+      <path d="M49 29c9 1 12 8 8 15" stroke-width="3.8"/>
+    </g>
+    <path d="M32 12.5c11.5.2 16.2 7.2 15.4 15.2c-.9 8.6-6.2 13-15.4 13s-14.5-4.4-15.4-13C15.8 19.7 20.5 12.7 32 12.5z"/>
+  </g>
+  <ellipse cx="27.5" cy="17.2" rx="3.2" ry="1.7" fill="#fff6df" opacity="0.28"/>
+  <g class="por-rings">
+    <circle class="rim" cx="22.5" cy="17.5" r="3.15"/><circle class="dot" cx="22.5" cy="17.5" r="1.65"/>
+    <circle class="rim" cx="41" cy="18.2" r="2.85"/><circle class="dot" cx="41" cy="18.2" r="1.45"/>
+    <circle class="rim" cx="32" cy="31.2" r="2.55"/><circle class="dot" cx="32" cy="31.2" r="1.3"/>
+    <circle class="rim" cx="15" cy="44" r="2.15"/><circle class="dot" cx="15" cy="44" r="1.05"/>
+    <circle class="rim" cx="49.5" cy="45" r="2.15"/><circle class="dot" cx="49.5" cy="45" r="1.05"/>
+  </g>
+  <g class="por-eyes">
+    <ellipse cx="26.2" cy="24.6" rx="3.15" ry="3.45" fill="#fff8ee"/>
+    <ellipse cx="37.8" cy="24.6" rx="3.15" ry="3.45" fill="#fff8ee"/>
+    <circle class="por-eye" cx="26.4" cy="25.2" r="1.55"/>
+    <circle class="por-eye" cx="37.6" cy="25.2" r="1.55"/>
+    <circle cx="25.8" cy="24.4" r="0.45" fill="#fff"/>
+    <circle cx="37" cy="24.4" r="0.45" fill="#fff"/>
+    <ellipse class="por-lid" cx="26.2" cy="24.6" rx="3.45" ry="3.7"/>
+    <ellipse class="por-lid" cx="37.8" cy="24.6" rx="3.45" ry="3.7"/>
+  </g>
+  <g class="wear wear-kelp" hidden><path d="M22 16 C18 26 26 30 22 38" fill="none" stroke="#6a7a2a" stroke-width="2" stroke-linecap="round"/><path d="M42 16 C46 26 38 30 42 38" fill="none" stroke="#6a7a2a" stroke-width="2" stroke-linecap="round"/><path d="M32 13 C30 22 36 26 32 36" fill="none" stroke="#6a7a2a" stroke-width="2" stroke-linecap="round"/></g>
   <g class="wear wear-mimic" hidden><circle cx="24" cy="20" r="2.2" fill="#e4b842"/><circle cx="40" cy="22" r="1.8" fill="#ef6a78"/><circle cx="33" cy="16" r="1.6" fill="#e4b842"/></g>
   <g class="wear wear-shield" hidden><path d="M16 26 Q20 18 28 22 L26 34 Q20 36 16 30z" fill="#f3dcc9" stroke="#d9b49a"/><path d="M48 26 Q44 18 36 22 L38 34 Q44 36 48 30z" fill="#f3dcc9" stroke="#d9b49a"/></g>
   <g class="wear wear-jar" hidden><rect x="20" y="12" width="24" height="28" rx="4" fill="rgba(180,220,230,0.35)" stroke="rgba(220,245,255,0.7)" stroke-width="1.4"/><rect x="26" y="9" width="12" height="5" rx="1" fill="rgba(200,230,235,0.5)" stroke="rgba(220,245,255,0.7)"/></g>
@@ -141,7 +178,10 @@ export class Satchel {
     const body = this.portrait.querySelector('.por-body');
     if (body) {
       const grey = 1 - Math.max(0, Math.min(1, (o.health ?? 100) / 100));
-      body.style.fill = `rgb(${Math.round(196 - grey * 80)},${Math.round(140 - grey * 40)},${Math.round(46 + grey * 40)})`;
+      const tint = `rgb(${Math.round(196 - grey * 80)},${Math.round(140 - grey * 40)},${Math.round(46 + grey * 40)})`;
+      body.style.fill = tint;
+      body.style.stroke = tint;
+      this.portrait.querySelectorAll('.por-lid').forEach((n) => { n.style.fill = tint; });
     }
     this.portrait.classList.toggle('feast', (o.buff?.feast || 0) > 0 || (o.buff?.tonic || 0) > 0);
     this.portrait.classList.toggle('inked', (o.inkCharges || 0) > 0);
