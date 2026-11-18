@@ -19,6 +19,13 @@ const PAL = {
 const SUN_DAY = C(0xfff1d6), SUN_LOW = C(0xff9a55), MOON = C(0x8fa8ff);
 const HEMI_SKY_DAY = C(0xcfe8ff), HEMI_SKY_NIGHT = C(0x3a4a86), HEMI_GR_DAY = C(0x8d8466), HEMI_GR_NIGHT = C(0x1a2030);
 const UNDER = C(0x1b6f8f), UNDER_DEEP = C(0x0b3550);
+/** dusk sky, one colour per biome, so the hour reads differently inland, on the sand and out at sea */
+const DUSK = {
+  suburb: C(0xf0b48a), town: C(0xd8b4c4), farm: C(0xf2c06a), bush: C(0xe09058),
+  riverbank: C(0xe89878), wetland: C(0xc47a62), dunes: C(0xffc080), beach: C(0xff9a66),
+  headland: C(0xc478a8), estuary: C(0xd88878), sea: C(0x5a78c0), desert: C(0xff5a32),
+  rainforest: C(0x5c4878),
+};
 
 const HAZE = new THREE.Color(0xd9ad7c);
 export class Atmosphere {
@@ -108,6 +115,8 @@ export class Atmosphere {
       for (const k in info.amb) amb[k] = (amb[k] || 0) + info.amb[k] * wt;
     }
     const k = 1 - Math.exp(-1.2 * dt);
+    if (!this._bw) this._bw = new Float32Array(BIOMES.length);
+    this._bw.set(q);
     this.harsh = (this.harsh ?? 0) + (w.harshAt(o.x, o.z) - (this.harsh ?? 0)) * (1 - Math.exp(-0.5 * dt));   // far inland: a dry, warm haze
     this.bTint.lerp(want, k); this.bFog += (fog - this.bFog) * k;
     for (const key of ['hum', 'birds', 'wind', 'cows', 'babble', 'frogs', 'surf', 'gulls']) this.ambient[key] = (this.ambient[key] || 0) + ((amb[key] || 0) - (this.ambient[key] || 0)) * k;
@@ -126,6 +135,20 @@ export class Atmosphere {
       c.lerp(st.copy(PAL.storm[k]).multiplyScalar(0.35 + 0.65 * day), env.dark * 0.9);
     };
     set('top', this.top); set('mid', this.mid); set('hor', this.hor);
+    const duskCol = this._duskC ??= new THREE.Color();
+    if (dusk > 0.02 && this._bw) {
+      let r = 0, gch = 0, b = 0;
+      for (let i = 0; i < BIOMES.length; i++) {
+        const wt = this._bw[i]; if (wt < 0.001) continue;
+        const src = DUSK[BIOMES[i]]; if (!src) continue;
+        r += src.r * wt; gch += src.g * wt; b += src.b * wt;
+      }
+      duskCol.setRGB(r, gch, b);
+      const dk = dusk * 0.78;
+      this.mid.lerp(duskCol, dk);
+      this.hor.lerp(duskCol, dk * 0.9);
+      this.top.lerp(duskCol, dk * 0.22);
+    }
     // salt haze when near the coast (the old hint)
     if (CONFIG.hints.saltHaze) this.hor.lerp(st.set(0xc4f0f4).multiplyScalar(0.25 + 0.75 * day), prox * prox * 0.7 * (1 - night * 0.6));
     // lightning
@@ -163,6 +186,7 @@ export class Atmosphere {
     g.sun.intensity = (sunI + moonI) * (1 - u * 0.55) + this.flash * 2.5;
     g.hemi.color.copy(HEMI_SKY_DAY).lerp(HEMI_SKY_NIGHT, night).lerp(st.set(0xe8a070), dusk * 0.35);
     g.hemi.color.multiply(this.bTint);
+    if (dusk > 0.02) g.hemi.color.lerp(duskCol, dusk * 0.2);
     g.sun.color.lerp(this.bTint, 0.35 * day);
     g.hemi.groundColor.copy(HEMI_GR_DAY).lerp(HEMI_GR_NIGHT, night);
     g.hemi.intensity = (0.3 + 1.05 * day) * (1 - env.dark * 0.5) * (1 - u * 0.3) + 0.4 * night + this.flash * 1.6;

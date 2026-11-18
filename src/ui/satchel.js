@@ -283,6 +283,7 @@ export class Satchel {
       dens: g.abilities?.denList?.() || [], babies: babies.filter((b) => seen(b.x, b.z)), puddles,
       me: o ? { x: o.x, z: o.z } : null,
       decor: g.decor?.list || [],
+      known: g.levels?.st?.biomes || null,
     });
     this.paintHome();
   }

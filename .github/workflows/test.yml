@@ -1,0 +1,25 @@
+name: test
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install headless Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget ca-certificates
+          wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y /tmp/chrome.deb
+          google-chrome-stable --version
+          echo "CHROME_PATH=$(command -v google-chrome-stable)" >> "$GITHUB_ENV"
+      - run: npm run build
+      - run: npm test

@@ -56,7 +56,7 @@ export const ENTRIES = [
   { id: 'rare-gold',  group: 'secret', glyph: 'r_gold',  title: 'Golden shell', note: 'A shell the colour of sunlight, lying where the sand is bright.', how: 'rare:gold' },
   { id: 'rare-pearl', group: 'secret', glyph: 'r_pearl', title: 'Pearl shell',  note: 'A pale pearl, still sitting in its shell.', how: 'rare:pearl' },
   { id: 'rare-frog',  group: 'secret', glyph: 'r_frog',  title: 'Night frog',   note: 'A small frog that glows. It shows itself only after dark, under the thick leaves.', how: 'rare:glowfrog' },
-  { id: 'rare-bloom', group: 'secret', glyph: 'r_bloom', title: 'After rain',   note: 'A desert flower. The bud stays shut until rain has fallen.', how: 'rare:rainbloom' },
+  { id: 'rare-bloom', group: 'secret', glyph: 'r_bloom', title: 'After rain',   note: 'A desert flower. It opens only after the rain has stopped, and only for a little while.', how: 'rare:rainbloom' },
   { id: 'rare-race',  group: 'secret', glyph: 'r_race',  title: 'Moonlit race', note: 'Pale crabs that race the sand, and only under the moon.', how: 'rare:moonrace' },
   { id: 'rare-ring',  group: 'secret', glyph: 'r_ring',  title: 'Fairy ring',   note: 'A circle of mushrooms, easy to walk past.', how: 'rare:ring' },
 ];

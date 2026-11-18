@@ -3,6 +3,7 @@
 // until it is met, then a collection portrait and a badge. No prompts in the world.
 import * as THREE from 'three';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
+import { scallop } from '../world/shells.js';
 
 export const RARE_IDS = ['gold', 'pearl', 'glowfrog', 'rainbloom', 'moonrace', 'ring'];
 export const RARE_SET = new Set(RARE_IDS);
@@ -24,12 +25,12 @@ export function rareHash(seed, rx, rz, ix, iz, k) {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-/** visible / touchable right now. night 0..1, wet 0..1 (lingers after rain). */
-export function rareOpen(id, night, wet) {
+/** visible / touchable right now. night 0..1, wet 0..1 (lingers after rain). The desert flower opens only after the rain has stopped, while the ground is still wet. */
+export function rareOpen(id, night, wet, raining = false) {
   const s = SPEC[id];
   if (!s) return false;
   if (s.night && !(night > 0.55)) return false;
-  if (s.rain && !(wet > 0.35)) return false;
+  if (s.rain && (raining || !(wet > 0.35))) return false;
   return true;
 }
 
@@ -89,6 +90,11 @@ const GEO = {};
 function geos() {
   if (GEO.shell) return GEO;
   GEO.shell = new THREE.SphereGeometry(0.16, 7, 5);
+  GEO.gold = scallop(1);
+  GEO.gold.scale(1.9, 1.9, 1.9);
+  GEO.gold.rotateX(-0.35);
+  GEO.gold.computeBoundingBox();
+  GEO.gold.translate(0, -GEO.gold.boundingBox.min.y - 0.02, 0);
   GEO.bead = new THREE.SphereGeometry(0.07, 6, 4);
   GEO.body = new THREE.SphereGeometry(0.11, 7, 5);
   GEO.eye = new THREE.SphereGeometry(0.022, 5, 4);
@@ -101,7 +107,7 @@ function geos() {
 const MAT = {};
 function mats() {
   if (MAT.gold) return MAT;
-  MAT.gold = toonMat({ color: 0xf2c14a });
+  MAT.gold = toonMat({ vertexColors: true, emissive: 0xf2c14a, emissiveIntensity: 0.55 });
   MAT.sand = toonMat({ color: 0xf3dcc9 });
   MAT.pearl = toonMat({ color: 0xfff8ee });
   MAT.frog = toonMat({ color: 0x8dffb0 });
@@ -158,7 +164,9 @@ export class RareFinds {
     root.visible = false;
     const sl = { id, g: root, spot: null, d: 1e12, seated: null, crabs: null, bits: null, petals: null, glow: null, body: null, holes: null };
     if (id === 'gold') {
-      root.add(shellMesh(m.gold, 1.05, 0.55, 0.85));
+      const mesh = new THREE.Mesh(g.gold, m.gold);
+      mesh.position.y = 0;
+      root.add(mesh);
     } else if (id === 'pearl') {
       root.add(shellMesh(m.sand, 0.9, 0.5, 0.75));
       const p = new THREE.Mesh(g.bead, m.pearl);
@@ -252,7 +260,7 @@ export class RareFinds {
     this.t += dt;
     const rain = (env?.rain || 0) > 0.2 || world.raining;
     if (rain) this.wet = Math.min(1, this.wet + dt * 0.7);
-    else this.wet = Math.max(0, this.wet - dt * 0.018);
+    else this.wet = Math.max(0, this.wet - dt * 0.05);
     this.scan -= dt;
     if (this.scan <= 0) { this.scan = 0.4; this.rebind(o); }
     const night = world.night;
@@ -263,10 +271,10 @@ export class RareFinds {
         const sl = pool[i];
         if (!sl.spot) { sl.g.visible = false; continue; }
         sl.g.visible = true;
-        this.place(sl, night);
+        this.place(sl, night, rain);
       }
     }
-    this.touch(o, night, openWet);
+    this.touch(o, night, openWet, rain);
   }
 
   rebind(o) {
@@ -290,7 +298,7 @@ export class RareFinds {
     }
   }
 
-  place(sl, night) {
+  place(sl, night, raining) {
     const s = sl.spot, w = this.game.world;
     if (s.id === 'moonrace') {
       const on = night > 0.55;
@@ -331,19 +339,19 @@ export class RareFinds {
       sl.g.visible = on;
       if (sl.glow) sl.glow.scale.setScalar(0.85 + Math.sin(this.t * 3.1) * 0.12);
     } else if (s.id === 'rainbloom') {
-      const open = this.wet > 0.35 ? 1 : 0.22;
+      const open = !raining && this.wet > 0.35 ? 1 : 0.22;
       if (sl.petals) { sl.petals.scale.set(open * 1.35, 0.4, open * 1.35); sl.petals.position.y = 0.12 + open * 0.08; }
       if (sl.bud) sl.bud.visible = open < 0.5;
     }
   }
 
-  touch(o, night, wet) {
+  touch(o, night, wet, raining = false) {
     if (!o.alive || o.carried) return;
     const reach = o.swim > 0.3 ? 1.7 : 1.25;
     for (let k = 0; k < RARE_IDS.length; k++) {
       const id = RARE_IDS[k];
       if (this.game.journal?.has(JID[id]) && this.game.levels?.st.rare?.has(id)) continue;
-      if (!rareOpen(id, night, wet)) continue;
+      if (!rareOpen(id, night, wet, raining)) continue;
       const pool = this.pool[id];
       for (let i = 0; i < pool.length; i++) {
         const s = pool[i].spot;

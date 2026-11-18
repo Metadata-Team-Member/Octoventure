@@ -170,10 +170,10 @@ None can be hurt or killed. Pools stay small and recycle around the player.
 
 A few finds that are not gatherables (they do not use the gather stream, so nothing else in the world moves). Each 400 m tile, including the original map's sixteen tiles and every far tile, rolls its own hash. Most tiles have none. On the one world each kind shows up a handful of times and no more.
 
-- **Golden shell** on the beach and the dunes. There whenever you pass.
+- **Golden shell** on the beach and the dunes. A large ribbed scallop with a soft shine, there whenever you pass.
 - **Pearl shell** in the shallows, or on the wet sand of the beach, estuary and headland.
 - **Glowing frog** in the rainforest, and only at night. By day the spot is empty.
-- **Desert flower** a shut bud until rain has fallen. It stays open a little while after the rain stops, then closes.
+- **Desert flower** a shut bud while it is raining and until the ground is wet. It opens only after the rain has stopped, and only while the ground is still damp (about a quarter of a minute), then closes.
 - **Ghost-crab race** on the beach at night: four pale crabs run a short line between two burrows. By day, only the burrows.
 - **Fairy ring** of mushrooms in the bush or the rainforest.
 
@@ -239,7 +239,7 @@ Try `?seed=2026`, then from the console ` __game.teleportToOcean(6)` and `__game
 
 ## A den you can dress (no prompts)
 
-Drag an item off the satchel (release it outside the panel) and the octopus carries it. Stand still within 3.4 m of a den and it is set on the ring around the den, facing the way you were looking. Walk into a piece to pick it up again. Hold camouflage while touching it to turn it an eighth. Opening the satchel puts a carried piece back in the bag. At most 8 pieces per den, 24 in all. When a fourth den replaces the oldest, that den's pieces return to the bag.
+Drag an item off the satchel (release it outside the panel) and the octopus carries it. Stand still within 3.4 m of a den and it is set on the ring around the den, facing the way you were looking. Stand still on a piece for about half a second to pick it up again; walking past leaves it where it is. Hold camouflage while touching it to turn it an eighth. Opening the satchel puts a carried piece back in the bag. At most 8 pieces per den, 24 in all. When a fourth den replaces the oldest, that den's pieces return to the bag.
 
 The map page grows a quiet home row (den icon, then the things around it) and dots the pieces on the chart. No words.
 
@@ -259,4 +259,18 @@ Still the same motion, separation and turn-taking (`MAX_STRIKERS` 2). No markers
 - **Time and rain** only scale `act` (notice and pace), never a HUD. Foxes and cats stay nocturnal. Gulls, eagles and the swooping birds sit the rain out. Goannas and herons sleep through the night. Ink, venom, bite, camouflage and the two-at-a-time rule are unchanged.
 - Journal entries (snake, goanna, heron) fill in when you come close. No new badges.
 - `npm run packs` also checks the half-buried coil, the eagle's shadow before the dive, and that a goanna sleeps at night while a snake wakes in the rain.
+
+## A quieter start, and a dusk that changes with the place
+
+The world is still built the same way. The first moment only seats the chunks within 120 m; the rest of the visible ring is built a few milliseconds at a time while the Play screen is up, and the shaders are compiled once during that screen so the first step is not also the first compile. The analytical map (`WorldData`) is still one synchronous step before the first frame. Save version stays 8.
+
+The dusk sky is no longer one orange everywhere. Each biome has its own dusk colour (red desert, cool open sea, purple rainforest, warm sand) blended by the same weights as the daylight tint, so the hour feels different as you walk. Night plankton in the sea and the estuary is brighter and a little larger, still a pooled point cloud with no lights.
+
+## Shapes that were too sharp
+
+Ants, beetles and the little crabs (the ones you can pick up, and the ones that run about) are made of rounded pieces, not boxes and sharp cones. The snake is one tapered tube that bends along its curve, not a string of beads; the bend is a vertex wiggle on that snake's own geometry (nothing shared, nothing allocated per frame). The goanna has a snout, four legs and a tail that sways as it walks. Reef arches are rounded rock, sea stars have five puffy arms, and the fish and the turtle have a body, fins and a tail, with the usual creature outlines. Beach shells kept the lower triangle counts; the scallop's hinge and the cowrie's teeth are small spheres again so they still read as shells. The golden shell is a large scallop of that same shape, seated on the sand, with a soft shine.
+
+## Checks
+
+Pull requests and pushes to `main` run `npm ci`, `npm run build` and `npm test` on Node 22 (headless Chrome for the browser suites). After that run is green on `main`, the same publish script as `npm run deploy:pages` updates the site, using the GitHub token only. The publish workflow starts only once this workflow file is on `main`.
 

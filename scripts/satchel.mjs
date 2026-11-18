@@ -403,6 +403,11 @@ const fresh = () => E(() => { const G = window.__game, g = G.game, o = g.octopus
     const w = g.world, sx = w.dir.x * (w.half + 400), sz = w.dir.z * (w.half + 400);
     const seaCell = ((Math.floor(sx / 100) + 5000) * 10000 + (Math.floor(sz / 100) + 5000));
     g.explored.add(seaCell);
+    const here = w.biomeAt(o.x, o.z);
+    g._biomeSnap = [...(g.levels.st.biomes || [])];
+    g.levels.st.biomes.clear();
+    if (here && here !== 'sea') g.levels.st.biomes.add(here);
+    g._biomeHere = here;
     G.setTab('map');
     window.__game._seaCell = seaCell;
   });
@@ -413,9 +418,15 @@ const fresh = () => E(() => { const G = window.__game, g = G.game, o = g.octopus
     const g = window.__game.game, w = g.world;
     const seaOk = g.progress.seaReached;
     // sample the canvas for the sea-blue of an unfound ocean label / fill: just check the page has no "Open sea" text
-    return { canvas: !!c, words: /open sea/i.test(txt), sea: seaOk, tab: window.__game.tab };
+    const labels = (g.satchel.mapInfo?.labels || []).map((l) => l.b);
+    const known = [...(g.levels.st.biomes || [])];
+    const stray = labels.filter((b) => b === 'sea' || !known.includes(b));
+    const L = g.levels.st.biomes;
+    L.clear();
+    for (const b of g._biomeSnap || []) L.add(b);
+    return { canvas: !!c, words: /open sea/i.test(txt), sea: seaOk, tab: window.__game.tab, labels, stray, known };
   });
-  ok(map.tab === 'map' && map.canvas && !map.words && !map.sea, 'the map is drawn and does not name the ocean before it has been found');
+  ok(map.tab === 'map' && map.canvas && !map.words && !map.sea && map.stray.length === 0 && !map.labels.includes('sea'), `the map names only walked biomes and not the ocean (${(map.labels || []).join(',') || 'none'})`);
   await E(() => window.__game.setTab('collection'));
   await sleep(80);
   const col = await E(() => {

@@ -24,7 +24,7 @@ export class Plankton {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     this.mat = new THREE.PointsMaterial({
-      color: 0x8cffd8, size: 3.6, sizeAttenuation: false, map: dotTexture(),
+      color: 0xb8ffe6, size: 4.6, sizeAttenuation: false, map: dotTexture(),
       transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
     });
     this.pts = new THREE.Points(g, this.mat);
@@ -43,7 +43,7 @@ export class Plankton {
     this.glow += (want - this.glow) * (1 - Math.exp(-2.4 * dt));
     const on = this.glow > 0.02;
     this.pts.visible = on;
-    this.mat.opacity = this.glow * (0.45 + 0.55 * Math.min(1, this.spin));
+    this.mat.opacity = this.glow * (0.82 + 0.35 * Math.min(1, this.spin));
     if (!on) { this.spin = Math.max(0, this.spin - dt * 0.8); return; }
     this.T += dt;
     // swimming through the field swirls and brightens it
@@ -64,7 +64,7 @@ export class Plankton {
       pos[i * 3 + 2] = o.z + Math.sin(ang) * rad + Math.sin(ph + a) * wobble;
     }
     this.pts.geometry.attributes.position.needsUpdate = true;
-    this.mat.size = 3.2 + this.spin * 2.2;
+    this.mat.size = 4.6 + this.spin * 2.4;
   }
   get active() { return this.pts.visible; }
   dispose() {

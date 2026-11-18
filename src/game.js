@@ -676,6 +676,10 @@ void main(){
       this.tideClock?.update(this.env, this.clockHidden());
     }
     this.render();
+    if (this.state === 'menu' && !this._warm && this.frame >= 2 && this.view) {
+      this._warm = true;
+      this.renderer.compile(this.scene, this.camera);   // pay for shader compile while Play is still on screen
+    }
     this.frame++;
     this.raf = requestAnimationFrame(this.tick);
   };

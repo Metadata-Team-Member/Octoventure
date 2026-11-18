@@ -1,7 +1,8 @@
 // Shallow reef life, a longshore current, and one quiet grotto.
 // Props are built once and reused. Fish state lives in typed arrays (no per-frame alloc).
 import * as THREE from 'three';
-import { toonMat } from '../world/toon.js';
+import { toonMat, outlineMat, outline } from '../world/toon.js';
+import { merge, at } from '../world/models.js';
 import { damp } from '../util/rng.js';
 
 const FISH = 18;
@@ -102,15 +103,20 @@ export class Reef {
 
     const coralGeo = new THREE.SphereGeometry(0.45, 6, 5);
     const kelpGeo = new THREE.CapsuleGeometry(0.06, 1.1, 2, 5);
-    const archGeo = new THREE.TorusGeometry(1.6, 0.28, 5, 10, Math.PI);
+    const archGeo = merge([
+      at(new THREE.CapsuleGeometry(0.46, 1.15, 2, 6), -0.82, 0.95, 0),
+      at(new THREE.CapsuleGeometry(0.46, 1.15, 2, 6), 0.82, 0.95, 0),
+      at(new THREE.SphereGeometry(0.62, 6, 5), 0, 1.85, 0, 0, 0, 0, 1.45, 0.72, 0.9),
+      at(new THREE.SphereGeometry(0.4, 5, 4), -0.48, 1.62, 0.05),
+      at(new THREE.SphereGeometry(0.4, 5, 4), 0.48, 1.62, 0.05),
+    ]);
     this.arches = new THREE.Group();
     for (let i = 0; i < 3; i++) {
       const a = i / 3 * Math.PI * 2;
       const m = new THREE.Mesh(archGeo, rockMat);
       m.position.set(g.x + Math.cos(a) * 5.5, 0, g.z + Math.sin(a) * 5.5);
       m.rotation.y = -a;
-      m.rotation.z = Math.PI;
-      m.userData.lift = 1.15;
+      m.userData.lift = 0;
       this.arches.add(m);
       const head = new THREE.Mesh(coralGeo, i % 2 ? coralMat : sandMat);
       head.position.set(g.x + Math.cos(a + 0.4) * 3.2, 0, g.z + Math.sin(a + 0.4) * 3.2);
@@ -130,33 +136,52 @@ export class Reef {
     }
     this.root.add(this.arches);
 
-    const starGeo = new THREE.SphereGeometry(0.18, 5, 4);
+    const starBits = [at(new THREE.SphereGeometry(0.2, 6, 4), 0, 0.08, 0, 0, 0, 0, 1, 0.55, 1)];
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+      starBits.push(at(new THREE.SphereGeometry(0.12, 5, 4), Math.cos(a) * 0.3, 0.07, Math.sin(a) * 0.3, 0, -a, 0, 0.72, 0.55, 1.45));
+    }
+    const starGeo = merge(starBits);
     this.starMesh = new THREE.InstancedMesh(starGeo, starMat, STARS);
     this.starMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < STARS; i++) {
       const a = (i / STARS) * Math.PI * 2;
       _dummy.position.set(g.x + Math.cos(a) * (2.2 + (i % 2)), 0, g.z + Math.sin(a) * (2.2 + (i % 2)));
-      _dummy.rotation.set(0, a, 0);
-      _dummy.scale.set(1, 0.45, 1);
+      _dummy.rotation.set(-Math.PI / 2 * 0, a, 0);
+      _dummy.scale.set(1, 1, 1);
       _dummy.updateMatrix();
       this.starMesh.setMatrixAt(i, _dummy.matrix);
     }
     this.starMesh.count = STARS;
     this.root.add(this.starMesh);
+    outline(this.starMesh, outlineMat());
 
-    const fishGeo = new THREE.SphereGeometry(0.16, 5, 4);
-    fishGeo.scale(1.8, 0.7, 0.7);
+    const fishGeo = merge([
+      at(new THREE.SphereGeometry(0.16, 6, 5), 0, 0, 0, 0, 0, 0, 1.7, 0.75, 0.85),
+      at(new THREE.SphereGeometry(0.08, 5, 4), -0.26, 0.01, 0, 0, 0, 0, 0.7, 1.15, 0.28),
+      at(new THREE.SphereGeometry(0.06, 4, 3), 0.02, 0.08, 0.12, 0.5, 0, 0.3, 0.35, 1.3, 0.7),
+      at(new THREE.SphereGeometry(0.06, 4, 3), 0.02, 0.08, -0.12, -0.5, 0, -0.3, 0.35, 1.3, 0.7),
+    ]);
     this.fishMesh = new THREE.InstancedMesh(fishGeo, fishMat, FISH);
     this.fishMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.fishMesh.frustumCulled = false;
     this.root.add(this.fishMesh);
+    this.fishHull = outline(this.fishMesh, outlineMat())[0];
 
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 7, 6), toonMat({ color: 0x3d8f62 }));
-    body.scale.set(1.3, 0.55, 1.6);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 6, 5), toonMat({ color: 0x2f6e48 }));
-    head.position.set(0, 0.15, 0.7);
+    const shell = toonMat({ color: 0x2f7a52 });
+    const skin = toonMat({ color: 0x3d8f62 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 7, 6), shell);
+    body.scale.set(1.25, 0.5, 1.55);
+    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.4, 6, 5), skin);
+    belly.scale.set(1.05, 0.32, 1.2); belly.position.y = -0.08;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 6, 5), skin);
+    head.position.set(0, 0.08, 0.72); head.scale.set(0.9, 0.8, 1.15);
+    const tail = new THREE.Mesh(new THREE.SphereGeometry(0.12, 5, 4), skin);
+    tail.position.set(0, 0.05, -0.78); tail.scale.set(0.45, 0.9, 0.7);
+    const flip = (x) => { const f = new THREE.Mesh(new THREE.SphereGeometry(0.22, 5, 4), skin); f.position.set(x, -0.02, 0.05); f.scale.set(0.7, 0.22, 1.3); return f; };
     this.turtle = new THREE.Group();
-    this.turtle.add(body, head);
+    this.turtle.add(body, belly, head, tail, flip(0.55), flip(-0.55));
+    outline(this.turtle, outlineMat());
     this.root.add(this.turtle);
 
     const babyGeo = new THREE.SphereGeometry(0.12, 6, 5);
@@ -251,6 +276,7 @@ export class Reef {
     }
     this.fishMesh.instanceMatrix.needsUpdate = true;
     this.fishMesh.count = near || sea ? FISH : 0;
+    if (this.fishHull) this.fishHull.count = this.fishMesh.count;
 
     const ta = this.t * 0.15;
     const tx = this.grotto.x + Math.cos(ta) * 10;

@@ -122,9 +122,9 @@ export const jar = () => {                      // lying on its side (axis along
 // ---------------------------------------------------------------- critters: separate parts so they can be animated
 export const CRAB = {
   body: () => at(paint(sph(1, 10, 6), (x, y, z) => mixC(0xb5472f, 0xe08a55, y * 0.6 + 0.3 + Math.abs(Math.sin(x * 12)) * 0.08)), 0, 0, 0, 0, 0, 0, 0.14, 0.07, 0.1),
-  eye: () => merge([at(tint(new THREE.CylinderGeometry(0.008, 0.008, 0.05, 4), 0xc65a3a), 0, 0.025, 0), at(tint(sph(0.016, 5, 4), 0x151010), 0, 0.055, 0)]),
-  claw: () => merge([at(tint(new THREE.CylinderGeometry(0.014, 0.018, 0.1, 5), 0xc65a3a), 0, 0, 0.05, Math.PI / 2, 0, 0), at(paint(sph(1, 7, 5), (x, y) => mixC(0xcf5c3a, 0xf0a070, y * 0.5 + 0.4)), 0, 0, 0.13, 0, 0, 0, 0.045, 0.028, 0.06)]),
-  leg: () => merge([at(tint(new THREE.CylinderGeometry(0.008, 0.011, 0.11, 4), 0xa63e2a), 0.055, 0, 0, 0, 0, Math.PI / 2 - 0.4), at(tint(new THREE.CylinderGeometry(0.006, 0.008, 0.09, 4), 0x8f3424), 0.12, -0.03, 0, 0, 0, 0.5)]),
+  eye: () => merge([at(tint(sph(0.012, 5, 4), 0xc65a3a), 0, 0.02, 0, 0, 0, 0, 0.7, 1.6, 0.7), at(tint(sph(0.016, 5, 4), 0x151010), 0, 0.05, 0)]),
+  claw: () => merge([at(tint(sph(0.02, 5, 4), 0xc65a3a), 0, 0, 0.04, Math.PI / 2, 0, 0, 0.7, 0.7, 2.2), at(paint(sph(1, 6, 4), (x, y) => mixC(0xcf5c3a, 0xf0a070, y * 0.5 + 0.4)), 0, 0, 0.12, 0, 0, 0, 0.042, 0.026, 0.055)]),
+  leg: () => merge([at(tint(sph(0.02, 5, 4), 0xa63e2a), 0.05, 0, 0, 0, 0, Math.PI / 2 - 0.4, 0.45, 0.45, 2.2), at(tint(sph(0.016, 5, 4), 0x8f3424), 0.12, -0.02, 0, 0, 0, 0.5, 0.4, 0.4, 2)]),
 };
 export const crab = () => merge([
   CRAB.body().translate(0, 0.075, 0),
@@ -167,10 +167,10 @@ export const beetle = () => {
   const parts = [
     at(paint(sph(1, 10, 7), (x, y, z) => mixC(0x1f6a52, 0x7ee0b6, y * 0.7 + 0.2 + Math.abs(z) * 0.05)), 0, 0.045, -0.01, 0, 0, 0, 0.055, 0.04, 0.085),
     at(tint(sph(1, 7, 5), 0x15302a), 0, 0.04, 0.085, 0, 0, 0, 0.032, 0.026, 0.028),
-    at(tint(new THREE.BoxGeometry(0.004, 0.003, 0.15), 0x103a2c), 0, 0.083, -0.01),
+    at(tint(sph(0.02, 5, 3), 0x103a2c), 0, 0.08, -0.01, 0, 0, 0, 0.2, 0.15, 3.2),
   ];
-  for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) parts.push(at(tint(new THREE.CylinderGeometry(0.004, 0.004, 0.07, 3), 0x15302a), sx * 0.05, 0.022, -0.045 + i * 0.045, 0, 0, sx * (Math.PI / 2 - 0.6)));
-  for (const sx of [-1, 1]) parts.push(at(tint(new THREE.CylinderGeometry(0.0025, 0.0025, 0.06, 3), 0x15302a), sx * 0.02, 0.06, 0.12, Math.PI / 2 - 0.3, 0, sx * 0.4));
+  for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) parts.push(at(tint(sph(0.02, 5, 4), 0x15302a), sx * 0.05, 0.02, -0.04 + i * 0.045, 0, 0, sx * (Math.PI / 2 - 0.6), 0.28, 0.28, 1.6));
+  for (const sx of [-1, 1]) parts.push(at(tint(sph(0.012, 4, 3), 0x15302a), sx * 0.02, 0.055, 0.11, Math.PI / 2 - 0.3, 0, sx * 0.4, 0.35, 0.35, 2.2));
   return merge(parts);
 };
 export const spawn = () => {
