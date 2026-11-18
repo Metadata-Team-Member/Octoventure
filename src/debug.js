@@ -201,6 +201,11 @@ export function installDebugHooks(game) {
     /** pretend a baby has already been led to water (the grotto stays quiet until then) */
     noteBaby() { game.progress.rescued.add('grotto-test'); return game.progress.babies; },
     get current() { const o = game.octopus, f = { x: 0, z: 0 }; flowAt(game.world, o.x, o.z, o.swim, f); return { x: f.x, z: f.z, swim: o.swim }; },
+    carryItem(id) { return game.decor.beginCarry(id); },
+    get carrying() { return game.decor?.carry || null; },
+    get decorPieces() { return (game.decor?.list || []).map((p) => ({ id: p.id, x: p.x, z: p.z, rot: p.rot })); },
+    dropDecor() { return game.decor.dropHere(); },
+    nudgeDecor() { return game.decor.list.length ? game.decor.nudge(0) : false; },
     terrainTypes: Object.keys(TERRAIN),
     game,
   };

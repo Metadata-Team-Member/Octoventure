@@ -63,6 +63,7 @@ const ICONS = {
   b_fang: s(`<path d="M5 4h14l-2.4 6.5L12 21 7.4 10.5z" fill="#f4efe2"/><path d="M12 6v11" stroke="#d7cfbb" stroke-width="1"/><circle cx="12" cy="9" r="2.6" fill="none" stroke="#4aa8ff" stroke-width="1.4"/>`),
   b_crown: s(`<path d="M3 18 2 7l5 4 5-7 5 7 5-4-1 11z" fill="#f2c94c"/><rect x="3" y="18" width="18" height="3" rx="1" fill="#d9a441"/><circle cx="12" cy="13" r="1.6" fill="#4aa8ff"/>`),
   b_grotto: s(`<path d="M3 19c2-9 4.2-13 9-13s7 4 9 13z" fill="#6d7c78"/><path d="M7.2 19c1.2-4.4 2.4-6.4 4.8-6.4s3.6 2 4.8 6.4z" fill="#163044"/><circle cx="10" cy="16" r="1" fill="#4aa8ff"/><circle cx="14" cy="16" r="1" fill="#4aa8ff"/>`),
+  b_home: s(`<path d="M4 12 12 5l8 7v8H4z" fill="#f3dcc9"/><path d="M3 12 12 4l9 8" fill="none" stroke="#c9894a" stroke-width="1.6" stroke-linecap="round"/><circle cx="9" cy="16" r="1.3" fill="#8e8e8a"/><circle cx="15" cy="16" r="1.3" fill="#8e8e8a"/><circle cx="12" cy="13" r="1.1" fill="#7cc86a"/>`),
 
   // ---- journal / tab pictograms (t254u)
   j_gull: s(`<ellipse cx="12" cy="14" rx="6" ry="3.2" fill="#f4f6f8"/><path d="M6 13 Q12 8 18 13" fill="#9aa3ad"/><path d="M16 11l5-3" stroke="#f1a233" stroke-width="1.4" stroke-linecap="round"/><circle cx="14.5" cy="11" r=".8" fill="#222"/>`),

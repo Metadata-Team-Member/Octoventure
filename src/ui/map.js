@@ -193,6 +193,8 @@ export function drawMap(ctx, W, H, d) {
   for (const p of (d.puddles || []).slice(0, 14)) { const [x, y] = to(p.x, p.z); puddleDoodle(ctx, x, y, 3 + hash(p.x, p.z) * 2); }
   ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
   for (const den of d.dens || []) { const [x, y] = to(den.x, den.z); shellDoodle(ctx, x, y, 6.5); }
+  ctx.fillStyle = 'rgba(90, 60, 30, 0.7)';
+  for (const p of d.decor || []) { const [x, y] = to(p.x, p.z); ctx.beginPath(); ctx.arc(x, y, 2.1, 0, 6.28); ctx.fill(); }
   for (const b of d.babies || []) { const [x, y] = to(b.x, b.z); babyDoodle(ctx, x, y, 6); }
   ctx.restore();
 
