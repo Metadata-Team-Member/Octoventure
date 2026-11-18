@@ -48,7 +48,7 @@ function antGeo() {
     at(tint(sph(1, 5, 4), 0x1a0f0a), 0, 0.012, 0.026, 0, 0, 0, 0.011, 0.01, 0.013),
     at(tint(sph(1, 5, 4), 0x24140c), 0, 0.012, 0.004, 0, 0, 0, 0.01, 0.009, 0.012),
     at(tint(sph(1, 5, 4), 0x24140c), 0, 0.012, -0.016, 0, 0, 0, 0.013, 0.011, 0.018),
-    at(tint(new THREE.BoxGeometry(0.018, 0.003, 0.003), 0x1a0f0a), 0, 0.02, 0.036, 0, 0, 0.6),
+    at(tint(sph(1, 4, 3), 0x1a0f0a), 0, 0.02, 0.04, 0, 0, 0.5, 0.016, 0.004, 0.004),
   ]);
 }
 function flyGeo() {
@@ -63,14 +63,14 @@ function flyGeo() {
 }
 function crabGeo() {
   const legs = [];
-  for (let i = 0; i < 4; i++) for (const sd of [-1, 1]) legs.push(at(tint(new THREE.BoxGeometry(0.11, 0.012, 0.014), 0xd9c9a3), sd * 0.085, 0.03, -0.04 + i * 0.027, 0, 0, sd * -0.5));
+  for (let i = 0; i < 4; i++) for (const sd of [-1, 1]) legs.push(at(tint(sph(0.05, 5, 4), 0xd9c9a3), sd * 0.09, 0.028, -0.04 + i * 0.027, 0, 0, sd * -0.55, 1.5, 0.32, 0.38));
   return merge([
     at(tint(sph(1, 7, 5), 0xe6d6b0), 0, 0.045, 0, 0, 0, 0, 0.075, 0.032, 0.06),
-    at(tint(new THREE.CylinderGeometry(0.006, 0.006, 0.05, 4), 0xcbb98f), -0.03, 0.08, 0.045),
-    at(tint(new THREE.CylinderGeometry(0.006, 0.006, 0.05, 4), 0xcbb98f), 0.03, 0.08, 0.045),
-    eye(-0.03, 0.107, 0.045, 0.011), eye(0.03, 0.107, 0.045, 0.011),
-    at(tint(new THREE.BoxGeometry(0.035, 0.025, 0.04), 0xf0e2c0), -0.07, 0.04, 0.07),
-    at(tint(new THREE.BoxGeometry(0.025, 0.02, 0.03), 0xf0e2c0), 0.06, 0.04, 0.07),
+    at(tint(sph(0.02, 5, 4), 0xcbb98f), -0.03, 0.078, 0.04, 0.4, 0, 0, 0.45, 1.3, 0.45),
+    at(tint(sph(0.02, 5, 4), 0xcbb98f), 0.03, 0.078, 0.04, 0.4, 0, 0, 0.45, 1.3, 0.45),
+    eye(-0.03, 0.1, 0.048, 0.011), eye(0.03, 0.1, 0.048, 0.011),
+    at(tint(sph(0.04, 5, 4), 0xf0e2c0), -0.07, 0.04, 0.07, 0, 0.4, 0, 1.1, 0.7, 1.2),
+    at(tint(sph(0.03, 5, 4), 0xf0e2c0), 0.06, 0.04, 0.07, 0, -0.4, 0, 1.05, 0.65, 1.1),
     ...legs,
   ]);
 }

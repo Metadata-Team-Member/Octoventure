@@ -261,12 +261,12 @@ ok(rings.early < rings.mid && rings.mid < rings.late && rings.late > rings.early
 // ---- every species can be spawned and updated without errors -------------------------------
 const species = await page.evaluate(() => {
   const G = window.__game; G.clearPredators(); G.setHealth(100);
-  const kinds = ['gull', 'cat', 'dog', 'fox', 'crab', 'eagle', 'human'];
+  const kinds = ['gull', 'cat', 'dog', 'fox', 'crab', 'eagle', 'human', 'magpie', 'kookaburra', 'snake', 'goanna', 'heron'];
   kinds.forEach((k, i) => G.spawnPredator(k, 10 + i * 3, 10 - i * 4));
   G.advance(8);
   return G.predators.map((p) => `${p.kind}:${p.state}`);
 });
-ok(species.length === 7, `all 7 predator species run (${species.join(' ')})`);
+ok(species.length === 12, `all 12 predator species run (${species.join(' ')})`);
 
 // ---- lose -> restart ------------------------------------------------------------------------
 const seedBefore = await page.evaluate(() => { const G = window.__game; G.clearPredators(); return G.seed; });

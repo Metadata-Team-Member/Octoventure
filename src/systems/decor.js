@@ -1,5 +1,5 @@
 // Decorations around a shell den. No prompts: drag an item off the satchel to carry it,
-// stand still beside a den to set it down, walk into it to pick it up, camouflage to turn it.
+// stand still beside a den to set it down, stand still on a piece to pick it up, camouflage to turn it.
 // Pieces are saved. A den with enough of them is a home.
 import * as THREE from 'three';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
@@ -59,6 +59,7 @@ export class Decor {
     this.list = [];
     this.carry = null;
     this.still = 0;
+    this.hold = 0;
     this.visitT = 0;
     this.root = new THREE.Group();
     game.scene.add(this.root);
@@ -74,6 +75,7 @@ export class Decor {
     this.list.length = 0;
     this.carry = null;
     this.still = 0;
+    this.hold = 0;
     if (this.carryMesh) this.carryMesh.visible = false;
     if (this.visitor) this.visitor.visible = false;
   }
@@ -85,6 +87,7 @@ export class Decor {
     if (!inv.take(id)) return false;
     this.carry = id;
     this.still = 0;
+    this.hold = 0;
     this.syncCarryMesh();
     this.game.saveSoon?.('decor');
     return true;
@@ -141,6 +144,7 @@ export class Decor {
     this.list.splice(i, 1);
     this.carry = p.id;
     this.still = 0;
+    this.hold = 0;
     this.syncCarryMesh();
     return true;
   }
@@ -222,14 +226,18 @@ export class Decor {
     const o = this.game.octopus, w = this.game.world;
     if (!o || !w || !o.alive) return;
     for (let i = 0; i < this.list.length; i++) if (this.list[i].cool > 0) this.list[i].cool -= dt;
-    if (this.carry && !o.carried && !o.tunnel && !o.waterKind) {
+    const idx = pieceNear(this.list, o.x, o.z, o.camoActive ? 0.8 : 0.58);
+    if (idx >= 0 && o.camoActive) { this.nudge(idx); this.hold = 0; }
+    else if (this.carry && !o.carried && !o.tunnel && !o.waterKind) {
       const den = denNear(this.game.abilities?.dens, o.x, o.z);
       if (den && !o.moving) this.still += dt; else this.still = 0;
       if (this.still > 0.45) { this.still = 0; this.tryPlace(den); }
-    } else this.still = 0;
-    const idx = pieceNear(this.list, o.x, o.z, o.camoActive ? 0.8 : 0.58);
-    if (idx >= 0 && o.camoActive) this.nudge(idx);
-    else if (idx >= 0 && o.moving && !o.camoActive) this.pickup(idx);
+      this.hold = 0;
+    } else if (idx >= 0 && !o.moving && !o.carried && !o.tunnel && !o.waterKind) {
+      this.still = 0;
+      this.hold += dt;
+      if (this.hold > 0.5) { this.hold = 0; this.pickup(idx); }
+    } else { this.still = 0; this.hold = 0; }
     this.visit(dt);
   }
 

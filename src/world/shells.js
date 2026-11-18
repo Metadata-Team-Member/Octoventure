@@ -56,7 +56,7 @@ export function scallop(variant = 0) {
   const rim = surface(1, 36, (u, v) => {                                    // closes the gap between the two sheets along the outer edge
     const a = fan(false)(1, v), b = fan(true)(1, v); return { p: u ? b.p : a.p, c: u ? b.c : a.c };
   });
-  const ear = (sx) => at(tint(new THREE.BoxGeometry(0.07, 0.03, 0.05), 0xf0dfcc), sx * 0.06, 0.022, -R * 0.45 + 0.03, 0, sx * -0.35, 0);
+  const ear = (sx) => at(tint(new THREE.SphereGeometry(0.034, 6, 4), 0xf0dfcc), sx * 0.08, 0.028, -R * 0.42, 0, sx * -0.2, 0, 1.45, 0.55, 1.05);
   return merge([top, bot, rim, ear(1), ear(-1)]);
 }
 
@@ -95,7 +95,7 @@ export function cowrie() {
     return { p, c: col };
   }, true);
   const parts = [body, at(tint(new THREE.SphereGeometry(1, 8, 4), 0x6a4a3a), 0, -b * 0.88, 0, 0, 0, 0, a * 0.82, 0.012, 0.022)];
-  for (let i = -2.5; i <= 2.5; i++) for (const s of [-1, 1]) parts.push(at(tint(new THREE.BoxGeometry(0.02, 0.012, 0.032), 0xf7ece0), i * 0.058, -b * 0.84, s * 0.036, 0.25 * s, 0, 0));
+  for (let i = -2; i <= 2; i++) for (const s of [-1, 1]) parts.push(at(tint(new THREE.SphereGeometry(0.011, 4, 3), 0xf7ece0), i * 0.055, -b * 0.82, s * 0.038));
   const g = merge(parts); g.rotateX(-1.15); return g;
 }
 

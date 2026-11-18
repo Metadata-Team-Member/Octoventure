@@ -93,7 +93,7 @@ export class WorldView {
     this._buildTransient();
     this._buildFish();
     const s = world.start;
-    this.flushAround(s.x, s.z, 230);
+    this.flushAround(s.x, s.z, 120);   // nearest chunks only; the rest of the ring streams in on the start screen (6 ms a frame)
     this.visRadius = CONFIG.graphics.fogFar + 70;
     this._cullT = 0;
   }

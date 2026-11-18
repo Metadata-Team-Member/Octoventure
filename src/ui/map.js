@@ -180,11 +180,17 @@ export function drawMap(ctx, W, H, d) {
     }
     ctx.stroke(); ctx.restore();
   }
-  // ---- 4. biome doodles (one or two per biome group, at the busiest spots)
+  // ---- 4. biome doodles (one or two per biome group, at the busiest spots). A name is drawn only once that biome has been walked.
+  const known = d.known;
+  const named = (b) => {
+    if (b === 'sea') return !!d.seaOk;
+    if (known && typeof known.has === 'function') return known.has(b);
+    return b !== 'sea';
+  };
   ctx.save(); ctx.strokeStyle = INK; ctx.fillStyle = 'rgba(70, 90, 50, 0.55)'; ctx.lineWidth = 1.3; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   const icons = [];
   for (const [b, g] of groups) {
-    if (b === 'sea' && !d.seaOk) continue;
+    if (!named(b)) continue;
     const f = DOODLE[BIOME_DOODLE[b]]; if (!f) continue;
     const [x, y] = to(g.ax ?? g.x / g.n, g.az ?? g.z / g.n);
     const s = Math.max(5, Math.min(11, 3 + Math.sqrt(g.n) * 0.8));
@@ -205,7 +211,7 @@ export function drawMap(ctx, W, H, d) {
   const blocked = [comp, ...icons.map((i) => ({ x0: i.x - i.s, x1: i.x + i.s, y0: i.y - i.s, y1: i.y + i.s }))];
   const items = [];
   for (const [b, g] of groups) {
-    if (b === 'sea' && !d.seaOk) continue;
+    if (!named(b)) continue;
     const label = BIOME_INFO[b]?.label || b; const [x, y] = to(g.ax, g.az);
     items.push({ b, label, x, y: y - 6, n: g.n, w: ctx.measureText(label).width, ang: (hash(g.n, b.length) - 0.5) * 0.24, bend: (hash(b.length, g.n) - 0.5) * 0.18 });
   }

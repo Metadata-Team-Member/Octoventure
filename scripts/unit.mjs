@@ -663,7 +663,7 @@ for (const seed of [1, 42, 2026]) {
   ok(a.length < 40, `secrets stay rare on the original map (${a.length})`);
   ok(a.every((s) => s.x > -800 && s.x < 800 && s.z > -800 && s.z < 800), 'original-map secrets stay inside it');
   ok(!rareOpen('glowfrog', 0.1, 1) && rareOpen('glowfrog', 0.8, 0) && !rareOpen('moonrace', 0.2, 1) && rareOpen('moonrace', 0.9, 0), 'the frog and the race only happen at night');
-  ok(!rareOpen('rainbloom', 0.9, 0.1) && rareOpen('rainbloom', 0, 0.5) && rareOpen('gold', 0, 0) && rareOpen('ring', 0, 0), 'the desert flower waits for rain; shells and the ring do not');
+  ok(!rareOpen('rainbloom', 0.9, 0.1) && !rareOpen('rainbloom', 0, 0.9, true) && rareOpen('rainbloom', 0, 0.9, false) && rareOpen('rainbloom', 0, 0.5) && rareOpen('gold', 0, 0) && rareOpen('ring', 0, 0), 'the desert flower opens only after rain stops; shells and the ring do not wait');
   const L = new Levels();
   ok(!L.did('rare', 'nope') && L.badges.size === 0, 'an unknown secret is ignored');
   L.did('rare', 'gold');
@@ -691,6 +691,34 @@ for (const seed of [1, 42, 2026]) {
   L.did('home');
   ok(L.badges.has('home') && L.st.home && L.toJSON().st.home === true, 'a dressed den earns the home badge and it is saved');
   ok(!L.did('home') && L.badges.size === 1, 'the home badge is only earned once');
+}
+{ // a decoration is picked up only after a deliberate stop, never by walking past
+  const { Decor } = await import('../src/systems/decor.js');
+  const THREE = await import('three');
+  const scene = new THREE.Scene();
+  const group = new THREE.Group();
+  const game = {
+    scene, octopus: { x: 0, z: 0, moving: true, camoActive: false, alive: true, carried: null, tunnel: null, waterKind: null, heading: 0, group },
+    world: { waterAt() { return false; }, heightAt() { return 1; } },
+    abilities: { dens: [{ x: 0, z: 0 }] },
+    inv: { count: () => 1, take: () => true, add() {} },
+    levels: { did() {} },
+    saveSoon() {},
+  };
+  const d = new Decor(game);
+  d.list.push({ id: 'pebble', x: 0.12, z: 0, rot: 0, denx: 0, denz: 0, cool: 0 });
+  d.update(1);
+  ok(d.carry == null && d.list.length === 1, 'walking past a decoration does not pick it up');
+  game.octopus.moving = false;
+  d.update(0.2);
+  ok(d.carry == null && d.list.length === 1, 'a brief pause is not enough to pick a decoration up');
+  d.update(0.4);
+  ok(d.carry === 'pebble' && d.list.length === 0, 'standing still on a decoration for half a second picks it up');
+  d.carry = null; d.hold = 0; d.still = 0;
+  d.list.push({ id: 'kelp', x: 0.1, z: 0, rot: 0, denx: 0, denz: 0, cool: 0 });
+  game.octopus.camoActive = true;
+  d.update(0.8);
+  ok(d.carry == null && d.list.length === 1 && d.list[0].rot !== 0, 'camouflage turns a decoration instead of picking it up');
 }
 
 { // the reef: one grotto per seed, current only while swimming at sea

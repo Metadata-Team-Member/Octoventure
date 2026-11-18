@@ -266,33 +266,67 @@ export const SPECIES = {
     label: 'Snake', ambush: true, stalker: true, rainLover: true, speed: 7.5, walk: 1.4, notice: 16, attackRange: 1.7, damage: 14, cooldown: 1.4,
     build() {
       const g = new THREE.Group();
-      const hide = mat(0x6d7d48), dark = mat(0x3d4a2a), eye = mat(0x1a1a1a);
-      for (let i = 0; i < 6; i++) {
-        const s = sph(0.2 - i * 0.01, i % 2 ? dark : hide, 1, 0.7, 1.15);
-        s.position.set(Math.sin(i * 0.85) * 0.07, 0.14, -i * 0.26);
-        g.add(s);
+      const hide = mat(0x6d7d48), eye = mat(0x1a1a1a);
+      const pts = [];
+      for (let i = 0; i <= 10; i++) {
+        const t = i / 10;
+        pts.push(new THREE.Vector3(Math.sin(t * Math.PI) * 0.14, 0.1, 0.18 - t * 1.4));
       }
-      const head = new THREE.Group(); head.position.set(0, 0.2, 0.26);
-      head.add(sph(0.18, hide, 1, 0.72, 1.35));
-      for (const s of [-1, 1]) { const e = sph(0.035, eye); e.position.set(s * 0.07, 0.05, 0.14); head.add(e); }
+      const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, 0.105, 5, false);
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const z = pos.getZ(i), t = clamp((0.18 - z) / 1.4, 0, 1);
+        const cx = Math.sin(t * Math.PI) * 0.14, cy = 0.1;
+        const k = 1.08 * (1 - t * 0.8);
+        pos.setXYZ(i, cx + (pos.getX(i) - cx) * k, cy + (pos.getY(i) - cy) * k, z);
+      }
+      geo.computeVertexNormals();
+      const body = new THREE.Mesh(geo, hide);
+      body.userData.base = new Float32Array(pos.array);
+      g.add(body);
+      const head = new THREE.Group(); head.position.set(0, 0.14, 0.28);
+      head.add(sph(0.16, hide, 0.9, 0.7, 1.35, 8));
+      for (const s of [-1, 1]) { const e = sph(0.03, eye, 1, 1, 1, 6); e.position.set(s * 0.06, 0.04, 0.12); head.add(e); }
       g.add(head);
-      return { g, legs: [], head };
+      return { g, legs: [], head, body };
     },
   },
   goanna: {
     label: 'Goanna', diurnal: true, rainShy: true, speed: 8.2, walk: 2.2, notice: 28, attackRange: 2.2, damage: 16, cooldown: 1.3,
     build() {
       const g = new THREE.Group(); const legs = [];
-      const hide = mat(0x8d6b3c), dark = mat(0x4a3822);
-      const body = sph(0.4, hide, 0.72, 0.55, 2.1); body.position.set(0, 0.42, 0); g.add(body);
-      const head = new THREE.Group(); head.position.set(0, 0.52, 0.9);
-      head.add(sph(0.2, hide, 0.85, 0.7, 1.45));
-      for (const s of [-1, 1]) { const e = sph(0.032, mat(0x1a1a1a)); e.position.set(s * 0.07, 0.04, 0.16); head.add(e); }
-      g.add(head);
-      for (const [x, z] of [[-0.2, 0.4], [0.2, 0.4], [-0.2, -0.35], [0.2, -0.35]]) {
-        const leg = pivot(cyl(0.055, 0.045, 0.38, dark, 5), x, 0.38, z); leg.children[0].position.y = -0.19; g.add(leg); legs.push(leg);
+      const hide = mat(0x8d6b3c), dark = mat(0x4a3822), belly = mat(0xc4a36a);
+      const body = sph(0.4, hide, 0.72, 0.48, 1.7); body.position.set(0, 0.4, 0.05); g.add(body);
+      const under = sph(0.26, belly, 0.55, 0.32, 1.25); under.position.set(0, 0.3, 0.08); g.add(under);
+      const head = new THREE.Group(); head.position.set(0, 0.5, 0.78);
+      head.add(sph(0.18, hide, 0.9, 0.72, 1.05, 8));
+      const snout = sph(0.1, hide, 0.65, 0.5, 1.45, 7); snout.position.set(0, -0.02, 0.2); head.add(snout);
+      const jaw = sph(0.07, dark, 0.6, 0.32, 1.05, 6); jaw.position.set(0, -0.07, 0.14); head.add(jaw);
+      for (const s of [-1, 1]) {
+        const e = sph(0.038, mat(0xf0dc86), 1, 0.85, 0.7, 6); e.position.set(s * 0.08, 0.05, 0.1); head.add(e);
+        const p = sph(0.016, mat(0x1a1a1a), 1, 1, 1, 5); p.position.set(s * 0.08, 0.05, 0.13); head.add(p);
       }
-      const tail = sph(0.14, hide, 0.65, 0.5, 2.6); tail.position.set(0, 0.3, -1.05); g.add(tail);
+      g.add(head);
+      for (const [x, z] of [[-0.22, 0.38], [0.22, 0.38], [-0.2, -0.28], [0.2, -0.28]]) {
+        const leg = pivot(cyl(0.055, 0.04, 0.34, dark, 6), x, 0.34, z);
+        leg.children[0].position.y = -0.17;
+        const foot = sph(0.04, dark, 1.35, 0.4, 1.5, 6); foot.position.set(0, -0.34, 0.03); leg.add(foot);
+        g.add(leg); legs.push(leg);
+      }
+      const tail = new THREE.Group(); tail.position.set(0, 0.32, -0.55);
+      const tailGeo = cached('goannaTail', () => {
+        const curve = new THREE.CatmullRomCurve3([0, 1, 2, 3, 4, 5, 6].map((i) => { const t = i / 6; return new THREE.Vector3(Math.sin(t * 0.6) * 0.04, 0.03 * (1 - t), -t * 1.15); }));
+        const geo = new THREE.TubeGeometry(curve, 8, 0.1, 5, false);
+        const pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          const z = pos.getZ(i), t = clamp(-z / 1.15, 0, 1), k = 1 - t * 0.84;
+          pos.setX(i, pos.getX(i) * k); pos.setY(i, pos.getY(i) * k);
+        }
+        geo.computeVertexNormals();
+        return geo;
+      });
+      tail.add(new THREE.Mesh(tailGeo, hide));
+      g.add(tail);
       return { g, legs, head, tail };
     },
   },
@@ -882,7 +916,15 @@ export class Predator {
       if (this.state === 'flee' || this.state === 'blind') p.head.position.y -= 0.1;            // head low, running scared
       if (this.state === 'confused') p.head.position.y += 0.05 * Math.sin(this.phase * 3);
     }
-    if (p.tail) p.tail.rotation.y = Math.sin(t * 2.2) * 0.4 * (1 - 0.7 * av);        // tail goes stiff when it has seen you
+    if (p.tail) p.tail.rotation.y = Math.sin(t * 2.2) * 0.35 * (0.35 + mv) * (1 - 0.65 * av);        // a long tail sways with the walk, and stiffens once it has seen you
+    if (this.kind === 'snake' && p.body?.userData.base) {
+      const attr = p.body.geometry.attributes.position, base = p.body.userData.base, wave = this.phase * 4.4;
+      for (let i = 0; i < attr.count; i++) {
+        const z = base[i * 3 + 2], u = clamp((0.18 - z) / 1.4, 0, 1);
+        attr.setXYZ(i, base[i * 3] + Math.sin(wave - u * 6.2) * 0.07 * u, base[i * 3 + 1], z);
+      }
+      attr.needsUpdate = true;
+    }
     if (p.claws) p.claws.forEach((c, i) => { c.position.y = 0.7 + (this.state === 'attack' ? Math.sin(this.lunge * Math.PI) * 0.4 : Math.sin(t * 2 + i) * 0.04); });
     const lowSlung = this.kind === 'cat' || this.kind === 'fox' || this.kind === 'dog';
     if (this.crouch) { p.g.scale.y = 1 - 0.3 * this.crouch; if (this.state !== 'stalk' && this.state !== 'pounce') this.crouch = Math.max(0, this.crouch - dt * 3); } else p.g.scale.y = lowSlung ? 1 - 0.1 * av : 1;     // a quick crouch before they commit
