@@ -76,6 +76,7 @@ export class Abilities {
       case 'mimic': o.buff.mimic = FX.mimic; break;
       case 'tonic': if (o.energy > 96 && o.buff.tonic > 0) return false; o.energy = 100; o.buff.tonic = FX.tonic; o.glowBoost = 0.6; break;
       case 'meal': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.mealHeal); o.buff.feast = FX.mealGlow; o.glowBoost = 1; break;
+      case 'glow': if (o.buff.feast > 20) return false; o.buff.feast = FX.glow; o.glowBoost = 1; break;
       case 'mussel': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.mussel); o.glowBoost = 0.5; break;
       case 'moss': if (o.health > 98) return false; o.health = Math.min(100, o.health + FX.moss); o.glowBoost = 0.3; break;
       default: ok = false;
@@ -124,12 +125,13 @@ export class Abilities {
     const hide = { x, z, r: 1.15, kind: 'den' };
     w.hides.push(hide);
     this.dens.push({ x, z, group: grp, hide });
-    while (this.dens.length > FX.denMax) this.removeDen(this.dens[0]);
+    while (this.dens.length > FX.denMax) this.removeDen(this.dens[0], true);
     if (enter) { this.game.octopus.hiddenIn = hide; this.game.octopus.hideEvent = hide; }
     return hide;
   }
-  removeDen(d) {
+  removeDen(d, giveBack = false) {
     const i = this.dens.indexOf(d); if (i >= 0) this.dens.splice(i, 1);
+    this.game.decor?.releaseDen(d.x, d.z, giveBack);
     this.denRoot.remove(d.group); d.group.traverse((m) => { /* geometries are shared per den (flip clones): */ if (m.isMesh && m.geometry !== this.gatherer.geos.pebble) m.geometry.dispose?.(); });
     const w = this.game.world, j = w.hides.indexOf(d.hide); if (j >= 0) w.hides.splice(j, 1);
     const o = this.game.octopus; if (o.hiddenIn === d.hide) o.hiddenIn = null;

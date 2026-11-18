@@ -31,6 +31,9 @@ import { Levels } from './systems/levels.js';
 import { Shimmer } from './systems/shimmer.js';
 import { SeaBeat } from './systems/seabeat.js';
 import { Critters } from './systems/critters.js';
+import { Reef } from './systems/reef.js';
+import { Decor } from './systems/decor.js';
+import { RareFinds } from './systems/rares.js';
 import { TOON } from './world/toon.js';
 import { TIER, PEOPLE, BITE, killTier, nipsFor, killXP, lethal } from './systems/combat.js';
 import { BIOMES } from './world/biomes.js';
@@ -105,6 +108,8 @@ export class Game {
     this.satchel = new Satchel(this.hud.el.satchel, this);
     this.tideClock = new Clock(this.hud.el.clock);
     this.plankton = new Plankton(this.scene);
+    this.reef = new Reef(this.scene);
+    this.decor = new Decor(this);
     this.seaMoment = null;
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -191,7 +196,7 @@ void main(){
   // ------------------------------------------------------------------ worlds
   newWorld(seed, save = null) {
     const hadWorld = this.hadWorld;
-    if (this.view) { this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); this.critters?.dispose(); }
+    if (this.view) { this.rares?.dispose(); this.decor?.clear(); this.view.dispose(); this.predators.dispose(); this.cars?.dispose(); this.collect?.dispose(); this.fx?.dispose(); this.flowers?.dispose(); this.abilities?.dispose(); this.gather?.dispose(); this.critters?.dispose(); }
     // ONE fixed world for everyone (CONFIG.worldSeed); ?seed= is a dev/debug override only. Each new game starts somewhere else in it.
     const dbg = this.params.get('seed') ? Number(this.params.get('seed')) : CONFIG.seed;
     const s = seed ?? dbg ?? CONFIG.worldSeed;
@@ -199,6 +204,7 @@ void main(){
     const g0 = performance.now();
     this.world = new WorldData(s);
     this.genMs = performance.now() - g0;
+    this.reef.bind(this.world);
     // where this game begins: a saved position, or a fresh random start (the daily start is the same for everybody that day)
     if (save?.octo && !save.fresh) this.world.setSpawn(save.octo.x, save.octo.z);
     else this.world.pickSpawn(this.daily ? mulberry32(dailySeed()) : mulberry32((Math.random() * 4294967296) >>> 0));
@@ -219,7 +225,7 @@ void main(){
     this.critters = new Critters(this.world, this.scene);
     this.world.scent = []; this.lastScent = null;
     this.runTime = 0; this.deadShown = false; this.threat = 0;
-    this.progress.reset(); this.seaMoment = null; this.panYaw = 0;
+    this.progress.reset(); this.seaMoment = null; this.grottoMoment = null; this.panYaw = 0;
     this.levels.reset(); this.levels.allBiomes = BIOMES.length; this.freshBadges.clear(); this.lv = { babies: 0, shells: 0, biomeT: 0, rain: 0, chased: false, calmT: 0 };
     this.journal.reset();
     this.camInit = false;
@@ -227,6 +233,8 @@ void main(){
     this.explored = new Set(); this.trail = []; this.saveT = 0; this.pendingSave = null;
     if (save) { applySave(this, save); this.pendingSave = save; }
     else if (hadWorld && this.saveEnabled) clearSave();          // a brand new world replaces whatever was saved
+    if (this.reef) this.reef.seen = !!this.levels.st.grotto;
+    this.rares = new RareFinds(this);
     this.lv.babies = this.progress.babies; this.lv.shells = this.progress.shells; this.applyPerks();
     this.updateCamera(0.016, true);
   }
@@ -299,6 +307,7 @@ void main(){
   /** Tab: the game stops completely (nothing dries, nothing moves) while the satchel is open */
   openSatchel() {
     if (this.state !== 'playing' || this.satchelOpen) return false;
+    if (this.decor?.carry) this.decor.stow();
     this.satchelOpen = true; this._reLock = null;
     this.hud.setPauseVisible(false);
     this.satchel.open(); this.hud.setSatchelVisible(true);
@@ -373,6 +382,8 @@ void main(){
     const wasCamo = o.camoWanted, wasHealth = o.health, wasWater = o.waterKind;
     if (this.state === 'menu') { o.update(dt, control, world); }
     else o.update(dt, control, world);
+    this.reef?.update(dt, this);
+    if (playing) this.decor?.update(dt);
 
     if (playing) {
       this.runTime += dt;
@@ -430,9 +441,11 @@ void main(){
     }
 
     this.updateSeaMoment(dt);
+    this.updateGrottoMoment(dt);
     this.shimmer.update(dt, o);
     this.seaBeat.update(dt, o, world.seaLevel);
     if (playing) { this.critters.preds = this.predators.list; this.critters.update(dt, o, world.night, world.raining ? (this.env?.rain || 1) : 0); }
+    if (playing) this.rares?.update(dt, o);
     if (playing) this.updateJournal();
     this.plankton?.update(dt, { night: world.night, biome: world.biomeAt(o.x, o.z), o, seaLevel: world.seaLevel });
     this.view.update(dt, { x: o.x, y: o.y, z: o.z }, this.camera);
@@ -573,6 +586,23 @@ void main(){
     let d = want - this.input.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
     this.panYaw = d * bell * 0.8;
     if (fade) fade.style.opacity = (bell * 0.4).toFixed(3);
+  }
+  /** swimming into the grotto after a baby has been led to water: a calm drift, then play goes on */
+  updateGrottoMoment(dt) {
+    const m = this.grottoMoment;
+    if (!m) return;
+    const fade = document.getElementById('fade');
+    m.t += dt;
+    const k = m.t / m.dur;
+    if (k >= 1) { this.grottoMoment = null; this.panYaw = 0; if (fade) fade.style.opacity = '0'; return; }
+    const bell = Math.sin(Math.PI * k);
+    const g = this.reef?.grotto, o = this.octopus;
+    if (g && o) {
+      const want = Math.atan2(-(g.x - o.x), -(g.z - o.z));
+      let d = want - this.input.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      this.panYaw = d * bell * 0.65;
+    }
+    if (fade) fade.style.opacity = (bell * 0.38).toFixed(3);
   }
 
   fmt(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }

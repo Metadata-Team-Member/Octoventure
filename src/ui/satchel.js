@@ -9,7 +9,7 @@
 import { icon } from './icons.js';
 import { RECIPES, USABLE, FX, loreOf } from '../systems/items.js';
 import { BADGES } from '../systems/levels.js';
-import { ENTRIES, RARE, TABS } from '../systems/journal.js';
+import { ENTRIES, RARE, SECRET_IDS, TABS } from '../systems/journal.js';
 import { unpackCell, exploreCell } from '../systems/save.js';
 import { drawMap } from './map.js';
 
@@ -52,7 +52,8 @@ export class Satchel {
     this.journalPage = el('div', 'sat-page sat-page-journal');
     this.mapPage = el('div', 'sat-page sat-page-map');
     this.mapCanvas = document.createElement('canvas'); this.mapCanvas.className = 'sat-map'; this.mapCanvas.width = 640; this.mapCanvas.height = 480;
-    this.mapPage.append(this.mapCanvas);
+    this.homeRow = el('div', 'sat-home'); this.homeRow.hidden = true;
+    this.mapPage.append(this.homeRow, this.mapCanvas);
     this.colPage = el('div', 'sat-page sat-page-col');
     this.pages = { bag: this.bagPage, journal: this.journalPage, map: this.mapPage, collection: this.colPage };
     this.body = el('div', 'sat-body');
@@ -238,7 +239,23 @@ export class Satchel {
       cells, seaOk, biomeAt: (x, z) => world.biomeAt(x, z), trail: g.trail || [],
       dens: g.abilities?.denList?.() || [], babies: babies.filter((b) => seen(b.x, b.z)), puddles,
       me: o ? { x: o.x, z: o.z } : null,
+      decor: g.decor?.list || [],
     });
+    this.paintHome();
+  }
+  paintHome() {
+    const g = this.game, row = this.homeRow;
+    if (!row) return;
+    const dens = g.abilities?.dens || [];
+    row.innerHTML = '';
+    if (!dens.length) { row.hidden = true; return; }
+    row.hidden = false;
+    const bits = g.decor?.list || [];
+    for (const d of dens) {
+      const nest = el('span', 'sat-nest', `<i>${icon('den')}</i>`);
+      for (const p of bits) if (Math.hypot(p.denx - d.x, p.denz - d.z) < 0.5) nest.append(el('i', '', icon(p.id)));
+      row.append(nest);
+    }
   }
 
   renderCollection() {
@@ -262,6 +279,13 @@ export class Satchel {
       if (found) { p.type = 'button'; p.dataset.tip = 'item:' + id; p.dataset.act = 'look'; p.dataset.id = id; }
       rares.append(p);
       void L;
+    }
+    for (const id of SECRET_IDS) {
+      const found = !!g.journal?.has(id);
+      const e = ENTRIES.find((q) => q.id === id);
+      const p = el(found ? 'button' : 'span', 'col-rare' + (found ? ' got' : ''), `<i>${icon(e.glyph)}</i>`);
+      if (found) { p.type = 'button'; p.dataset.tip = 'entry:' + id; }
+      rares.append(p);
     }
     page.append(wall, rares);
   }
@@ -373,13 +397,17 @@ export class Satchel {
   dragEnd(e) {
     if (!this._drag) return;
     const d = this._drag;
-    const rec = d.ready && document.elementFromPoint(e.clientX, e.clientY)?.closest?.('button.rec');
+    const hit = d.ready ? document.elementFromPoint(e.clientX, e.clientY) : null;
+    const rec = hit?.closest?.('button.rec');
+    const outside = !!(d.ready && hit && !this.panel.contains(hit));
     this.dragCancel();
     if (rec && RECIPES.find((q) => q.id === rec.dataset.id && q.in[d.id]) && this.game.inv.craft(rec.dataset.id)) {
       this.game.audio.craft?.(); this.game.audio.plop?.();
       this.game.afterCraft?.(RECIPES.find((r) => r.id === rec.dataset.id));
       this.render(); this.pop(rec.dataset.id);
+      return;
     }
+    if (outside && this.game.decor?.beginCarry(d.id)) { this.game.audio.plop?.(); this.render(); }
   }
   dragCancel() {
     if (!this._drag) return;

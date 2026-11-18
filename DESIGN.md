@@ -74,7 +74,13 @@ Tab opens a paused panel (`ui/satchel.js`, `ui/icons.js`): left the items found 
 
 **v3 -> v4 (t250u).** Adds `fx.lethal` (a readied lethal venom dose) and `lv.st.kills` / `lv.st.bigKill`. `MIGRATIONS[3]` sets `lethal: false`; missing kill tallies load as 0.
 
-**v4 -> v5 (t254u).** Adds `journal { seen:[ids], tab }`. `MIGRATIONS[4]` starts an older save with an empty journal on the bag tab; already-held items are filled in on load (`Journal.syncItems`). The key stays `octo.save.v2`. Current `SAVE_VERSION` is 5.
+**v4 -> v5 (t254u).** Adds `journal { seen:[ids], tab }`. `MIGRATIONS[4]` starts an older save with an empty journal on the bag tab; already-held items are filled in on load (`Journal.syncItems`). The key stays `octo.save.v2`.
+
+**v5 -> v6.** Adds `lv.st.grotto` (the quiet cave under the reef has been found). `MIGRATIONS[5]` leaves older stats untouched; a missing flag loads as false. The key stays `octo.save.v2`.
+
+**v6 -> v7.** Adds `decor` (things set around dens) and `carry` (an item held in the arms, or null). `MIGRATIONS[6]` starts an older save with an empty ring and nothing carried. The key stays `octo.save.v2`.
+
+**v7 -> v8.** `lv.st.rare` lists secret finds (golden shell, pearl, night frog, desert bloom, moonlit race, fairy ring). `MIGRATIONS[7]` leaves older saves without that list; load treats a missing one as empty. Current `SAVE_VERSION` is 8.
 
 **v2 -> v3 (t241u).** Adds `lv {xp, b:[badge ids], st:{cells, biomes:[names], sea, babies, gathered, crafted, madeAll, shells, nightSwim, rainDance, storm, escapes}}`. `MIGRATIONS[2]` starts an older save at level 1 with what it already did (explored cells, babies, sea, shells) counted towards the badges; badges already deserved are granted quietly on load (no shimmer). The key stays `octo.save.v2`.
 
@@ -160,6 +166,21 @@ Four new harmless kinds, each with a journal entry:
 
 None can be hurt or killed. Pools stay small and recycle around the player.
 
+## Secrets of night and rain
+
+A few finds that are not gatherables (they do not use the gather stream, so nothing else in the world moves). Each 400 m tile, including the original map's sixteen tiles and every far tile, rolls its own hash. Most tiles have none. On the one world each kind shows up a handful of times and no more.
+
+- **Golden shell** on the beach and the dunes. There whenever you pass.
+- **Pearl shell** in the shallows, or on the wet sand of the beach, estuary and headland.
+- **Glowing frog** in the rainforest, and only at night. By day the spot is empty.
+- **Desert flower** a shut bud until rain has fallen. It stays open a little while after the rain stops, then closes.
+- **Ghost-crab race** on the beach at night: four pale crabs run a short line between two burrows. By day, only the burrows.
+- **Fairy ring** of mushrooms in the bush or the rainforest.
+
+Meeting one (walk up to it while it is actually there) fills its journal entry, which is a silhouette until then, adds a collection portrait, and earns a badge. Nothing is written on the ground. Saved as `lv.st.rare` on save v8 (`MIGRATIONS[7]`). Older saves, including v7 den saves, load with no secrets found.
+
+Try: `?seed=2026`, then `__game.teleportToRare('gold')`. For the frog, `__game.setTime(0.02)` first. For the flower, `__game.setWeather('rain')` and `__game.soakRare()`, or wait out a real shower. For the race, night plus `__game.teleportToRare('moonrace')`.
+
 
 ## Soft & friendly pass (t256u / t257u)
 **Research takeaways** (Animal Crossing: New Horizons, A Short Hike, Alba: A Wildlife Adventure, Tunic, Fortnite, Rocket League, Ooblets):
@@ -208,6 +229,26 @@ None can be hurt or killed. Pools stay small and recycle around the player.
 | wander mobile mean / p99 / worst frame | 128 / 188 / 482 ms | 71 / 132 / 267 ms |
 | heap after the walk (after GC) desktop / mobile | 36.0 / 40.6 MB | 43.1 / 41.5 MB |
 
+## The reef and the quiet cave
+
+Offshore, past the break, the sea floor already holds coral, reef rock and seagrass. Around one hidden grotto (the same place for a given seed: `grottoOf` in `systems/reef.js`) there is a kelp stand, a few rock arches, sand channels, coral heads and sea stars. A school of fish drifts with a swimmer; a turtle patrols the grotto. Caustic light only shows while you are wet. A soft longshore current nudges the octopus only while swimming in the sea (`flowAt`); it fades in the shallows and is gone on land. Swimming still rehydrates.
+
+Anemones grow only on the sea floor. With a piece of coral, or with an urchin, they make a reef light: the rings shine for a while and nothing else changes. The grotto stays quiet until at least one baby has been led to water. Swimming into it then shows the little ones, plays a calm camera drift (no text, no credits) and keeps the "quiet cave" badge. Play continues.
+
+Try `?seed=2026`, then from the console ` __game.teleportToOcean(6)` and `__game.teleportToGrotto()`. `__game.noteBaby()` stands in for a rescue. `__game.grotto` is the cave. Current is `__game.current` while `swim` is high.
+
+## A den you can dress (no prompts)
+
+Drag an item off the satchel (release it outside the panel) and the octopus carries it. Stand still within 3.4 m of a den and it is set on the ring around the den, facing the way you were looking. Walk into a piece to pick it up again. Hold camouflage while touching it to turn it an eighth. Opening the satchel puts a carried piece back in the bag. At most 8 pieces per den, 24 in all. When a fourth den replaces the oldest, that den's pieces return to the bag.
+
+The map page grows a quiet home row (den icon, then the things around it) and dots the pieces on the chart. No words.
+
+After at least one baby has been rescued, a little one visits a den that has three or more pieces, while you are nearby, and plays. Four pieces earns the "A home" badge. Play continues.
+
+Saved as `decor` and `carry` on save v7 (`MIGRATIONS[6]`). Older saves, including v6 grotto saves, load with an empty home.
+
+Try: place a den (V), open the satchel, drag a pebble off the panel, stand beside the den. Or `__game.give('pebble'); __game.carryItem('pebble'); __game.dropDecor()`.
+
 ## Smarter hunters - SPOILERS
 Still the same motion, separation and turn-taking (`MAX_STRIKERS` 2). No markers. Three more animals, and the weather now changes who is hunting.
 
@@ -218,3 +259,4 @@ Still the same motion, separation and turn-taking (`MAX_STRIKERS` 2). No markers
 - **Time and rain** only scale `act` (notice and pace), never a HUD. Foxes and cats stay nocturnal. Gulls, eagles and the swooping birds sit the rain out. Goannas and herons sleep through the night. Ink, venom, bite, camouflage and the two-at-a-time rule are unchanged.
 - Journal entries (snake, goanna, heron) fill in when you come close. No new badges.
 - `npm run packs` also checks the half-buried coil, the eagle's shadow before the dive, and that a goanna sleeps at night while a snake wakes in the rain.
+

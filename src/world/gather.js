@@ -30,9 +30,9 @@
 import { BIOMES } from './biomes.js';
 
 /** items per 800 x 800 m (tile counts scale by area) */
-export const GATHER_COUNT = { crab: 20, shrimp: 18, snail: 28, mussel: 26, kelp: 44, lettuce: 28, sponge: 14, coral: 16, shellhalf: 42, pebble: 44, moss: 32, coconut: 14, cap: 22, jar: 8, urchin: 20, worm: 24, beetle: 26, spawn: 16, propagule: 26, ochre: 30, fungi: 30 };
+export const GATHER_COUNT = { crab: 20, shrimp: 18, snail: 28, mussel: 26, kelp: 44, lettuce: 28, sponge: 14, coral: 16, shellhalf: 42, pebble: 44, moss: 32, coconut: 14, cap: 22, jar: 8, urchin: 20, worm: 24, beetle: 26, spawn: 16, propagule: 26, ochre: 30, fungi: 30, anemone: 12 };
 export const GATHER_KINDS = Object.keys(GATHER_COUNT);
-const SIZE = { crab: [0.9, 1.15], shrimp: [0.9, 1.2], snail: [0.85, 1.2], mussel: [0.8, 1.2], kelp: [0.8, 1.3], lettuce: [0.8, 1.3], sponge: [0.8, 1.4], coral: [0.8, 1.4], shellhalf: [0.8, 1.3], pebble: [0.65, 1.1], moss: [0.8, 1.4], coconut: [0.9, 1.15], cap: [1, 1.25], jar: [0.95, 1.1], urchin: [0.85, 1.25], worm: [0.9, 1.3], beetle: [0.9, 1.2], spawn: [0.9, 1.3], propagule: [0.85, 1.25], ochre: [0.8, 1.2], fungi: [0.85, 1.3] };
+const SIZE = { crab: [0.9, 1.15], shrimp: [0.9, 1.2], snail: [0.85, 1.2], mussel: [0.8, 1.2], kelp: [0.8, 1.3], lettuce: [0.8, 1.3], sponge: [0.8, 1.4], coral: [0.8, 1.4], shellhalf: [0.8, 1.3], pebble: [0.65, 1.1], moss: [0.8, 1.4], coconut: [0.9, 1.15], cap: [1, 1.25], jar: [0.95, 1.1], urchin: [0.85, 1.25], worm: [0.9, 1.3], beetle: [0.9, 1.2], spawn: [0.9, 1.3], propagule: [0.85, 1.25], ochre: [0.8, 1.2], fungi: [0.85, 1.3], anemone: [0.85, 1.25] };
 
 /**
  * THE per-biome distribution: the biomes each kind may be found in (dominant biome at the item's spot).
@@ -60,6 +60,7 @@ export const HABITAT = {
   propagule: { biomes: ['wetland', 'estuary'] },
   ochre:     { biomes: ['desert'] },                     // t241u: lumps of red ochre on the desert sand
   fungi:     { biomes: ['rainforest'] },                 // t241u: glowing ghost fungi on the rainforest floor
+  anemone:   { biomes: ['sea'] },                      // reef flowers, offshore only
 };
 /** the same table the other way round: biome -> the kinds found there (for tests, docs and the DESIGN notes) */
 export const BIOME_MATERIALS = Object.fromEntries(BIOMES.map((b) => [b, GATHER_KINDS.filter((k) => HABITAT[k].biomes.includes(b))]));
@@ -251,6 +252,17 @@ export function scatterGather(w, rnd, o) {
       if (mang.length && rnd() < 0.6) { const t = rnd.pick(mang), [x, z] = ring(t, 0.6 * t.scale + 0.3, 2.6); if (inside(x, z) && w.heightAt(x, z) > 0.05 && dry(x, z)) return finish('propagule', x, z); }
       const s = landSpot('propagule', 0.05, 2.5, 40, 0.45);
       return s ? finish('propagule', s[0], s[1]) : false;
+    },
+    anemone() {
+      const cs = reef.filter((q) => q.kind === 'coral' || q.kind === 'rock');
+      if (cs.length && rnd() < 0.7) {
+        const r = rnd.pick(cs);
+        const rad = (r.s || r.size || 0.6);
+        const [x, z] = ring(r, rad + 0.35, rad + 2.1);
+        if (inside(x, z) && w.heightAt(x, z) < -0.55 && w.heightAt(x, z) > -6.2 && w.tAt(x, z) > 1.02) return finish('anemone', x, z);
+      }
+      const s = seaSpot(-4.8, -0.7);
+      return s ? finish('anemone', s[0], s[1]) : false;
     },
   };
   for (const kind of GATHER_KINDS) {
