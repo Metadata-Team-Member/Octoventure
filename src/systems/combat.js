@@ -11,7 +11,7 @@
 // =====================================================================
 
 /** how big / tough each predator is (1 small .. 4 big); people are out of reach */
-export const TIER = { crab: 1, gull: 1, magpie: 2, kookaburra: 2, cat: 3, fox: 3, eagle: 4, dog: 4, human: 9 };
+export const TIER = { crab: 1, gull: 1, magpie: 2, kookaburra: 2, heron: 2, snake: 2, cat: 3, fox: 3, goanna: 3, eagle: 4, dog: 4, human: 9 };
 export const PEOPLE = 9;
 /** the biggest tier the venomous bite kills at level L (0 = deterrent only) */
 export const killTier = (L) => (L >= 12 ? 4 : L >= 8 ? 3 : L >= 5 ? 2 : L >= 3 ? 1 : 0);

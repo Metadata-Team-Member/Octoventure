@@ -94,9 +94,12 @@ await E(() => {
   ok(r.worst >= 0.85, `three birds sharing one perch tree sit apart (worst ${r.worst.toFixed(2)}; ${r.st.join(',')})`);
 }
 // ---- 4. every predator type: approach -> anticipation -> strike -> recovery; camo breaks it off
-for (const kind of ['gull', 'cat', 'dog', 'fox', 'crab', 'human', 'magpie', 'kookaburra', 'eagle']) {
+for (const kind of ['gull', 'cat', 'dog', 'fox', 'crab', 'human', 'magpie', 'kookaburra', 'eagle', 'snake', 'goanna', 'heron']) {
   const r = await E((kind) => {
-    const G = window.__game, g = G.game, o = g.octopus; window.__open(kind === 'crab' || kind === 'gull' ? 'beach' : kind === 'eagle' ? 'farm' : kind === 'human' || kind === 'cat' ? 'suburb' : 'bush');
+    const G = window.__game, g = G.game, o = g.octopus;
+    const biome = kind === 'crab' || kind === 'gull' ? 'beach' : kind === 'eagle' ? 'farm' : kind === 'goanna' ? 'desert' : kind === 'heron' ? 'wetland' : kind === 'human' || kind === 'cat' ? 'suburb' : 'bush';
+    window.__open(biome);
+    G.freezeTime(true); G.setTime(0.5); G.setWeather('clear');
     const p = G.spawnPredator(kind, kind === 'eagle' ? 20 : 5, 0); p.ignore = 0; p.cool = 0; if (p.spec.swoop) { p.home = { x: o.x + 3, z: o.z }; p.perchOff = { x: 0, z: 0 }; p.x = o.x + 3; p.z = o.z; }
     const states = []; let wound = false, hit = false, hp = 0;
     const dmg0 = o.damage; o.damage = function (n, cause, opts) { if (cause === kind && !this.camoProtected) { hit = true; hp = n; } return dmg0.call(this, n, cause, opts); };
@@ -112,16 +115,57 @@ for (const kind of ['gull', 'cat', 'dog', 'fox', 'crab', 'human', 'magpie', 'koo
     const rec = p.recover > 0 || ['climb', 'chase', 'home', 'stalk', 'carry', 'leave'].includes(p.state);
     // then camouflage: it must break off
     G.pressKey('Space'); const before = p.state; for (let t = 0; t < 3; t += 1 / 30) { o.health = 100; o.energy = 100; g.update(1 / 30); if (states[states.length - 1] !== p.state) states.push(p.state); }
-    G.releaseKey('Space'); o.damage = dmg0;
+    G.releaseKey('Space'); o.damage = dmg0; G.freezeTime(false);
     return { states, wound, hit, hp, rec, end: p.state, before };
   }, kind);
+  const stalker = kind === 'cat' || kind === 'snake' || kind === 'heron';
   const ground = !['magpie', 'kookaburra', 'eagle'].includes(kind);
   ok(r.hit, `${kind}: approaches and strikes (${r.states.join(' > ')})`);
-  if (ground && kind !== 'cat') ok(r.wound, `${kind}: winds up before the strike (anticipation)`);
-  if (kind === 'cat') ok(r.states.includes('stalk') && r.states.includes('pounce'), `cat: stalks, then pounces`);
+  if (stalker) ok(r.states.includes('stalk') && r.states.includes('pounce'), `${kind}: stalks, then strikes`);
+  else if (ground) ok(r.wound, `${kind}: winds up before the strike (anticipation)`);
   if (!ground) ok(r.states.includes('alert'), `${kind}: pauses (wings up, looking down) before it dives`);
   ok(r.rec, `${kind}: recovers after the strike (${r.end})`);
   ok(['confused', 'search', 'leave', 'climb', 'home', 'perch', 'wander'].includes(r.end), `${kind}: camo breaks it off (${r.end})`);
+}
+// ---- 4b. a snake hides, an eagle's shadow leads the dive, day and rain change who hunts
+{
+  const r = await E(() => {
+    const G = window.__game, g = G.game;
+    window.__open('bush');
+    G.freezeTime(true); G.setTime(0.5); G.setWeather('clear');
+    for (let i = 0; i < 20; i++) g.advance(0.05);
+    const sn = G.spawnPredator('snake', 8, 0); sn.state = 'wander'; sn.ignore = 99; sn.bury = 0;
+    for (let i = 0; i < 40; i++) g.advance(0.05);
+    const buried = sn.bury, lowY = sn.parts.g.position.y;
+    sn.state = 'chase'; sn.sync(0.5);
+    const risen = sn.bury, upY = sn.parts.g.position.y;
+    G.clearPredators();
+    window.__open('farm');
+    const eg = G.spawnPredator('eagle', 16, 0); eg.ignore = 0; eg.cool = 0; eg.state = 'wander';
+    let shadowed = false, circled = false, op = 0, moved = 0, x0 = eg.x, z0 = eg.z;
+    for (let i = 0; i < 80 && eg.state !== 'dive'; i++) {
+      g.advance(0.05);
+      if (eg.state === 'alert') {
+        circled = true; moved = Math.max(moved, Math.hypot(eg.x - x0, eg.z - z0));
+        if (eg.shadowDisc?.visible && eg.shadowDisc.material.opacity > 0.15) { shadowed = true; op = Math.max(op, eg.shadowDisc.material.opacity); }
+      }
+    }
+    const after = eg.state;
+    G.clearPredators(); G.setTime(0.5); G.setWeather('clear');
+    for (let i = 0; i < 8; i++) g.advance(0.05);
+    const go = G.spawnPredator('goanna', 40, 0), sn2 = G.spawnPredator('snake', 42, 0);
+    g.advance(0.1); const day = { go: go.act, sn: sn2.act };
+    G.setWeather('rain'); for (let i = 0; i < 50; i++) g.advance(0.05);
+    const rain = { go: go.act, sn: sn2.act, wet: g.world.raining || g.world.weatherKind === 'rain' };
+    G.setWeather('clear'); G.setTime(0.02); for (let i = 0; i < 30; i++) g.advance(0.05);
+    const night = { go: go.act, sn: sn2.act };
+    return { buried, risen, lowY, upY, shadowed, circled, op, moved, after, day, rain, night };
+  });
+  ok(r.buried > 0.65 && r.lowY < r.upY - 0.04, `a waiting snake is half in the grass (bury ${r.buried.toFixed(2)}, y ${r.lowY.toFixed(2)} -> ${r.upY.toFixed(2)})`);
+  ok(r.risen < 0.4, `it rises to strike (bury ${r.risen.toFixed(2)})`);
+  ok(r.circled && r.shadowed && r.moved > 2, `an eagle circles and casts a shadow before the dive (moved ${r.moved.toFixed(1)} m, opacity ${r.op.toFixed(2)}, then ${r.after})`);
+  ok(r.night.go < r.day.go * 0.45, `a goanna sleeps at night (${r.day.go.toFixed(2)} -> ${r.night.go.toFixed(2)})`);
+  ok(r.rain.wet && r.rain.sn > r.day.sn && r.rain.go < r.day.go * 0.5, `rain wakes a snake and quiets a goanna (snake ${r.day.sn.toFixed(2)}->${r.rain.sn.toFixed(2)}, goanna ${r.day.go.toFixed(2)}->${r.rain.go.toFixed(2)})`);
 }
 // ---- 5. critters: stacked ones are pushed apart, and they make way for predators
 {

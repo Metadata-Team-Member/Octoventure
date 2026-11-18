@@ -76,7 +76,7 @@ export const CONFIG = {
   predators: {
     enabled: true,
     // counts per species (spawned in the habitat they like)
-    counts: { gull: 10, cat: 5, dog: 5, fox: 6, crab: 9, eagle: 3, human: 5, magpie: 6, kookaburra: 4 },
+    counts: { gull: 10, cat: 5, dog: 5, fox: 6, crab: 9, eagle: 3, human: 5, magpie: 6, kookaburra: 4, snake: 4, goanna: 3, heron: 3 },
     cars: 7,               // cars on the roads (per 800x800 m); they ignore camouflage, but you can hear them coming
     safeRadiusAtStart: 35, // nothing spawns this close to the start
     activeRadius: 130,     // predators further than this are paused (performance)
