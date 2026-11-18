@@ -4,6 +4,7 @@ on:
     workflows: ["test"]
     types: [completed]
 permissions:
+  actions: read
   contents: write
 jobs:
   publish:
