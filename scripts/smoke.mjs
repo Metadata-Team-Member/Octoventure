@@ -111,12 +111,31 @@ const drag = await (async () => {
 ok(!noPause && Math.abs(drag.hover) < 1e-9 && Math.abs(drag.drag) > 0.1, `fallback (no pointer lock): click-and-drag turns the camera, plain movement does not, no pause (${drag.drag.toFixed(2)} rad)`);
 await page.evaluate(() => window.__game.forceFallback(false));
 
-// ---- drying out ----------------------------------------------------------------
-await page.evaluate(() => { const G = window.__game; G.clearPredators(); G.teleport(G.pos.x + 40, G.pos.z + 40); });
-const h0 = await page.evaluate(() => { const G = window.__game; G.setHealth(100); return G.health; });
+// ---- drying out (moist ground, noon, clear sky: a car or a heatwave must not decide it)
+await page.evaluate(() => {
+  const G = window.__game, g = G.game, w = g.world, o = g.octopus;
+  G.clearPredators();
+  G.freezeTime(true); G.setTime(0.5); G.setWeather('clear');
+  const env = g.env; env.heat = 0; env.rain = 0; env.dark = 0; env.kind = 'clear'; env.timer = 1e9; env.apply();
+  const moist = new Set(['lawn', 'grass', 'pasture', 'forest', 'litter']);
+  let spot = null;
+  for (let ring = 1; ring < 24 && !spot; ring++) {
+    for (let a = 0; a < 8 && !spot; a++) {
+      const ang = (a / 8) * Math.PI * 2;
+      const x = o.x + Math.cos(ang) * ring * 8, z = o.z + Math.sin(ang) * ring * 8;
+      const t = w.typeAt(x, z);
+      if (!moist.has(t) || w.waterAt(x, z) || w.isSea(x, z) || w.isRoad(x, z, 6) || w.heightAt(x, z) < 0.6) continue;
+      spot = { x, z };
+    }
+  }
+  if (spot) G.teleport(spot.x, spot.z);
+  G.setHealth(100);
+});
+const h0 = await page.evaluate(() => window.__game.health);
 await page.evaluate(() => window.__game.advance(20));
 const h1 = await page.evaluate(() => window.__game.health);
 const inWater = await page.evaluate(() => !!window.__game.waterKind);
+await page.evaluate(() => window.__game.freezeTime(false));
 ok(inWater || (h1 < h0 && h0 - h1 < 12), `health drains slowly (20 s: ${h0} -> ${h1.toFixed(1)}; ~25% of the old rate)`);
 
 // ---- self-discovery UI: nothing on screen but the game ---------------------------------------------

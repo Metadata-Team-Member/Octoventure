@@ -101,25 +101,58 @@ export const SPECIES = {
   cat: {
     label: 'Cat', nocturnal: true, stalker: true, speed: 9.5, walk: 2.6, notice: 24, attackRange: 2.0, damage: 15, cooldown: 1.1,
     build() {
-      const g = new THREE.Group(); const legs = [];
-      const fur = mat(0xd98a43), dark = mat(0x8c4f21), light = mat(0xf4e6cf), pink = mat(0xe9a4a4), black = mat(0x1d1d1d);
-      const body = sph(0.55, fur, 0.75, 0.7, 1.55); body.position.y = 1.0; g.add(body);
-      const stripe = box(0.82, 0.05, 0.12, dark); stripe.position.set(0, 1.5, 0.1); g.add(stripe);
-      const head = new THREE.Group(); head.position.set(0, 1.25, 1.0);
-      head.add(sph(0.42, fur, 1, 0.9, 0.95));
+      const g = new THREE.Group(); const legs = []; const knees = []; const ears = [];
+      const coats = [
+        { fur: 0xd98a43, dark: 0x8a4e22, light: 0xf6d7b0, nose: 0xeea4a4 },
+        { fur: 0xc4a574, dark: 0x6b4528, light: 0xead4b4, nose: 0xd9897a, tabby: true },
+        { fur: 0x2a2a2c, dark: 0x161618, light: 0xf6f3ee, nose: 0xe7a0a8 },
+        { fur: 0x9aa0a6, dark: 0x5c636a, light: 0xdfe3e6, nose: 0xe7a0a8 },
+      ];
+      const coat = coats[Math.floor(RND() * coats.length)];
+      const fur = mat(coat.fur), dark = mat(coat.dark), light = mat(coat.light), pink = mat(coat.nose), black = mat(0x1a1a1a), eyeC = mat(0xc6e86a);
+      const belly = sph(0.46, fur, 0.82, 0.7, 1.25); belly.position.set(0, 0.62, 0.12); g.add(belly);
+      const haunch = sph(0.4, fur, 0.88, 0.78, 0.95); haunch.position.set(0, 0.66, -0.38); g.add(haunch);
+      const chest = sph(0.22, light, 1.05, 0.75, 0.8); chest.position.set(0, 0.52, 0.42); g.add(chest);
+      if (coat.tabby) for (let i = 0; i < 3; i++) { const stripe = sph(0.1, dark, 1.5, 0.28, 0.55, 6); stripe.position.set(0, 0.9, 0.05 - i * 0.22); g.add(stripe); }
+      const head = new THREE.Group(); head.position.set(0, 0.92, 0.62);
+      head.add(sph(0.32, fur, 1.05, 0.95, 0.98));
       for (const s of [-1, 1]) {
-        const ear = cone(0.15, 0.3, fur, 4); ear.position.set(s * 0.26, 0.38, 0); head.add(ear);
-        const eye = sph(0.07, mat(0x9be84a), 1, 1.2, 0.6); eye.position.set(s * 0.17, 0.08, 0.36); head.add(eye);
-        const pupil = sph(0.03, black); pupil.position.set(s * 0.17, 0.08, 0.4); head.add(pupil);
+        const fluff = sph(0.12, light, 1.1, 0.75, 0.7, 6); fluff.position.set(s * 0.18, -0.08, 0.12); head.add(fluff);
+        const ear = new THREE.Group(); ear.position.set(s * 0.14, 0.22, -0.02);
+        const flap = sph(0.09, fur, 0.5, 1.15, 0.32, 6); flap.position.y = 0.07; ear.add(flap);
+        const inner = sph(0.045, pink, 0.4, 0.75, 0.22, 5); inner.position.set(0, 0.06, 0.02); ear.add(inner);
+        head.add(ear); ears.push(ear);
+        const eye = sph(0.055, eyeC, 1, 1.15, 0.55, 6); eye.position.set(s * 0.12, 0.04, 0.24); head.add(eye);
+        const pupil = sph(0.022, black, 0.7, 1.3, 0.6, 5); pupil.position.set(s * 0.12, 0.04, 0.28); head.add(pupil);
       }
-      const nose = sph(0.06, pink); nose.position.set(0, -0.04, 0.4); head.add(nose);
-      const snout = sph(0.18, light, 1.1, 0.7, 0.8); snout.position.set(0, -0.1, 0.3); head.add(snout);
+      const nose = sph(0.035, pink, 0.9, 0.7, 0.8, 5); nose.position.set(0, -0.02, 0.3); head.add(nose);
       g.add(head);
-      for (const [x, z] of [[-0.28, 0.7], [0.28, 0.7], [-0.28, -0.7], [0.28, -0.7]]) { const leg = pivot(cyl(0.11, 0.09, 0.8, fur, 5), x, 0.8, z); leg.children[0].position.y = -0.4; g.add(leg); legs.push(leg); }
-      const tail = new THREE.Group(); tail.position.set(0, 1.1, -1.4);
-      for (let i = 0; i < 4; i++) { const s = sph(0.12 - i * 0.01, i % 2 ? dark : fur); s.position.set(0, 0.25 * i, -0.15 * i); tail.add(s); }
+      for (const [x, z] of [[-0.18, 0.32], [0.18, 0.32], [-0.18, -0.28], [0.18, -0.28]]) {
+        const hip = new THREE.Group(); hip.position.set(x, 0.48, z);
+        const thigh = cyl(0.075, 0.055, 0.22, fur, 6); thigh.position.y = -0.11; hip.add(thigh);
+        const knee = new THREE.Group(); knee.position.y = -0.22; hip.add(knee);
+        const shin = cyl(0.045, 0.032, 0.18, fur, 6); shin.position.y = -0.09; knee.add(shin);
+        const paw = sph(0.05, coat.fur === 0x2a2a2c ? light : fur, 1.3, 0.42, 1.35, 6); paw.position.set(0, -0.18, 0.03); knee.add(paw);
+        g.add(hip); legs.push(hip); knees.push(knee);
+      }
+      const tail = new THREE.Group(); tail.position.set(0, 0.7, -0.62);
+      const tailGeo = cached('catTail', () => {
+        const curve = new THREE.CatmullRomCurve3([0, 1, 2, 3, 4, 5].map((i) => { const t = i / 5; return new THREE.Vector3(Math.sin(t * 1.1) * 0.08, 0.05 + t * 0.42, -t * 0.72); }));
+        const geo = new THREE.TubeGeometry(curve, 8, 0.055, 6, false);
+        const pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          const z = pos.getZ(i), t = clamp((-z) / 0.72, 0, 1), k = 1 - t * 0.72;
+          pos.setX(i, pos.getX(i) * k); pos.setY(i, (pos.getY(i) - 0.05) * k + 0.05);
+        }
+        geo.computeVertexNormals();
+        return geo;
+      });
+      tail.add(new THREE.Mesh(tailGeo, fur));
+      const tailTip = new THREE.Group(); tailTip.position.set(Math.sin(1.1) * 0.08, 0.47, -0.72);
+      tailTip.add(sph(0.035, fur, 1, 1, 1.2, 6));
+      tail.add(tailTip);
       g.add(tail);
-      return { g, legs, head, tail };
+      return { g, legs, knees, head, ears, tail, tailTip };
     },
   },
   dog: {
@@ -426,7 +459,7 @@ export class Predator {
   }
 
   /** at most MAX_STRIKERS animals strike at once; the rest wait their turn on the ring (t257u) */
-  mayStrike() { return !this.mgr || this.mgr.engaged < MAX_STRIKERS || this.state === 'attack' || this.state === 'pounce'; }
+  mayStrike() { return !this.mgr || this.mgr.engaged < MAX_STRIKERS || this.state === 'attack' || this.state === 'pounce' || this.state === 'wiggle'; }
   /** ink made this hunter lose the octopus: birds abort a dive and climb away; ground animals enter the 'blind' state in update() */
   inkFlee(s) {
     this.lastSeen = null;
@@ -578,6 +611,10 @@ export class Predator {
     let dmg = 0;
     const entered = this.state !== this._st; this._st = this.state;     // first frame in this state
     if (!fooled && alive && (this.state === 'alert' || this.state === 'chase' || this.state === 'stalk')) this.lastSeen = { x: player.x, z: player.z };
+    const bait = world.bait;
+    if (bait && bait.t > 0 && !fooled && alive && (this.state === 'wander' || this.state === 'alert' || this.state === 'stalk' || this.state === 'chase' || this.state === 'wiggle')) {
+      if (Math.hypot(bait.x - this.x, bait.z - this.z) < 16) { this.state = 'sniff'; this.sniff = bait; }
+    }
 
     switch (this.state) {
       case 'wander': {
@@ -657,14 +694,71 @@ export class Predator {
         break;
       }
       case 'stalk': {
-        // cats: crouch low, creep closer, then pounce
-        this.cue(0);
+        if (this.kind !== 'cat') {
+          this.cue(0);
+          this.crouch = damp(this.crouch, 1, 6, dt);
+          if (!alive) { this.state = 'wander'; break; }
+          if (fooled) { this.state = 'confused'; this.timer = 1.6; break; }
+          if (dist > s.notice * 1.9) { this.state = 'leave'; this.timer = 4; this.ignore = 6; break; }
+          this.walkToward(player.x, player.z, s.walk * 1.25, dt);
+          if (dist < 6.2 && this.cool <= 0 && this.mayStrike()) { this.state = 'pounce'; this.pounceT = 0; this.pounceDir = Math.atan2(dx, dz); this.pounceHit = false; }
+          break;
+        }
+        // notice is the freeze (alert). Stalk is low and slow, and it stops whenever the octopus moves.
+        this.cue(1);
         this.crouch = damp(this.crouch, 1, 6, dt);
         if (!alive) { this.state = 'wander'; break; }
-        if (fooled) { this.state = 'confused'; this.timer = 1.6; break; }
+        if (fooled) { this.state = 'confused'; this.timer = 1.6; this.crouch = 0; break; }
         if (dist > s.notice * 1.9) { this.state = 'leave'; this.timer = 4; this.ignore = 6; break; }
-        this.walkToward(player.x, player.z, s.walk * 1.25, dt);
-        if (dist < 6.2 && this.cool <= 0 && this.mayStrike()) { if (this.mgr) this.mgr.engaged++; this.state = 'pounce'; this.pounceT = 0; this.pounceDir = Math.atan2(dx, dz); this.pounceHit = false; }
+        const moved = this._px !== undefined && Math.hypot(player.x - this._px, player.z - this._pz) > 0.08;
+        this._px = player.x; this._pz = player.z;
+        if (moved) this.pauseT = 0.55;
+        this.pauseT = Math.max(0, (this.pauseT || 0) - dt);
+        if (!this.cover && dist > 9) {
+          const side = (this.seed % 2) ? 1 : -1;
+          const ang = Math.atan2(dx, dz) + side * 1.15;
+          this.cover = { x: player.x + Math.sin(ang) * 2.2, z: player.z + Math.cos(ang) * 2.2 };
+        }
+        let tx = player.x, tz = player.z;
+        if (this.cover && dist > 6) {
+          tx = this.cover.x; tz = this.cover.z;
+          if (Math.hypot(this.x - tx, this.z - tz) < 0.8) this.cover = null;
+        }
+        if (this.pauseT > 0) this.speed = damp(this.speed, 0, 10, dt);
+        else this.walkToward(tx, tz, s.walk * 0.34, dt);
+        if (dist < 4.8 && this.cool <= 0 && this.mayStrike() && this.pauseT <= 0) {
+          this.state = 'wiggle'; this.wiggleT = 0; this.wiggleNeed = 0.65 + (this.seed % 0.35); this.pounceTo = { x: player.x, z: player.z };
+        }
+        break;
+      }
+      case 'wiggle': {
+        this.cue(1);
+        this.crouch = 1;
+        this.speed = damp(this.speed, 0, 12, dt);
+        this.wiggleT = (this.wiggleT || 0) + dt;
+        this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 8, dt);
+        if (fooled || !alive) { this.state = 'confused'; this.timer = 1.4; this.crouch = 0; break; }
+        if (this.wiggleT >= (this.wiggleNeed || 0.7)) {
+          if (!this.mayStrike()) { this.state = 'stalk'; break; }
+          const to = this.pounceTo || player;
+          this.state = 'pounce'; this.pounceT = 0; this.pounceHit = false; this.pounceDir = Math.atan2(to.x - this.x, to.z - this.z);
+        }
+        break;
+      }
+      case 'groom': {
+        this.cue(0);
+        this.speed = damp(this.speed, 0, 8, dt);
+        this.preen = 1;
+        this.timer -= dt;
+        if (!alive) { this.state = 'wander'; this.preen = 0; break; }
+        if (this.timer <= 0) { this.state = 'leave'; this.timer = 5; this.ignore = 8; this.preen = 0; this.lastSeen = null; }
+        break;
+      }
+      case 'sniff': {
+        this.cue(0.45);
+        const b = this.sniff || world.bait;
+        if (!b || fooled) { this.state = fooled ? 'confused' : 'wander'; this.timer = 1.2; this.sniff = null; break; }
+        if (this.walkToward(b.x, b.z, s.walk * 0.8, dt) < 1.1) { this.state = 'groom'; this.timer = 2.2; this.preen = 1; this.sniff = null; }
         break;
       }
       case 'pounce': {
@@ -679,7 +773,11 @@ export class Predator {
         this.lunge = k * 0.7;
         if (fooled) { this.state = 'confused'; this.timer = 1.4; this.lift = 0; this.lunge = 0; this.cool = s.cooldown; break; }
         if (!this.pounceHit && alive && dist < this.reach + 0.4) { this.pounceHit = true; dmg = s.damage * 1.3; player.damage(dmg, this.kind); }
-        if (k >= 1) { this.state = 'stalk'; this.cool = s.cooldown * 2.2; this.lift = 0; this.lunge = 0; this.crouch = 0.6; }
+        if (k >= 1) {
+          this.lift = 0; this.lunge = 0;
+          if (this.kind === 'cat' && !this.pounceHit) { this.state = 'groom'; this.timer = 2.4; this.crouch = 0; this.preen = 1; }
+          else { this.state = 'stalk'; this.cool = s.cooldown * 2.2; this.crouch = 0.6; }
+        }
         break;
       }
       case 'carry': {
@@ -916,7 +1014,15 @@ export class Predator {
       if (this.state === 'flee' || this.state === 'blind') p.head.position.y -= 0.1;            // head low, running scared
       if (this.state === 'confused') p.head.position.y += 0.05 * Math.sin(this.phase * 3);
     }
-    if (p.tail) p.tail.rotation.y = Math.sin(t * 2.2) * 0.35 * (0.35 + mv) * (1 - 0.65 * av);        // a long tail sways with the walk, and stiffens once it has seen you
+    if (p.tail && this.kind !== 'cat') p.tail.rotation.y = Math.sin(t * 2.2) * 0.35 * (0.35 + mv) * (1 - 0.65 * av);
+    if (this.kind === 'cat') {
+      const lock = this.state === 'alert' || this.state === 'stalk' || this.state === 'wiggle' || this.state === 'pounce';
+      if (p.ears) p.ears.forEach((e, i) => { const s = i ? 1 : -1; e.rotation.z = lock ? s * 0.2 : Math.sin(t * 1.4 + i) * 0.08; e.rotation.x = lock ? -0.25 : 0; });
+      if (p.knees) p.knees.forEach((k) => { k.rotation.x = (this.state === 'stalk' || this.state === 'wiggle' ? 0.85 : 0.2) + (this.state === 'wiggle' ? Math.sin(t * 16) * 0.12 : 0); });
+      if (p.tail) p.tail.rotation.y = this.state === 'wiggle' ? Math.sin(t * 18) * 0.65 : this.state === 'alert' ? Math.sin(t * 3) * 0.08 : Math.sin(t * 2.2) * 0.28 * (0.4 + mv);
+      if (p.tailTip) p.tailTip.rotation.y = this.state === 'alert' ? Math.sin(t * 16) * 0.7 : this.state === 'wiggle' ? Math.sin(t * 24) * 1 : Math.sin(t * 3) * 0.25;
+      if (this.state === 'groom') { this.preen = 1; if (p.g) p.g.rotation.x = 0.15; }
+    }
     if (this.kind === 'snake' && p.body?.userData.base) {
       const attr = p.body.geometry.attributes.position, base = p.body.userData.base, wave = this.phase * 4.4;
       for (let i = 0; i < attr.count; i++) {
@@ -937,6 +1043,7 @@ export class Predator {
     p.g.position.set(0, (s.hop ? bob * 0.18 * mv : bob * 0.06 * mv), lungeOff);
     p.g.rotation.x = this.state === 'attack' ? -strike * 0.25 + wind * 0.12 : 0;
     p.g.rotation.z = clamp(-this.turnV * 0.06 * mv, -0.18, 0.18);                                              // leans into turns
+    if (this.kind === 'cat' && this.state === 'wiggle') p.g.rotation.z += Math.sin(t * 18) * 0.14;
     // squash & stretch: footfalls squash a touch, the wind-up squashes, the strike stretches long; slow breathing at rest
     const breathe = 1 + 0.018 * Math.sin((this.phase + this.seed) * 2.4) * (1 - clamp(mv, 0, 1));
     const sq = (1 - 0.05 * (1 - bob) * mv) * (1 - 0.12 * wind) * (1 - 0.08 * strike) * breathe;
@@ -1057,7 +1164,7 @@ export class PredatorManager {
     const w = this.world;
     // storms bring more birds
     let storms = 0, engaged = 0;
-    for (const p of this.list) { if (p.storm) storms++; if (p.state === 'attack' || p.state === 'pounce') engaged++; }
+    for (const p of this.list) { if (p.storm) storms++; if (p.state === 'attack' || p.state === 'pounce' || p.state === 'wiggle') engaged++; }
     this.engaged = engaged;                       // strikers right now (mayStrike() lets at most MAX_STRIKERS at once)
     if (w.weatherKind === 'storm' && storms < Math.round(4 * w.areaScale)) {
       const a = w.rnd() * 6.28, d = 60 + w.rnd() * 40;

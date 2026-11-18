@@ -8,7 +8,10 @@
 //  discoveries: picture tokens in the satchel; a short tooltip names an unlocked one (locked ones stay silent silhouettes).
 // =====================================================================
 import { RARE_SET } from './rares.js';
-export const XP = { kill: 0, cell: 2, gather: 3, craft: 10, baby: 30, shell: 6, escape: 12, biome: 25, sea: 60, badge: 15, flower: 1, night: 8, rare: 8 };
+import { POLLEN } from './items.js';
+import { POI_SET } from '../world/places.js';
+const POLLEN_SET = new Set(POLLEN);
+export const XP = { kill: 0, cell: 2, gather: 3, craft: 10, baby: 30, shell: 6, escape: 12, biome: 25, sea: 60, badge: 15, flower: 1, night: 8, rare: 8, pollen: 2, homevisit: 4, maze: 18, poi: 8, rainbow: 6, secret: 10 };
 export const MAX_LEVEL = 30;
 /** total experience needed to BE at level L (L1 = 0, L2 = 60, L3 = 150, L4 = 270, L5 = 420, L10 = 1800) */
 export const xpForLevel = (L) => (L <= 1 ? 0 : 15 * (L - 1) * (L + 2));
@@ -48,6 +51,14 @@ export const BADGES = [
   { id: 'sbloom',     glyph: 'r_bloom',   title: 'After rain',   note: 'A desert flower that opens once the rain has been.', test: (s) => s.rare.has('rainbloom') },
   { id: 'srace',      glyph: 'r_race',    title: 'Moonlit race', note: 'Pale crabs racing the sand under the moon.', test: (s) => s.rare.has('moonrace') },
   { id: 'sring',      glyph: 'r_ring',    title: 'Fairy ring',   note: 'A circle of mushrooms, off the path.', test: (s) => s.rare.has('ring') },
+  { id: 'pollen',     glyph: 'b_pollen',  title: 'Every colour', note: 'Pollen from every kind of flower.', test: (s) => s.pollen.size >= POLLEN.length },
+  { id: 'homes5',     glyph: 'b_homes',   title: 'A door',       note: 'Five houses, in through the little flap.', test: (s) => s.homes.size >= 5 },
+  { id: 'homes15',    glyph: 'b_homes',   title: 'Neighbourhood', note: 'Fifteen houses looked through.', test: (s) => s.homes.size >= 15 },
+  { id: 'maze',       glyph: 'b_maze',    title: 'The middle',   note: 'The middle of the hedge maze.', test: (s) => s.maze },
+  { id: 'mazewet',    glyph: 'b_wave',    title: 'Still wet',    note: 'The middle of the maze, still at least half wet.', test: (s) => s.mazewet },
+  { id: 'places',     glyph: 'b_poi',     title: 'Every corner', note: 'The shed, the drain, the garden, the light and the playground.', test: (s) => s.pois.size >= POI_SET.size },
+  { id: 'rainbow',    glyph: 'b_rainbow', title: 'Rainbow dust', note: 'Every pollen colour, mixed.', test: (s) => s.rainbow },
+  { id: 'secret',     glyph: 'b_secret',  title: 'Both ways',    note: 'A house and the maze, and then the little light.', test: (s) => s.secret },
 ];
 export const BADGE_IDS = BADGES.map((b) => b.id);
 
@@ -56,7 +67,7 @@ export class Levels {
   reset() {
     this.xp = 0; this.level = 1;
     this.badges = new Set();
-    this.st = { cells: 0, biomes: new Set(), sea: false, babies: 0, gathered: 0, crafted: 0, madeAll: false, shells: 0, nightSwim: false, rainDance: 0, storm: false, escapes: 0, kills: 0, bigKill: 0, grotto: false, home: false, rare: new Set() };
+    this.st = { cells: 0, biomes: new Set(), sea: false, babies: 0, gathered: 0, crafted: 0, madeAll: false, shells: 0, nightSwim: false, rainDance: 0, storm: false, escapes: 0, kills: 0, bigKill: 0, grotto: false, home: false, rare: new Set(), pollen: new Set(), homes: new Set(), maze: false, mazewet: false, pois: new Set(), rainbow: false, secret: false };
     this.allBiomes = 0;                 // how many land/sea biomes exist (set by the game)
     this.events = [];                   // [{type:'level', level} | {type:'badge', id}] drained by the game each frame
   }
@@ -98,6 +109,12 @@ export class Levels {
       case 'home': if (s.home) return; s.home = true; break;
       case 'rare': if (!RARE_SET.has(arg) || s.rare.has(arg)) return; s.rare.add(arg); break;
       case 'flower': break;
+      case 'pollen': if (!POLLEN_SET.has(arg) || s.pollen.has(arg)) return; s.pollen.add(arg); break;
+      case 'homevisit': if (typeof arg !== 'string' || !/^h\d{1,2}$/.test(arg) || s.homes.has(arg)) return; s.homes.add(arg); break;
+      case 'poi': if (typeof arg !== 'string' || !POI_SET.has(arg) || s.pois.has(arg)) return; s.pois.add(arg); break;
+      case 'maze': if (arg) s.mazewet = true; if (s.maze) { this.check(); return; } s.maze = true; break;
+      case 'rainbow': if (s.rainbow) return; s.rainbow = true; break;
+      case 'secret': if (s.secret) return; s.secret = true; break;
       case 'kill': s.kills++; s.bigKill = Math.max(s.bigKill, Math.min(4, arg?.tier || 1)); this.add(arg?.xp || 0); this.check(); return;
       default: return;
     }
@@ -108,7 +125,7 @@ export class Levels {
   toJSON() {
     const s = this.st;
     return { xp: Math.round(this.xp), b: BADGE_IDS.filter((id) => this.badges.has(id)),
-      st: { cells: s.cells, biomes: [...s.biomes], sea: s.sea, babies: s.babies, gathered: s.gathered, crafted: s.crafted, madeAll: s.madeAll, shells: s.shells, nightSwim: s.nightSwim, rainDance: Math.round(s.rainDance), storm: s.storm, escapes: s.escapes, kills: s.kills, bigKill: s.bigKill, grotto: !!s.grotto, home: !!s.home, rare: [...s.rare].sort() } };
+      st: { cells: s.cells, biomes: [...s.biomes], sea: s.sea, babies: s.babies, gathered: s.gathered, crafted: s.crafted, madeAll: s.madeAll, shells: s.shells, nightSwim: s.nightSwim, rainDance: Math.round(s.rainDance), storm: s.storm, escapes: s.escapes, kills: s.kills, bigKill: s.bigKill, grotto: !!s.grotto, home: !!s.home, rare: [...s.rare].sort(), pollen: [...s.pollen].sort(), homes: [...s.homes].sort(), maze: !!s.maze, mazewet: !!s.mazewet, pois: [...s.pois].sort(), rainbow: !!s.rainbow, secret: !!s.secret } };
   }
   /** load a (possibly damaged / hand-edited) saved object; never throws, never queues events */
   load(o) {
@@ -122,6 +139,13 @@ export class Levels {
     s.sea = !!t.sea; s.madeAll = !!t.madeAll; s.nightSwim = !!t.nightSwim; s.storm = !!t.storm; s.grotto = !!t.grotto || this.badges.has('grotto'); s.home = !!t.home || this.badges.has('home');
     s.rare = new Set();
     if (Array.isArray(t.rare)) for (const id of t.rare) if (RARE_SET.has(id)) s.rare.add(id);
+    s.pollen = new Set();
+    if (Array.isArray(t.pollen)) for (const id of t.pollen) if (POLLEN_SET.has(id)) s.pollen.add(id);
+    s.homes = new Set();
+    if (Array.isArray(t.homes)) for (const id of t.homes) if (typeof id === 'string' && /^h\d{1,2}$/.test(id)) s.homes.add(id);
+    s.pois = new Set();
+    if (Array.isArray(t.pois)) for (const id of t.pois) if (POI_SET.has(id)) s.pois.add(id);
+    s.maze = !!t.maze; s.mazewet = !!t.mazewet; s.rainbow = !!t.rainbow; s.secret = !!t.secret;
     if (Array.isArray(t.biomes)) for (const b of t.biomes.slice(0, 40)) if (typeof b === 'string' && /^[a-z]{2,16}$/.test(b)) s.biomes.add(b);
     return this;
   }

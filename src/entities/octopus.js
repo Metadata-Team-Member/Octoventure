@@ -72,6 +72,9 @@ export class Octopus {
     this.tentInst = new THREE.InstancedMesh(sg, mat, TENT * SEG);
     this.tentInst.castShadow = true; this.tentInst.frustumCulled = false;
     this.group.add(this.tentInst);
+    this.pollenT = 0; this.pollenCol = new THREE.Color(0xffe066); this._tipOn = false;
+    this.tipCol = new THREE.InstancedBufferAttribute(new Float32Array(TENT * SEG * 3).fill(1), 3);
+    this.tentInst.instanceColor = this.tipCol;
     for (let i = 0; i < TENT; i++) {
       const segs = [];
       for (let j = 0; j < SEG; j++) {
@@ -106,6 +109,17 @@ export class Octopus {
       }
     }
     this.tentInst.instanceMatrix.needsUpdate = true; this.armRingBlack.instanceMatrix.needsUpdate = true; this.armRingBlue.instanceMatrix.needsUpdate = true;
+    if (this.pollenT > 0) {
+      const c = this.pollenCol; let k = 0;
+      for (let i = 0; i < TENT; i++) for (let j = 0; j < SEG; j++) {
+        const tip = j >= SEG - 3;
+        this.tipCol.setXYZ(k++, tip ? c.r : 1, tip ? c.g : 1, tip ? c.b : 1);
+      }
+      this.tipCol.needsUpdate = true; this._tipOn = true;
+    } else if (this._tipOn) {
+      for (let i = 0; i < TENT * SEG; i++) this.tipCol.setXYZ(i, 1, 1, 1);
+      this.tipCol.needsUpdate = true; this._tipOn = false;
+    }
   }
 
   /** mottled ochre/brown skin pattern as vertex colours (greyscale multiplier on the skin colour) */
@@ -166,6 +180,7 @@ export class Octopus {
     this.heading = Math.random() * Math.PI * 2;
     this.health = CONFIG.octopus.maxHealth;
     this.energy = CONFIG.camo.maxEnergy;
+    this.pollenT = 0;
     this.camoWanted = false;
     this.camoBlend = 0;
     this.camoLocked = false;       // true after the energy ran out, until it recovers
@@ -534,6 +549,7 @@ export class Octopus {
         m.position.set(side2, y, fwd);
       }
     }
+    if (this.pollenT > 0) this.pollenT = Math.max(0, this.pollenT - dt);
     this.updateTentacles();
     // outlines fade with camouflage (an outline would give the hiding octopus away)
     const showLine = camo < 0.45 && this.hideBlend < 0.5;

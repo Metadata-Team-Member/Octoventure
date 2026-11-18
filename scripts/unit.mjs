@@ -10,7 +10,7 @@ import { PARTS, treeGeometries } from '../src/world/models.js';
 import { treeConnectivity } from '../src/world/treeCheck.js';
 import { waterDisc } from '../src/world/placement.js';
 import { existsSync, readFileSync } from 'node:fs';
-import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE, LORE, loreOf } from '../src/systems/items.js';
+import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE, LORE, loreOf, POLLEN, pollenOf } from '../src/systems/items.js';
 import { GATHER_COUNT, GATHER_KINDS, HABITAT, BIOME_MATERIALS } from '../src/world/gather.js';
 import { mulberry32 } from '../src/util/rng.js';
 import { separate, minGap } from '../src/util/separate.js';
@@ -319,9 +319,9 @@ for (const seed of [1, 42, 2026]) {
   ok(C.regions.list.flatMap((r) => r.shells).every((s) => typeof s.id === 'string'), 'far shells carry stable ids too');
 }
 {
-  ok(ALL_ITEMS.length === RAW.length + MADE.length && RAW.length === 22 && MADE.length === 12, '22 gathered things and 12 made ones (reef light)');
+  ok(ALL_ITEMS.length === RAW.length + POLLEN.length + MADE.length && RAW.length === 22 && POLLEN.length === 7 && MADE.length === 22, '22 gathered things, 7 pollens and 22 made ones');
   ok(ALL_ITEMS.every((id) => ICON_IDS.includes(id)), 'every item has a pictogram');
-  ok(RECIPES.every((r) => ALL_ITEMS.includes(r.out) && Object.keys(r.in).every((k) => RAW.includes(k))), 'recipes make known items from raw things');
+  ok(RECIPES.every((r) => ALL_ITEMS.includes(r.out) && Object.keys(r.in).every((k) => RAW.includes(k) || POLLEN.includes(k))), 'recipes make known items from raw things');
   ok(MADE.every((m) => RECIPES.some((r) => r.out === m)) && MADE.every((m) => USABLE.has(m)), 'every made item has a recipe and can be used');
   const inv = new Inventory();
   ok(inv.slots().length === 0 && inv.visibleRecipes().length === 0, 'an empty satchel shows nothing');
@@ -431,8 +431,8 @@ for (const seed of [1, 42, 2026]) {
   const uniq = GATHER_KINDS.filter((k) => HABITAT[k].biomes.length <= 2).length; ok(uniq >= 7, `${uniq} materials live in only one or two biomes`);
   for (const k of ['urchin', 'worm', 'beetle', 'spawn', 'propagule']) ok((dist[k] ? Object.values(dist[k]).reduce((p, q) => p + q, 0) : 0) >= GATHER_COUNT[k] * W.areaScale * 0.4, `${k} reaches 40% of its target density in the one world`);
   // recipes need more than one biome
-  const home = (r) => Object.keys(r.in).map((k) => new Set(HABITAT[k].biomes));
-  const multi = RECIPES.filter((r) => { const sets = home(r); return [...sets[0]].filter((b) => sets.every((st) => st.has(b))).length === 0; });
+  const home = (r) => Object.keys(r.in).filter((k) => HABITAT[k]).map((k) => new Set(HABITAT[k].biomes));
+  const multi = RECIPES.filter((r) => { const sets = home(r); if (sets.length < 2) return false; return [...sets[0]].filter((b) => sets.every((st) => st.has(b))).length === 0; });
   ok(multi.length >= 5, `${multi.length} of ${RECIPES.length} recipes need ingredients from different biomes (${multi.map((r) => r.id).join(', ')})`);
   ok(['tonic', 'meal', 'wrap-moss', 'gland-beetle', 'mimic-moss'].every((id) => multi.some((r) => r.id === id)), 'the new recipes each combine two biomes');
 }
@@ -441,7 +441,7 @@ for (const seed of [1, 42, 2026]) {
 {
   ok(xpForLevel(1) === 0 && xpForLevel(2) === 60 && xpForLevel(5) === 420 && levelOf(0) === 1 && levelOf(59) === 1 && levelOf(60) === 2 && levelOf(1e9) === 30, 'level curve: 60 xp for level 2, 420 for level 5, capped at 30');
   ok(perks(1).dry === 1 && perks(11).dry < 0.9 && perks(30).dry >= 0.75 && perks(30).camo >= 0.8, 'hidden perks: a little slower drying and camo drain each level, bounded');
-  ok(BADGES.length >= 15 && BADGES.length <= 30 && new Set(BADGES.map((b) => b.id)).size === BADGES.length, `${BADGES.length} distinct badges`);
+  ok(BADGES.length >= 15 && BADGES.length <= 42 && new Set(BADGES.map((b) => b.id)).size === BADGES.length, `${BADGES.length} distinct badges`);
   ok(BADGES.every((b) => b.title && b.note && !/toughen|armou?r|counter/i.test(b.note + b.title)), 'every badge has a tooltip name and note, none of which reveal hidden shell toughening');
   const { ICON_IDS } = await import('../src/ui/icons.js');
   ok(BADGES.every((b) => ICON_IDS.includes(b.glyph)), 'every badge has its own pictogram');
@@ -471,8 +471,12 @@ for (const seed of [1, 42, 2026]) {
   ok(killXP(4, true) > killXP(1, false) && killXP(1, false) > 0, 'kills give experience, bigger and venomous more');
   ok(BITE.nipCooldown < 1 && BITE.venomCooldown > 5, 'beak bite is quick, the venomous bite has a real cooldown');
   const L = new Levels(); L.did('kill', { tier: 2, xp: killXP(2, true) }); ok(L.st.kills === 1 && L.st.bigKill === 2 && L.badges.has('hunter') && L.xp >= killXP(2, true), 'a kill counts, earns experience and the hunter badge');
+  const Lp = new Levels(); for (const id of ['py', 'pp', 'pu', 'pw', 'pr', 'pb']) Lp.did('pollen', id); ok(!Lp.badges.has('pollen') && Lp.st.pollen.size === 6, 'six pollen colours are not every colour'); Lp.did('pollen', 'pd'); ok(Lp.badges.has('pollen') && Lp.toJSON().st.pollen.length === 7, 'the seventh pollen colour earns the badge and is saved');
   const inv = new Inventory(); inv.add('fungi'); inv.add('urchin'); ok(inv.craft('dose') && inv.count('dose') === 1, 'the lethal dose crafts from rainforest fungi + a headland urchin');
   const inv2 = new Inventory(); inv2.add('ochre'); inv2.add('spawn'); ok(inv2.craft('dose-ochre') && inv2.count('dose') === 1, '... or desert ochre + wetland frogspawn');
+  ok(pollenOf(0xffe066) === 'py' && pollenOf(0xff8fa3) === 'pp' && pollenOf(0xc77dff) === 'pu' && pollenOf(0xffffff) === 'pw' && pollenOf(0xe24b4b) === 'pr' && pollenOf(0x6aa6ff) === 'pb' && pollenOf(0xf0b429) === 'pd', 'each flower colour maps to one pollen');
+  const bag = new Inventory(); bag.add('py', 2); ok(bag.craft('dye-py') && bag.count('dyepy') === 1 && bag.count('py') === 0, 'two pinches of one pollen make a dye');
+  const mix = new Inventory(); for (const id of POLLEN) mix.add(id); ok(mix.craft('rainbow') && mix.count('rainbow') === 1 && POLLEN.every((id) => mix.count(id) === 0), 'every pollen colour makes rainbow dust');
   const ui = readFileSync(new URL('../src/input.js', import.meta.url), 'utf8'), pad = readFileSync(new URL('../src/gamepad.js', import.meta.url), 'utf8');
   ok(/Mouse0/.test(ui) && /Mouse2/.test(ui) && /contextmenu[^\n]*preventDefault/.test(ui), 'left click bites, right click bites with venom, the context menu is suppressed');
   ok(/nip: edge\(2\)/.test(pad) && /bite: edge\(7\)/.test(pad), 'gamepad: X bites, RT bites with venom');
@@ -481,20 +485,20 @@ for (const seed of [1, 42, 2026]) {
 // ================================================================ saves (t238u)
 {
   const fixture = () => ({
-    v: 8, seed: WORLD, fresh: false, saved: 1700000000000,
+    v: 9, seed: WORLD, fresh: false, saved: 1700000000000,
     octo: { x: 120.5, z: -33.25, heading: 1.2, health: 61.5, energy: 40 }, run: 812.4, sea: true,
     shells: { n: 3, o: [4, 9, 12], r: ['r1_2_s3'] }, babies: ['0', 'r4_4_b1'],
     inv: { counts: { crab: 2, kelp: 3, shield: 1 }, seen: ['crab', 'kelp', 'shield'], made: ['shield'] },
     fx: { buff: { shield: 12.5, jar: 0, kelp: 40, mimic: 0, feast: 0, tonic: 6 }, ink: 2, venom: true, lethal: true },
     dens: [{ x: 10, z: 20 }, { x: -4, z: 8.5 }], decor: [], carry: null, got: ['o12', 'o40', 'r1_2_5'], explored: [50005000, 50015000],
     env: { t: 0.62, abs: 900, kind: 'rain', target: 'storm', timer: 55, heat: 0, rain: 0.8, dark: 0.3 },
-    lv: { xp: 200, b: ['wander', 'baby1'], st: { cells: 30, biomes: ['bush', 'farm'], sea: false, babies: 2, gathered: 12, crafted: 1, madeAll: false, shells: 3, nightSwim: false, rainDance: 4, storm: false, escapes: 1, kills: 2, bigKill: 1, grotto: false, home: false, rare: [] } },
+    lv: { xp: 200, b: ['wander', 'baby1'], st: { cells: 30, biomes: ['bush', 'farm'], sea: false, babies: 2, gathered: 12, crafted: 1, madeAll: false, shells: 3, nightSwim: false, rainDance: 4, storm: false, escapes: 1, kills: 2, bigKill: 1, grotto: false, home: false, rare: [], pollen: [], homes: [], maze: false, mazewet: false, pois: [], rainbow: false, secret: false } },
     journal: { seen: [], tab: 'bag' },
   });
   const f = fixture(), v = validateSave(f);
   ok(v && JSON.stringify(v) === JSON.stringify(f), 'a good save validates unchanged');
   ok(JSON.stringify(readSaveText(JSON.stringify(f))) === JSON.stringify(f), 'a save round-trips through text');
-  ok(SAVE_VERSION === 8 && SAVE_KEY === 'octo.save.v2' && LEGACY_KEYS.includes('octo.save.v1'), 'save key / version (v1 stays readable through the legacy key)');
+  ok(SAVE_VERSION === 9 && SAVE_KEY === 'octo.save.v2' && LEGACY_KEYS.includes('octo.save.v1'), 'save key / version (v1 stays readable through the legacy key)');
   // corruption
   const junk = ['', 'null', '[]', '42', '"x"', '{', '{"v":1}', '{"v":2}', '{"v":"1","seed":1}', '{"v":2,"seed":9,"octo":{"x":"q","z":1}}', '{"v":2,"seed":-4,"octo":{"x":1,"z":1}}', '{"v":1,"seed":-4,"octo":{"x":1,"z":1}}', '{"v":1,"seed":1.5,"octo":{"x":1,"z":1}}', '{"v":1,"seed":5,"octo":{"x":"a","z":1}}', '{"v":1,"seed":5,"octo":{"x":1e12,"z":1}}', '{"v":-1,"seed":5}', '{"v":99,"seed":5,"octo":{"x":1,"z":1}}', 'not json at all \u0000\ufffd', '{"v":1,"seed":5,"octo":null}'];
   ok(junk.every((t) => readSaveText(t) === null), `${junk.length} kinds of damaged saves are all rejected, none throws`);
@@ -507,9 +511,13 @@ for (const seed of [1, 42, 2026]) {
   // migration
   const old = { v: 0, seed: 77, pos: { x: 5, z: -6 }, hp: 44 };
   const m0 = migrate(old, 1); ok(m0 && m0.v === 1 && m0.octo.x === 5 && m0.octo.health === 44, 'a v0 save is carried to v1');
-  const m02 = migrate(old); ok(m02 && m02.v === 8 && m02.fresh === true && m02.seed === WORLD && m02.fx.lethal === false && Array.isArray(m02.journal?.seen) && Array.isArray(m02.decor), 'and on to the current save: the one world, a fresh start, no lethal dose, empty journal, no decor yet');
+  const m02 = migrate(old); ok(m02 && m02.v === 9 && m02.fresh === true && m02.seed === WORLD && m02.fx.lethal === false && Array.isArray(m02.journal?.seen) && Array.isArray(m02.decor) && Array.isArray(m02.lv.st.pollen), 'and on to the current save: the one world, a fresh start, no lethal dose, empty journal, no decor yet');
   ok(validateSave(m02) && validateSave(m02).seed === WORLD && validateSave(m02).octo.health === 44, 'a migrated save validates');
-  ok(migrate({ v: 9, seed: 1 }) === null && migrate({ v: 1.5 }) === null && migrate({}) === null && migrate(null) === null, 'saves from a newer game or without a version are ignored');
+  const v8 = fixture(); v8.v = 8; delete v8.lv.st.pollen;
+  const up = migrate(v8);
+  ok(up && up.v === 9 && Array.isArray(up.lv.st.pollen) && up.lv.st.pollen.length === 0 && up.octo.x === 120.5, 'a v8 save migrates to v9 with an empty pollen list');
+  ok(validateSave(up)?.lv.st.pollen.length === 0, 'that migrated save still validates');
+  ok(migrate({ v: 10, seed: 1 }) === null && migrate({ v: 1.5 }) === null && migrate({}) === null && migrate(null) === null, 'saves from a newer game or without a version are ignored');
   const table = { 0: MIGRATIONS[0], 1: (o) => ({ ...o, v: 2, extra: 'x' }), 2: (o) => ({ ...o, v: 3, more: 1 }) };
   const m3 = migrate({ v: 0, seed: 1 }, 3, table); ok(m3 && m3.v === 3 && m3.extra === 'x' && m3.more === 1, 'migrations chain one step at a time (v0 -> v3)');
   ok(migrate({ v: 1 }, 3, { 1: () => ({ v: 7 }) }) === null && migrate({ v: 1 }, 3, {}) === null && migrate({ v: 1 }, 2, { 1: () => { throw new Error('x'); } }) === null, 'a broken migration step fails safely');
@@ -523,7 +531,7 @@ for (const seed of [1, 42, 2026]) {
     env: { t: 0.62, abs: 900, kind: 'rain', target: 'storm', timer: 55, heat: 0, rain: 0.8, dark: 0.3 },
   };
   const mv = readSaveText(JSON.stringify(v1));
-  ok(mv && mv.v === 8 && mv.fresh === true && mv.seed === WORLD && mv.octo.x === null && mv.octo.z === null && mv.journal.tab === 'bag' && mv.decor.length === 0 && mv.carry === null && mv.lv.st.home === false && mv.lv.st.grotto === false && Array.isArray(mv.lv.st.rare), 'a v1 save loads into the one world with no position (a fresh start is picked)');
+  ok(mv && mv.v === 9 && mv.fresh === true && mv.seed === WORLD && mv.octo.x === null && mv.octo.z === null && mv.journal.tab === 'bag' && mv.decor.length === 0 && mv.carry === null && mv.lv.st.home === false && mv.lv.st.grotto === false && Array.isArray(mv.lv.st.rare), 'a v1 save loads into the one world with no position (a fresh start is picked)');
   ok(mv.inv.counts.crab === 2 && mv.inv.counts.kelp === 3 && mv.inv.counts.shield === 1 && mv.fx.ink === 2 && mv.fx.venom === true && mv.fx.buff.kelp === 40 && mv.fx.buff.tonic === 0, 'v1: the satchel, ink, venom and effects are kept');
   ok(mv.shells.n === 3 && mv.babies.length === 2 && mv.octo.health === 61.5 && mv.octo.energy === 40 && mv.run === 812.4 && mv.sea === true && mv.env.kind === 'rain', 'v1: armour, baby tally, health, clock and weather are kept');
   ok(mv.dens.length === 0 && mv.got.length === 0 && mv.explored.length === 0 && mv.shells.o.length === 0 && mv.shells.r.length === 0, 'v1: everything tied to the old random map is dropped');
@@ -533,15 +541,15 @@ for (const seed of [1, 42, 2026]) {
   const weird = { ...v1, inv: 'x', fx: 7, babies: 'many', shells: null, env: [] }; ok(readSaveText(JSON.stringify(weird)) !== undefined, 'odd field types in a v1 save never throw');
   // v2 -> v3 (levels & badges)
   { const v3 = { ...fixture(), v: 3, fx: { ...fixture().fx } }; delete v3.fx.lethal; delete v3.lv.st.kills; delete v3.lv.st.bigKill; const m = readSaveText(JSON.stringify(v3));
-    ok(m && m.v === 8 && m.fx.lethal === false && m.lv.st.kills === 0 && m.lv.st.bigKill === 0 && m.lv.xp === 200 && m.fx.venom === true && m.octo.x === 120.5 && m.journal.seen.length === 0 && m.decor.length === 0 && m.lv.st.home === false && m.lv.st.grotto === false && Array.isArray(m.lv.st.rare), 'a v3 save migrates: no lethal dose, no kills yet, empty journal, no decor, cave unfound, no secrets yet, everything else kept'); }
+    ok(m && m.v === 9 && m.fx.lethal === false && m.lv.st.kills === 0 && m.lv.st.bigKill === 0 && m.lv.xp === 200 && m.fx.venom === true && m.octo.x === 120.5 && m.journal.seen.length === 0 && m.decor.length === 0 && m.lv.st.home === false && m.lv.st.grotto === false && Array.isArray(m.lv.st.rare), 'a v3 save migrates: no lethal dose, no kills yet, empty journal, no decor, cave unfound, no secrets yet, everything else kept'); }
   { const v2 = { ...fixture(), v: 2 }; delete v2.lv; const m = readSaveText(JSON.stringify(v2));
-    ok(m && m.v === 8 && m.lv.xp === 0 && m.lv.st.cells === 2 && m.lv.st.babies === 2 && m.lv.st.sea === true && m.lv.st.shells === 3 && m.lv.st.home === false && m.lv.st.grotto === false && Array.isArray(m.lv.st.rare) && m.octo.x === 120.5, 'a v2 save migrates forward: level 1, what it already did counts towards badges, position kept'); }
+    ok(m && m.v === 9 && m.lv.xp === 0 && m.lv.st.cells === 2 && m.lv.st.babies === 2 && m.lv.st.sea === true && m.lv.st.shells === 3 && m.lv.st.home === false && m.lv.st.grotto === false && Array.isArray(m.lv.st.rare) && m.octo.x === 120.5, 'a v2 save migrates forward: level 1, what it already did counts towards badges, position kept'); }
   { const v6 = { ...fixture(), v: 6, lv: { ...fixture().lv, st: { ...fixture().lv.st, grotto: true, home: false } } }; delete v6.decor; delete v6.carry;
     const m = readSaveText(JSON.stringify(v6));
-    ok(m && m.v === 8 && m.decor.length === 0 && m.carry === null && m.lv.st.grotto === true && m.lv.st.home === false && Array.isArray(m.lv.st.rare) && m.octo.x === 120.5, 'a v6 grotto save migrates: empty decor, nothing carried, cave flag kept'); }
+    ok(m && m.v === 9 && m.decor.length === 0 && m.carry === null && m.lv.st.grotto === true && m.lv.st.home === false && Array.isArray(m.lv.st.rare) && m.octo.x === 120.5, 'a v6 grotto save migrates: empty decor, nothing carried, cave flag kept'); }
   { const v7 = { ...fixture(), v: 7, decor: [{ id: 'pebble', x: 1, z: 2, rot: 0, denx: 0, denz: 0 }], carry: 'kelp', lv: { ...fixture().lv, st: { ...fixture().lv.st, grotto: true, home: true } } };
     const m = readSaveText(JSON.stringify(v7));
-    ok(m && m.v === 8 && m.decor.length === 1 && m.decor[0].id === 'pebble' && m.carry === 'kelp' && m.lv.st.grotto === true && m.lv.st.home === true && Array.isArray(m.lv.st.rare) && m.octo.x === 120.5, 'a v7 den save migrates: pieces and carry kept, no secrets yet'); }
+    ok(m && m.v === 9 && m.decor.length === 1 && m.decor[0].id === 'pebble' && m.carry === 'kelp' && m.lv.st.grotto === true && m.lv.st.home === true && Array.isArray(m.lv.st.rare) && m.octo.x === 120.5, 'a v7 den save migrates: pieces and carry kept, no secrets yet'); }
   { const w = fixture(); w.lv = { xp: -5, b: ['hax', 'sea'], st: { cells: 'x', biomes: ['<b>', 'desert'], babies: 1e12 } }; const c = validateSave(w);
     ok(c && c.lv.xp === 0 && c.lv.b.join() === 'sea' && c.lv.st.cells === 0 && c.lv.st.biomes.join() === 'desert' && c.lv.st.babies === 1e7, 'damaged level data is cleaned'); }
   // storage
@@ -549,11 +557,11 @@ for (const seed of [1, 42, 2026]) {
   const st = mem({}); ok(loadSave(st) === null, 'no save: nothing loaded');
   ok(writeSave(f, st) && JSON.stringify(loadSave(st)) === JSON.stringify(f), 'write then load');
   st.d[SAVE_KEY] = '{{{ garbage'; ok(loadSave(st) === null && !(SAVE_KEY in st.d), 'a damaged save is dropped, not kept');
-  st.d[SAVE_KEY] = JSON.stringify({ v: 9, seed: 1 }); ok(loadSave(st) === null && (SAVE_KEY in st.d), 'a save from a newer game is ignored but left alone');
+  st.d[SAVE_KEY] = JSON.stringify({ v: 10, seed: 1 }); ok(loadSave(st) === null && (SAVE_KEY in st.d), 'a save from a newer game is ignored but left alone');
   clearSave(st); ok(!(SAVE_KEY in st.d), 'clear removes it');
   { // a save left by the previous game under the old key is carried forward once, then the old key is forgotten
     const lg = mem({ [LEGACY_KEYS[0]]: JSON.stringify(v1) }), got = loadSave(lg);
-    ok(got && got.v === 8 && got.fresh && got.inv.counts.crab === 2 && !(LEGACY_KEYS[0] in lg.d) && JSON.parse(lg.d[SAVE_KEY]).v === 8, 'a legacy v1 save in storage migrates, is re-saved under the new key and the old one is removed');
+    ok(got && got.v === 9 && got.fresh && got.inv.counts.crab === 2 && !(LEGACY_KEYS[0] in lg.d) && JSON.parse(lg.d[SAVE_KEY]).v === 9, 'a legacy v1 save in storage migrates, is re-saved under the new key and the old one is removed');
     const lg2 = mem({ [LEGACY_KEYS[0]]: '{broken' }); ok(loadSave(lg2) === null && !(LEGACY_KEYS[0] in lg2.d), 'a damaged legacy save is dropped');
     const lg3 = mem({ [SAVE_KEY]: JSON.stringify(f), [LEGACY_KEYS[0]]: JSON.stringify(v1) }); ok(loadSave(lg3).octo.x === f.octo.x, 'a current save wins over a legacy one');
   }
@@ -744,6 +752,39 @@ for (const seed of [1, 42, 2026]) {
   inv.add('anemone'); inv.add('urchin');
   ok(inv.craft('glow-urchin') && inv.count('glow') === 2, 'an anemone and an urchin make one too');
   ok(new Journal().seeHow('grotto') === 1, 'the cave has a journal entry');
+}
+
+{ // houses, the hedge maze and the small places (pure plan; the meshes are built by the game)
+  const { planPlaces, mazeReachable, rayDist, dailyKind, POI_IDS } = await import('../src/world/places.js');
+  const w = worlds[WORLD], a = planPlaces(w), b = planPlaces(w);
+  ok(JSON.stringify(a) === JSON.stringify(b), 'houses, the maze and the places do not move between asks');
+  ok(a.homes.length >= 15, `enough pet doors to explore (${a.homes.length})`);
+  ok(a.homes.every((h) => /^h\d+$/.test(h.id) && ['lounge', 'kitchen', 'laundry', 'hall'].includes(h.layout) && h.door && h.door.z > h.z), 'each house has a layout and a flap in front of it');
+  const ids = new Set(a.homes.map((h) => h.id));
+  ok(ids.size === a.homes.length, 'house ids are unique');
+  ok(a.maze && mazeReachable(a.maze.walls), 'the hedge maze has a way to the middle');
+  ok(rayDist(w, a.maze.x, a.maze.z) > 30, 'the maze is off the straight walk to the sea');
+  ok(POI_IDS.every((id) => a.pois.some((p) => p.id === id)), `every small place is in the world (${a.pois.map((p) => p.id).join(', ')})`);
+  const drain = a.pois.find((p) => p.id === 'drain');
+  ok(drain && Math.hypot(drain.x - drain.x2, drain.z - drain.z2) > 40, 'the storm drain joins two streets');
+  const day = dailyKind(new Date('2026-06-01T04:00:00Z'));
+  ok(['critter', 'flower', 'door'].includes(day.kind) && dailyKind(new Date('2026-06-01T10:00:00Z')).kind === day.kind, 'the daily surprise is one of three and stays put for a Perth day');
+  const L = new Levels();
+  for (let i = 0; i < 5; i++) L.did('homevisit', 'h' + i);
+  ok(L.badges.has('homes5') && !L.badges.has('homes15') && L.toJSON().st.homes.length === 5, 'five houses earn the first house badge and are saved');
+  for (let i = 5; i < 15; i++) L.did('homevisit', 'h' + i);
+  ok(L.badges.has('homes15'), 'fifteen houses earn the neighbourhood badge');
+  ok(!L.did('homevisit', 'h0') && L.st.homes.size === 15, 'the same house is not counted twice');
+  L.did('maze', false);
+  ok(L.badges.has('maze') && !L.badges.has('mazewet'), 'reaching the middle dry does not earn the wet badge');
+  L.did('maze', true);
+  ok(L.badges.has('mazewet') && L.toJSON().st.maze === true && L.toJSON().st.mazewet === true, 'a wet crossing earns the second maze badge');
+  for (const id of POI_IDS) L.did('poi', id);
+  ok(L.badges.has('places') && L.toJSON().st.pois.length === POI_IDS.length, 'every small place earns the corner badge');
+  L.did('rainbow'); L.did('secret');
+  ok(L.badges.has('rainbow') && L.badges.has('secret'), 'rainbow dust and the hidden light are badges');
+  const J = new Journal();
+  ok(J.seeHow('place:home') && J.seeHow('place:lounge') && J.seeHow('place:maze') && J.seeHow('place:shed') && J.has('find-photo') === false && J.seeHow('place:photo') && J.has('find-photo'), 'houses, the maze and the places fill journal pages');
 }
 
 console.log(`unit checks passed (${checks} assertions).`);
