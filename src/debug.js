@@ -1,6 +1,7 @@
 import { SPECIES } from './entities/predators.js';
 import { dailySeed } from './util/daily.js';
 import { BIOMES } from './world/biomes.js';
+import { flowAt } from './systems/reef.js';
 // window.__game: handy hooks for tests and for tinkering from the browser console.
 import { TERRAIN, CONFIG } from './config.js';
 
@@ -195,6 +196,16 @@ export function installDebugHooks(game) {
     get shimmerActive() { return game.shimmer.active > 0; },
     get seaBeatActive() { return game.seaBeat.active; },
     get critters() { return game.critters.counts(); },
+    get grotto() { const g = game.reef?.grotto; return g ? { x: g.x, z: g.z, r: g.r, seen: !!game.reef.seen } : null; },
+    teleportToGrotto() { const g = game.reef?.grotto; if (!g) return null; this.teleport(g.x, g.z); return { x: g.x, z: g.z }; },
+    /** pretend a baby has already been led to water (the grotto stays quiet until then) */
+    noteBaby() { game.progress.rescued.add('grotto-test'); return game.progress.babies; },
+    get current() { const o = game.octopus, f = { x: 0, z: 0 }; flowAt(game.world, o.x, o.z, o.swim, f); return { x: f.x, z: f.z, swim: o.swim }; },
+    carryItem(id) { return game.decor.beginCarry(id); },
+    get carrying() { return game.decor?.carry || null; },
+    get decorPieces() { return (game.decor?.list || []).map((p) => ({ id: p.id, x: p.x, z: p.z, rot: p.rot })); },
+    dropDecor() { return game.decor.dropHere(); },
+    nudgeDecor() { return game.decor.list.length ? game.decor.nudge(0) : false; },
     rareSpots(id) { return (game.rares?.spotsOf(id) || []).map((s) => ({ id: s.id, x: +s.x.toFixed(1), z: +s.z.toFixed(1) })); },
     teleportToRare(id) {
       const list = game.rares?.spotsOf(id) || [];

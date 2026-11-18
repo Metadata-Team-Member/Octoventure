@@ -8,14 +8,14 @@
 //  Everything read back is validated and clamped, so a damaged, hand-edited or foreign save can never break the game: at worst it is ignored.
 //  Versioned: every format change adds a step to MIGRATIONS (older saves are carried forward; saves from a newer game are ignored).
 // =====================================================================
-import { Inventory } from './items.js';
+import { Inventory, ALL_ITEMS } from './items.js';
 import { CONFIG } from '../config.js';
 import { Levels } from './levels.js';
 import { Journal } from './journal.js';
 
 export const SAVE_KEY = 'octo.save.v2';
 export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their save here; it is carried forward on first load, then removed
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 8;
 const WEATHER_KINDS = ['clear', 'heatwave', 'rain', 'storm'];
 const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast', 'tonic'];
 const MAX_TRAIL = 1200;
@@ -47,14 +47,29 @@ export const MIGRATIONS = {
   3: (o) => ({ ...o, v: 4, fx: { ...(o.fx && typeof o.fx === 'object' ? o.fx : {}), lethal: false } }),
   // v5 (t254u) adds the field journal (discovered ids) and the last satchel tab.
   4: (o) => ({ ...o, v: 5, journal: { seen: [], tab: 'bag' } }),
-  // v6 records which rare finds have been met (lv.st.rare). Older saves simply have none; load treats a missing list as empty.
+  // v6 adds the quiet-cave flag on the level stats (missing means not found).
   5: (o) => ({ ...o, v: 6 }),
+  // v7 adds den decorations and anything the octopus is carrying home.
+  6: (o) => ({ ...o, v: 7, decor: Array.isArray(o.decor) ? o.decor : [], carry: null }),
+  // v8 records which rare finds have been met (lv.st.rare). Older saves simply have none; load treats a missing list as empty.
+  7: (o) => ({ ...o, v: 8 }),
   2: (o) => ({ ...o, v: 3, lv: { xp: 0, b: [], st: { cells: Array.isArray(o.explored) ? o.explored.length : 0, babies: Array.isArray(o.babies) ? o.babies.length : 0, sea: !!o.sea, shells: Number(o.shells?.n) || 0 } } }),
 };
 
 const num = (v, lo, hi, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 const ids = (a, re, max = MAX_IDS) => (Array.isArray(a) ? a.filter((s) => typeof s === 'string' && s.length <= 40 && re.test(s)).slice(0, max) : []);
 const ID_RE = /^[A-Za-z0-9_]+$/;
+function cleanDecor(a) {
+  if (!Array.isArray(a)) return [];
+  const out = [];
+  for (const p of a) {
+    if (!p || typeof p.id !== 'string' || !ALL_ITEMS.includes(p.id)) continue;
+    if (![p.x, p.z, p.denx, p.denz].every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) < 1e6)) continue;
+    out.push({ id: p.id, x: p.x, z: p.z, rot: num(p.rot, -100, 100, 0), denx: p.denx, denz: p.denz });
+    if (out.length >= 24) break;
+  }
+  return out;
+}
 
 /** carry an old save forward to `target`; null if it is from the future / unreadable. `table` lets tests plug in their own steps. */
 export function migrate(o, target = SAVE_VERSION, table = MIGRATIONS) {
@@ -95,6 +110,8 @@ export function validateSave(o) {
     inv,
     fx: { buff, ink: Math.floor(num(fx.ink, 0, 20, 0)), venom: !!fx.venom, lethal: !!fx.lethal },
     dens,
+    decor: cleanDecor(o.decor),
+    carry: (typeof o.carry === 'string' && ALL_ITEMS.includes(o.carry)) ? o.carry : null,
     got: ids(o.got, ID_RE),
     explored: cells,
     ...(Array.isArray(o.trail) ? { trail: trail(o.trail) } : {}),      // optional (older saves have none)
@@ -129,6 +146,8 @@ export function snapshot(game) {
     inv: inv.toJSON(),
     fx: { buff, ink: o.inkCharges, venom: o.venomReady, lethal: !!o.lethalDose },
     dens: game.abilities.denList(),
+    decor: game.decor?.toJSON() || [],
+    carry: game.decor?.carry || null,
     got, explored: [...game.explored].slice(-MAX_CELLS), trail: (game.trail || []).slice(-MAX_TRAIL * 2),
     lv: game.levels.toJSON(),
     journal: game.journal.toJSON(),
@@ -150,6 +169,8 @@ export function applySave(game, s) {
   o.inkCharges = s.fx.ink; o.venomReady = s.fx.venom; o.lethalDose = !!s.fx.lethal;
   o.kelpF = o.buff.kelp > 0 ? 1 : 0; o.mimicF = o.buff.mimic > 0 ? 1 : 0; o.feastF = o.buff.feast > 0 ? 1 : 0; o.jarF = o.buff.jar > 0 ? 1 : 0;
   for (const d of s.dens) game.abilities.addDen(d.x, d.z, false);
+  game.decor?.load(s.decor);
+  if (s.carry && ALL_ITEMS.includes(s.carry)) { game.decor.carry = s.carry; game.decor.syncCarryMesh(); }
   game.gather.markCollected(s.got);
   game.explored = new Set(s.explored); game.trail = (s.trail || []).slice();
   game.levels.load(s.lv); game.levels.check(); game.levels.drain();      // badges already deserved are granted quietly

@@ -203,7 +203,18 @@ export const fungi = () => {
   return merge(parts);
 };
 
-export const GATHER_MODELS = { crab, shrimp, snail, mussel, kelp, lettuce, sponge, coral: coralBit, shellhalf, pebble, moss, coconut, cap, jar, urchin, worm, beetle, spawn, propagule, ochre, fungi };
+/** a soft reef flower: a squat foot and a few rounded tentacles */
+export const anemone = () => {
+  const parts = [at(tint(new THREE.CylinderGeometry(0.07, 0.09, 0.045, 7), 0x5c3068), 0, 0.022, 0)];
+  for (let i = 0; i < 6; i++) {
+    const a = i * (Math.PI * 2 / 6);
+    parts.push(at(paint(sph(1, 5, 4), (x, y) => mixC(0xc45a9a, 0xf4c0dc, y * 0.55 + 0.35)), Math.cos(a) * 0.045, 0.13, Math.sin(a) * 0.045, Math.sin(a) * 0.25, a, 0, 0.018, 0.11, 0.018));
+  }
+  parts.push(at(paint(sph(1, 6, 4), () => 0xe07ab8), 0, 0.07, 0, 0, 0, 0, 0.04, 0.03, 0.04));
+  return merge(parts);
+};
+
+export const GATHER_MODELS = { crab, shrimp, snail, mussel, kelp, lettuce, sponge, coral: coralBit, shellhalf, pebble, moss, coconut, cap, jar, urchin, worm, beetle, spawn, propagule, ochre, fungi, anemone };
 export function buildGatherGeos() { const o = {}; for (const k in GATHER_MODELS) o[k] = GATHER_MODELS[k](); return o; }
 /** how each kind sits: tilt to the slope (0..1) */
-export const GATHER_TILT = { crab: 0.5, shrimp: 0.3, snail: 0.6, mussel: 0.8, kelp: 0, lettuce: 0.7, sponge: 0.2, coral: 0.2, shellhalf: 1, pebble: 1, moss: 0.6, coconut: 1, cap: 1, jar: 0.8, urchin: 0.6, worm: 0.9, beetle: 0.5, spawn: 0.7, propagule: 1, ochre: 1, fungi: 0.5 };
+export const GATHER_TILT = { crab: 0.5, shrimp: 0.3, snail: 0.6, mussel: 0.8, kelp: 0, lettuce: 0.7, sponge: 0.2, coral: 0.2, shellhalf: 1, pebble: 1, moss: 0.6, coconut: 1, cap: 1, jar: 0.8, urchin: 0.6, worm: 0.9, beetle: 0.5, spawn: 0.7, propagule: 1, ochre: 1, fungi: 0.5, anemone: 0.25 };

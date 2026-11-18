@@ -20,6 +20,7 @@ export const TAB_SET = new Set(TABS);
 export const ENTRIES = [
   // ---- creatures
   { id: 'octo-baby',  group: 'creature', glyph: 'b_baby',    title: 'A little one',     note: 'A tiny octopus, lost on the land. It follows when it sees you, and hurries to water.', how: 'baby' },
+  { id: 'grotto',     group: 'creature', glyph: 'b_grotto',  title: 'The quiet cave',   note: 'A still cave under the reef. The little ones wait there, once they have found the water.', how: 'grotto' },
   { id: 'gull',       group: 'creature', glyph: 'j_gull',    title: 'Seagull',          note: 'A noisy white bird. It hops close, then comes at you with an open beak.', how: 'pred:gull' },
   { id: 'magpie',     group: 'creature', glyph: 'j_magpie',  title: 'Magpie',           note: 'Black and white, watching from a tree. It swoops when you pass underneath.', how: 'pred:magpie' },
   { id: 'kookaburra', group: 'creature', glyph: 'j_kooka',   title: 'Kookaburra',       note: 'A brown bird with a big laugh. It waits, then drops like a stone.', how: 'pred:kookaburra' },
@@ -60,7 +61,7 @@ export const ENTRY_IDS = ENTRIES.map((e) => e.id);
 export const ENTRY_BY = Object.fromEntries(ENTRIES.map((e) => [e.id, e]));
 
 /** rare finds shown as collection portraits (silhouettes until found); babies are separate */
-export const RARE = ['jar', 'fungi', 'ochre', 'coral', 'coconut', 'urchin', 'dose', 'shellhalf'];
+export const RARE = ['jar', 'fungi', 'ochre', 'coral', 'coconut', 'urchin', 'dose', 'shellhalf', 'anemone'];
 /** secrets: silhouettes until met. Not satchel items. */
 export const SECRET_IDS = ['rare-gold', 'rare-pearl', 'rare-frog', 'rare-bloom', 'rare-race', 'rare-ring'];
 
