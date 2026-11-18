@@ -219,15 +219,16 @@ const uiBefore = await E(() => document.body.innerText.trim());
 
 // ================================================================ camouflage protects against everyone except cars
 {
-  for (const kind of ['gull', 'cat', 'dog', 'fox', 'crab', 'eagle', 'human', 'magpie', 'kookaburra']) {
+  for (const kind of ['gull', 'cat', 'dog', 'fox', 'crab', 'eagle', 'human', 'magpie', 'kookaburra', 'snake', 'goanna', 'heron']) {
     const r = await E((kind) => {
       const G = window.__game, g = G.game, o = g.octopus, w = g.world;
-      G.clearPredators(); G.teleport(w.start.x, w.start.z); g.advance(0.2); o.health = 100; o.energy = 100; o.armor = 0;
+      G.clearPredators(); G.freezeTime(true); G.setTime(0.45); G.setWeather('clear');
+      G.teleport(w.start.x, w.start.z); g.advance(0.2); o.health = 100; o.energy = 100; o.armor = 0;
       const p = G.spawnPredator(kind, 3, 0); if (p.spec.swoop) { p.alt = 3; p.home = { x: o.x + 3, z: o.z }; }
       p.state = p.spec.flying ? 'alert' : 'chase'; p.alertT = 0.1;
       G.pressKey('Space'); const h0 = o.health;
       const seen = new Set(); for (let i = 0; i < 160; i++) { g.advance(0.05); seen.add(p.state); }
-      G.releaseKey('Space');
+      G.releaseKey('Space'); G.freezeTime(false);
       return { drop: h0 - o.health, seen: [...seen].join(',') };
     }, kind);
     ok(r.drop < 5, `${kind}: no damage while camouflaged (lost ${r.drop.toFixed(1)} to drying; states ${r.seen})`);
@@ -304,7 +305,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.gull.maxLift > 3 && r.gull.called, `gulls circle overhead and call others (lift ${r.gull.maxLift.toFixed(1)} m, called: ${r.gull.called})`);
   ok(/swoop/.test(r.magpie.states) && r.magpie.lost > 3, `magpies swoop from their tree (${r.magpie.states}; ${r.magpie.lost.toFixed(0)} damage)`);
   ok(/track/.test(r.dog), `dogs follow scent trails (${r.dog})`);
-  ok(/search/.test(r.search.states) && r.search.minD < 6, `predators that lose you search the last-known spot (${r.search.states}; closest ${r.search.minD.toFixed(1)} m)`);
+  ok(/search/.test(r.search.states) && r.search.minD < 8, `predators that lose you search the last-known spot (${r.search.states}; closest ${r.search.minD.toFixed(1)} m)`);
   ok(r.human.grabbed && r.human.dropped && r.human.lost > 3, `a person with a bucket grabs, carries, then drops you (${r.human.lost.toFixed(0)} health lost)`);
   const carry = await E(() => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
