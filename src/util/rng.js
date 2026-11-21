@@ -29,3 +29,8 @@ export const angleDiff = (a, b) => {
   return d;
 };
 export const dampAngle = (cur, target, rate, dt) => cur + angleDiff(cur, target) * (1 - Math.exp(-rate * dt));
+/** one simulation step: ignore a bad delta, and cap a hitch (a hidden tab coming back) so nothing tunnels */
+export function frameDt(raw) {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return 0;
+  return raw > 0.05 ? 0.05 : raw;
+}
