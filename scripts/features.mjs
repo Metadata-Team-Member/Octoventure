@@ -674,9 +674,20 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const G = window.__game, g = G.game, o = g.octopus, w = g.world, out = {};
     const settle = (n) => { for (let i = 0; i < n; i++) G.advance(0.05); };
     G.clearPredators(); G.freezeTime(true); G.setTime(0.45); G.setWeather('clear'); g.env.rain = 0; g.env.heat = 0; g.env.apply();
-    const loss1 = () => { G.clearPredators(); G.teleport(o.x, o.z); o.health = 100; o.wetness = 0; const h0 = o.health; settle(60); return h0 - o.health; };
-    // average over a few spots round about (shade, a tree or a puddle nearby changes any single reading)
-    const loss = () => { const x0 = o.x, z0 = o.z; let t = 0; for (const [dx, dz] of [[0, 0], [25, 0], [-25, 0], [0, 25], [0, -25]]) { G.teleport(x0 + dx, z0 + dz); settle(2); t += loss1(); } G.teleport(x0, z0); return t / 5; };
+    const loss1 = () => { G.clearPredators(); G.releaseKey('KeyW'); G.teleport(o.x, o.z); o.speed = 0; o.health = 100; o.wetness = 0; const h0 = o.health; settle(60); return h0 - o.health; };
+    // median of dry spots: a puddle or a creek in one sample used to pull the average onto the 1.3x line
+    const loss = () => {
+      const x0 = o.x, z0 = o.z; const samples = [];
+      for (const [dx, dz] of [[0, 0], [25, 0], [-25, 0], [0, 25], [0, -25], [40, 18], [-18, 40]]) {
+        G.teleport(x0 + dx, z0 + dz); settle(2);
+        if (w.waterAt(o.x, o.z)) continue;
+        samples.push(loss1());
+      }
+      G.teleport(x0, z0);
+      if (!samples.length) return 0;
+      samples.sort((a, b) => a - b);
+      return samples[Math.floor(samples.length / 2)];
+    };
     // a Daily/New start can leave w.start already inland, so walk toward the sea until the air is moist
     let sx = w.start.x, sz = w.start.z;
     for (let s = 0; s <= 5000; s += 80) {
