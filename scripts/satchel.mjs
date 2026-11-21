@@ -67,15 +67,15 @@ await sleep(500);
     out.kinds = Object.keys(kinds).length;
     const it = G.teleportToGather('kelp', 0); g.advance(0.7);
     out.slot = it.slot;
-    G.teleport(it.x, it.z); g.advance(0.15);
-    out.got = it.got; out.count = G.inv.count('kelp'); out.anims = g.gather.anims.length;
-    g.advance(0.6); out.animsAfter = g.gather.anims.length;
+    G.teleport(it.x, it.z); g.advance(0.12);
+    out.got = it.got; out.early = G.inv.count('kelp'); out.anims = g.gather.anims.length;
+    g.advance(0.5); out.count = G.inv.count('kelp'); out.animsAfter = g.gather.anims.length;
     out.text = document.body.innerText.trim() === text0 && [...document.querySelectorAll('.overlay')].every((e) => e.hidden);
     out.slotsAfter = G.inv.slots().map((s) => s.id).join();
     return out;
   });
   ok(r.kinds === 22, `all 22 gatherable kinds exist in the world (${r.kinds})`);
-  ok(r.slot >= 0 && r.got && r.count === 1, 'walking over a kelp frond picks it up (it is shown first, then taken)');
+  ok(r.slot >= 0 && r.got && r.early === 0 && r.count === 1, 'walking over a kelp frond shows it, tucks it in, then takes it once');
   ok(r.anims >= 1 && r.animsAfter === 0, 'a small pick-up animation plays and then ends');
   ok(r.text, 'picking something up shows no text and no pop-up');
   ok(r.slotsAfter === 'kelp', 'only what has been found appears in the satchel');
@@ -84,7 +84,7 @@ await sleep(500);
     const G = window.__game, g = G.game, res = {};
     for (const kind of ['pebble', 'shellhalf', 'moss', 'coconut', 'cap', 'jar', 'snail', 'mussel', 'sponge', 'coral', 'lettuce']) {
       const it = G.teleportToGather(kind, 0); if (!it) { res[kind] = 'none'; continue; }
-      g.advance(0.7); G.teleport(it.x, it.z); g.advance(0.2); res[kind] = G.inv.count(kind);
+      g.advance(0.7); G.teleport(it.x, it.z); g.advance(0.55); res[kind] = G.inv.count(kind);
     }
     return res;
   });
@@ -98,7 +98,7 @@ await sleep(500);
     g.advance(1.0);
     out.moved = Math.hypot(it.cx - x0, it.cz - z0); out.d1 = Math.hypot(it.cx - o.x, it.cz - o.z); out.d0 = d0;
     out.stillThere = !it.got;
-    G.teleport(it.cx, it.cz); g.advance(0.2);
+    G.teleport(it.cx, it.cz); g.advance(0.55);
     out.caught = it.got && G.inv.count('crab') === 1;
     const sh = G.teleportToGather('shrimp', 0); g.advance(0.7);
     out.shrimpLive = !!sh.mesh;

@@ -787,6 +787,180 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.perched && r.vary > 0.15 && r.differ > 0.04, `forest birds idle out of sync while perched (head ${r.vary.toFixed(2)}, apart ${r.differ.toFixed(2)})`);
 }
 
+// ================================================================ corner map on M, sound on N, doors, scoop
+{
+  const map = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus;
+    if (G.paused) g.setPaused(false);
+    const el = document.getElementById('minimap');
+    const clock = document.getElementById('clock');
+    const hit = (a, b) => a.width > 2 && b.width > 2 && !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+    const off = el.hidden === true && g.minimapOn === false;
+    const mode0 = g.soundMode ?? 0;
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyM' }));
+    g.advance(0.05);
+    const shown = el.hidden === false && g.minimapOn === true && g.minimap.draws >= 1;
+    const savedOn = JSON.parse(localStorage.getItem('octo.settings') || '{}').minimap === true;
+    const soundUntouched = (g.soundMode ?? 0) === mode0;
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyN' }));
+    const mode1 = g.soundMode;
+    g.minimap.draws = 0;
+    g.advance(1);
+    const draws = g.minimap.draws;
+    const desk = hit(el.getBoundingClientRect(), clock.getBoundingClientRect());
+    const clockOn = clock.hidden === false && clock.getBoundingClientRect().width > 40;
+    document.body.classList.add('is-mobile');
+    const touch = document.getElementById('touch');
+    touch.hidden = false;
+    const mob = hit(el.getBoundingClientRect(), clock.getBoundingClientRect());
+    const camo = document.getElementById('btn-camo').getBoundingClientRect();
+    const sprint = document.getElementById('btn-sprint').getBoundingClientRect();
+    const mobBtn = hit(el.getBoundingClientRect(), camo) || hit(el.getBoundingClientRect(), sprint);
+    touch.hidden = true;
+    document.body.classList.remove('is-mobile');
+    const round = getComputedStyle(el).borderRadius.includes('%') || parseFloat(getComputedStyle(el).borderRadius) >= 40;
+    const px = el.getContext('2d').getImageData(80, 80, 1, 1).data;
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyM' }));
+    while ((g.soundMode ?? 0) !== 0) g.cycleSound();
+    g.minimapOn = false; g.minimap.setOn(false); g.saveSettings();
+    const keys = document.getElementById('keys').innerText;
+    return { off, shown, savedOn, soundUntouched, mode1, draws, desk, mob, mobBtn, clockOn, round, px: [px[0], px[1], px[2], px[3]], keysM: /M[\s\S]*Map/.test(keys) && /N[\s\S]*Sound/.test(keys), hiddenAgain: el.hidden === true };
+  });
+  ok(map.off && map.shown && map.savedOn && map.hiddenAgain, `M toggles the corner map and remembers it (off ${map.off}, on ${map.shown}, saved ${map.savedOn})`);
+  ok(map.soundUntouched && map.mode1 === 1, `M leaves the sound alone and N cycles it (mode ${map.mode1})`);
+  ok(map.draws >= 1 && map.draws <= 5, `the map is redrawn a few times a second (${map.draws} in 1 s)`);
+  ok(map.clockOn && !map.desk && !map.mob && !map.mobBtn && map.round, `the map stays round and clear of the tide dial (desktop overlap ${map.desk}, phone ${map.mob}, buttons ${map.mobBtn})`);
+  ok(map.px[3] > 0 && map.keysM, 'the map is painted, and the pause list names M and N');
+
+  const doors = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus, p = g.places, w = g.world;
+    if (G.paused) g.setPaused(false);
+    o.camoWanted = true; o.alive = true;
+    const step = 1.5 / 0.32;
+    const one = (h) => {
+      if (p.indoor || p.phase) p.leaveNow();
+      for (let i = 0; i < p.flaps.length; i++) { p.flaps[i].cool = 0; p.flaps[i].armed = true; }
+      p.leaveCool = 0; p.leaveArmed = true; p.phase = null; p.locking = false;
+      const d = h.door;
+      o.alive = true; o.moving = true; o.speed = 1; o.camoWanted = true;
+      o.x = d.x; o.z = d.z; o.y = w.heightAt(d.x, d.z);
+      let ins = 0;
+      for (let i = 0; i < 14; i++) {
+        const was = p.phase;
+        p.update(0.05, o);
+        if (was !== 'in' && p.phase === 'in') ins++;
+      }
+      const pose = { x: o.x, z: o.z, h: o.heading, indoor: !!p.indoor };
+      const doorZ = p.wz(-5.6 / 2 + 0.55);
+      const inM = Math.hypot(o.x - p.wx(0), o.z - doorZ) * 0.32;
+      o.moving = false; o.x = p.wx(0); o.z = p.wz(0);
+      for (let i = 0; i < 24; i++) p.update(0.05, o);
+      o.moving = true; o.x = p.wx(0); o.z = doorZ;
+      p.update(0.05, o);
+      for (let i = 0; i < 12; i++) p.update(0.05, o);
+      const exit = { x: o.x, z: o.z, y: o.y, h: o.heading, indoor: !!p.indoor, phase: p.phase };
+      const outM = Math.hypot(o.x - d.x, o.z - d.z);
+      const ground = w.heightAt(o.x, o.z);
+      o.x = d.x; o.z = d.z; o.moving = true;
+      let bounce = false;
+      for (let i = 0; i < 8; i++) { p.update(0.05, o); if (p.phase === 'in' || p.indoor) bounce = true; }
+      o.x = d.x; o.z = d.z + step + 1.2; o.moving = true;
+      for (let i = 0; i < 24; i++) p.update(0.05, o);
+      o.x = d.x; o.z = d.z; o.moving = true;
+      p.update(0.05, o);
+      const again = p.phase === 'in';
+      if (p.indoor || p.phase) p.leaveNow();
+      return { ins, pose, inM, exit, outM, yOff: Math.abs(exit.y - ground), bounce, again };
+    };
+    const first = one(p.plan.homes[0]);
+    let bad = 0;
+    for (let i = 0; i < p.plan.homes.length; i++) {
+      const r = one(p.plan.homes[i]);
+      if (r.ins !== 1 || r.bounce || r.exit.indoor || r.exit.phase) bad++;
+    }
+    if (p.indoor || p.phase) p.leaveNow();
+    o.camoWanted = false;
+    G.teleport(w.start.x, w.start.z);
+    return { first, bad, n: p.plan.homes.length };
+  });
+  ok(doors.first.pose.indoor && doors.first.pose.h === 0 && doors.first.inM > 1.2 && doors.first.inM <= 1.51, `entry stands about 1.5 m inside, facing in (${doors.first.inM.toFixed(2)} m)`);
+  ok(!doors.first.exit.indoor && !doors.first.exit.phase && doors.first.exit.h === 0 && Math.abs(doors.first.outM * 0.32 - 1.5) < 0.05 && doors.first.yOff < 0.05, `exit stands 1.5 m outside on the ground, facing away (${(doors.first.outM * 0.32).toFixed(2)} m, y off ${doors.first.yOff.toFixed(3)})`);
+  ok(!doors.first.bounce && doors.first.again, 'the flap does not bounce you back in until you have left and returned');
+  ok(doors.bad === 0, `no house loops in or out (${doors.bad} of ${doors.n})`);
+
+  const scoop = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus, w = g.world;
+    if (G.paused) g.setPaused(false);
+    o.alive = true; o.health = 100;
+    const it = G.teleportToGather('pebble', 0);
+    g.advance(0.4);
+    const before = G.inv.count('pebble');
+    let picks = 0;
+    const prev = g.gather.onPick;
+    g.gather.onPick = (item) => { if (item.id === it.id) picks++; return prev(item); };
+    G.teleport(it.x, it.z);
+    G.pressKey('KeyW');
+    g.advance(0.05);
+    const early = G.inv.count('pebble');
+    const sc = o.scoops[0].on ? o.scoops[0] : o.scoops[1];
+    const arm = sc ? sc.arm : 0;
+    const tip = (i) => {
+      const seg = o.tentacles[i].segs[11].position;
+      o.group.updateMatrixWorld(true);
+      const e = o.group.matrixWorld.elements;
+      const x = e[0] * seg.x + e[4] * seg.y + e[8] * seg.z + e[12];
+      const z = e[2] * seg.x + e[6] * seg.y + e[10] * seg.z + e[14];
+      return Math.hypot(x - it.x, z - it.z);
+    };
+    const d0 = tip(arm);
+    const x0 = o.x, z0 = o.z;
+    g.advance(0.16);
+    const d1 = tip(arm);
+    const walked = Math.hypot(o.x - x0, o.z - z0);
+    const speed = o.speed;
+    g.advance(0.4);
+    G.releaseKey('KeyW');
+    const after = G.inv.count('pebble');
+    const d2 = tip(arm);
+    const settled = !o.scoops[0].on && !o.scoops[1].on;
+    // a second item, at once, on another arm — both collected once
+    const a = G.teleportToGather('shellhalf', 0);
+    const b = G.teleportToGather('moss', 0);
+    g.advance(0.3);
+    let na = 0, nb = 0;
+    g.gather.onPick = (item) => { if (item.id === a.id) na++; else if (item.id === b.id) nb++; return prev(item); };
+    g.gather.take(a, o); g.gather.take(b, o);
+    const two = o.scoops[0].on && o.scoops[1].on && o.scoops[0].arm !== o.scoops[1].arm;
+    g.advance(0.5);
+    // something in the water
+    let wet = null;
+    const items = g.gather.items();
+    for (let i = 0; i < items.length; i++) {
+      const q = items[i];
+      if (q.got || q.reg) continue;
+      if (w.waterAt(q.x, q.z) || w.isShallow(q.x, q.z)) { wet = q; break; }
+    }
+    let wetOk = false, wetIn = false, wetN = 0;
+    if (wet) {
+      g.gather.onPick = (item) => { if (item.id === wet.id) wetN++; return prev(item); };
+      G.teleport(wet.x, wet.z);
+      g.advance(0.08);
+      wetIn = !!o.inWater;
+      let saw = o.scoops[0].on || o.scoops[1].on;
+      for (let i = 0; i < 18; i++) { g.advance(1 / 30); if (o.scoops[0].on || o.scoops[1].on) saw = true; }
+      wetOk = wet.got && wetN === 1 && saw;
+    }
+    g.gather.onPick = prev;
+    G.releaseKey('KeyW');
+    return { before, early, after, picks, d0, d1, d2, walked, speed, settled, two, na, nb, wet: !!wet, wetOk, wetIn };
+  });
+  ok(scoop.early === scoop.before && scoop.after === scoop.before + 1 && scoop.picks === 1, `a pebble is collected once, after the tuck (${scoop.before} -> ${scoop.early} -> ${scoop.after}, calls ${scoop.picks})`);
+  ok(scoop.d1 < scoop.d0 - 0.04 && scoop.d2 > scoop.d1 && scoop.settled, `the nearest arm reaches and then settles (tip ${scoop.d0.toFixed(2)} -> ${scoop.d1.toFixed(2)} -> ${scoop.d2.toFixed(2)})`);
+  ok(scoop.walked > 0.15 && scoop.speed > 0.3, `the scoop does not freeze the walk (moved ${scoop.walked.toFixed(2)}, speed ${scoop.speed.toFixed(2)})`);
+  ok(scoop.two && scoop.na === 1 && scoop.nb === 1, `two quick pickups use two arms and each lands once (${scoop.na}, ${scoop.nb})`);
+  ok(scoop.wet && scoop.wetOk && scoop.wetIn, `a pickup in the water still scoops and collects once (found ${scoop.wet}, wet ${scoop.wetIn})`);
+}
+
 // ================================================================ the screen stays clean
 {
   await E(() => { const G = window.__game; if (G.paused) G.game.setPaused(false); });

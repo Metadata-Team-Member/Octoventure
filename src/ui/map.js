@@ -247,3 +247,71 @@ export function drawMap(ctx, W, H, d) {
   compass(ctx, W - 56, H - 66, 30);
   return { labels };
 }
+
+/** world units from the octopus to the rim of the corner map (~25 m). */
+const MINI_R = 78;
+
+/**
+ * The same watercolour and fog as the satchel map, cropped to a circle around the octopus.
+ * No labels (nothing is written over the fog). The caller owns the scratch canvases.
+ * @param d { cells, biomeAt, seaOk, trail, me:{x,z,heading} }
+ */
+export function drawMini(ctx, W, H, d, scratch) {
+  const me = d.me || { x: 0, z: 0, heading: 0 };
+  paper(ctx, W, H);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(W / 2, H / 2, Math.min(W, H) * 0.5 - 1, 0, Math.PI * 2);
+  ctx.clip();
+  const cells = d.cells || [];
+  const sc = (Math.min(W, H) * 0.46) / MINI_R;
+  const to = (x, z) => [W / 2 + (x - me.x) * sc, H / 2 + (z - me.z) * sc];
+  const reach = MINI_R + 90;
+  if (cells.length && d.biomeAt && scratch) {
+    const wash = scratch.wash, wc = scratch.wc, mask = scratch.mask, mc = scratch.mc;
+    wc.setTransform(1, 0, 0, 1, 0, 0); wc.clearRect(0, 0, W, H);
+    mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, W, H);
+    wc.globalCompositeOperation = 'source-over';
+    const step = 34, rBlot = Math.max(5, step * sc * 1.15);
+    for (let n = 0; n < cells.length; n++) {
+      const q = cells[n];
+      if (Math.abs(q.x - me.x) > reach || Math.abs(q.z - me.z) > reach) continue;
+      for (let k = 0; k < 4; k++) {
+        const x = q.x - 40 + (k % 2) * 50, z = q.z - 40 + ((k / 2) | 0) * 50;
+        const b = d.biomeAt(x, z);
+        if (b === 'sea' && !d.seaOk) continue;
+        const col = WASH[b] || [200, 210, 180];
+        const [px, py] = to(x, z), r = rBlot * (0.9 + hash(x, z) * 0.3);
+        const g = wc.createRadialGradient(px, py, 0, px, py, r);
+        g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},0.55)`);
+        g.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+        wc.fillStyle = g; wc.fillRect(px - r, py - r, r * 2, r * 2);
+      }
+      const [px, py] = to(q.x, q.z), r = (70 + hash(q.x, q.z) * 24) * sc;
+      const g = mc.createRadialGradient(px, py, r * 0.4, px, py, r);
+      g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      mc.fillStyle = g; mc.fillRect(px - r, py - r, r * 2, r * 2);
+    }
+    wc.globalCompositeOperation = 'destination-in';
+    wc.drawImage(mask, 0, 0);
+    wc.globalCompositeOperation = 'source-over';
+    ctx.drawImage(wash, 0, 0);
+  }
+  const tr = d.trail || [];
+  if (tr.length >= 4) {
+    ctx.save(); ctx.strokeStyle = 'rgba(120, 60, 40, 0.55)'; ctx.lineWidth = 1.4; ctx.setLineDash([1, 4]); ctx.lineCap = 'round';
+    ctx.beginPath();
+    let pen = false;
+    for (let i = 0; i < tr.length; i += 2) {
+      if (Math.abs(tr[i] - me.x) > reach || Math.abs(tr[i + 1] - me.z) > reach) { pen = false; continue; }
+      const [x, y] = to(tr[i], tr[i + 1]);
+      if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+    }
+    ctx.stroke(); ctx.restore();
+  }
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(Math.PI - (me.heading || 0));
+  ctx.fillStyle = '#3d8fe0'; ctx.strokeStyle = '#1d4f86'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(4.2, 5); ctx.lineTo(0, 2.2); ctx.lineTo(-4.2, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}

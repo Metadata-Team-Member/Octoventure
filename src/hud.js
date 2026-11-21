@@ -1,12 +1,12 @@
 // Deliberately tiny: there is no health bar, timer, hints or controls on screen.
-// The only in-play UI is the small tide-and-sun dial (t254u). Overlays, a brief red flash when bitten, and ?debug=1 otherwise.
+// In play: the tide-and-sun dial, and (only if M has been pressed) a small round map. Overlays, a brief red flash when bitten, and ?debug=1 otherwise.
 const $ = (id) => document.getElementById(id);
 
 export class Hud {
   constructor() {
     this.el = {
       hurt: $('hurt'), debug: $('debug'), start: $('start'), pause: $('pause'), end: $('end'), endTitle: $('end-title'),
-      loading: $('loading'), satchel: $('satchel'), clock: $('clock'), copy: $('chip-copy'), paste: $('chip-paste'), codeIn: $('code-in'), play: $('play'), restart: $('restart'), opts: $('opts'), daily: $('chip-daily'), newWorld: $('chip-new'),
+      loading: $('loading'), satchel: $('satchel'), clock: $('clock'), minimap: $('minimap'), copy: $('chip-copy'), paste: $('chip-paste'), codeIn: $('code-in'), play: $('play'), restart: $('restart'), opts: $('opts'), daily: $('chip-daily'), newWorld: $('chip-new'),
     };
   }
   /** reflect the current difficulty / daily setting on the pause-menu chips */

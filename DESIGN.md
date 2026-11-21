@@ -291,6 +291,8 @@ Small places, found by walking: a shed (webs, a shelf, a watering can), a wet st
 
 The Perth date picks one daily surprise inside the same world: a hopping visitor at the playground, a flower in the garden that still has pollen, or one flap left open. After at least one house and the maze, a small light appears near the middle of the maze. Touching it is a journal note and a badge. Nothing about any of this is written on the screen during play.
 
+**The flap no longer bounces you.** Entry used to stand 0.9 u inside a leave-trigger of radius 0.42, and the way out stood 0.45 u in front of a flap whose radius is 0.48, so one step sent you straight back through. Entry now stands about 1.5 m inside (`FLAP_STEP`, 1 u ~ 32 cm), facing into the room, stopped just short of the far wall when the room is not that deep. Exit stands the same 1.5 m outside the flap, facing away, on `heightAt` (not the door's stored height). The flap, and the mat inside, then ignore you for a second and until you have walked out of the trigger. Saves stay at v9.
+
 Try: `?home=1` beside the first flap, `?maze=1` at the mouth of the maze, `?poi=shed` (or `drain`, `garden`, `light`, `play`).
 
 ## Shore, birds, and a steadier frame
@@ -302,4 +304,10 @@ Try: `?home=1` beside the first flap, `?maze=1` at the mouth of the maze, `?poi=
 **The waterline.** The sea was one quad the size of the map, drawn at `seaLevel` with no depth offset, so it shared a depth with every beach triangle it crossed. That shimmered at every tide, worse in the distance because the camera near plane was 0.08 against a far plane of 1400. The sea is now a grid (72×72), drawn with `polygonOffset` and without writing depth, the same idea as the puddle discs. The camera near plane is 0.22 and the far plane 1100 (the sky is a 900 u sphere). The water height is still the tide, so the edge moves with it and does not crawl up the sand.
 
 **Frame hazards.** `frameDt` drops a non-finite delta and caps a hitch at 50 ms, so a hidden tab does not fast-forward the world. A non-finite octopus position is put back on the start ground instead of poisoning the frame. `saveNow` cannot throw. A lost WebGL context reloads the page quietly (the save is written first); a restored one resumes. An unhandled promise rejection is swallowed so it does not kill the loop. Saves stay at v9. A NaN position is rejected, and a storage that throws is ignored.
+
+## A map in the corner, and an arm that picks things up
+
+**M** toggles a round sketch in the corner (`ui/minimap.js`, the same watercolour and fog as the satchel map in `ui/map.js`). It is off until asked. The choice is kept in `octo.settings` (`minimap`), not in the save, which stays at v9. The octopus is an arrow in the middle, turned with its heading. Unwalked ground is the paper, and nothing is lettered over the fog. It is redrawn about three times a second, and not at all while it is hidden. It sits above the tide-and-sun dial (and, on a phone, above the touch buttons) so the two do not overlap. **N** is the old sound cycle (all / effects / off). The pause list and the README say so. The dial is still the only *always-on* mark during play.
+
+**A scoop.** Touching a shell, a gatherable or pollen sends the nearest free arm out to it (`Octopus.scoopToward`). The arm curls and draws the thing under the body over about 0.36 s, blended onto the walk so you do not stop. A second pickup can use another arm. The gatherable mesh shrinks as it tucks under, and the satchel, the sound and the journal happen once, when that tuck finishes. Shells still toughen at once (the fade is unchanged). No new meshes, and the arm pose reuses the segments it already has.
 

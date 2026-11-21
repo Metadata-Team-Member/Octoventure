@@ -178,6 +178,7 @@ export class Collectibles {
             sh.got = true; sh.fade = 1;
             this.progress.addShell(runTime);
             o.armor = this.progress.armor;
+            o.scoopToward?.(sh.x, sh.y, sh.z);
           }
         }
       }

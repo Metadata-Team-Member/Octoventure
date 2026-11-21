@@ -183,18 +183,22 @@ export class Gatherer {
         if (ex * ex + ez * ez < R2 * 0.85 && Math.abs(g.mesh.position.y - o.y) < reach) this.take(g, o);
       }
     }
-    // ---- pickup animations: lift, shrink, slide into the octopus
+    // ---- pickup animations: tuck under the body and shrink, then the satchel takes it (once)
     for (let i = this.anims.length - 1; i >= 0; i--) {
-      const a = this.anims[i]; a.t += dt / 0.38;
-      const e = Math.min(1, a.t), ee = e * e * (3 - 2 * e), tx = this.target?.x ?? a.p.x, tz = this.target?.z ?? a.p.z, ty = (this.target?.y ?? a.p.y) + 0.2;
-      const px = a.p.x + (tx - a.p.x) * ee, pz = a.p.z + (tz - a.p.z) * ee, py = a.p.y + Math.sin(e * Math.PI) * 0.25 + (ty - a.p.y) * ee * 0.7;
+      const a = this.anims[i]; a.t += dt / 0.36;
+      const e = Math.min(1, a.t), ee = e * e * (3 - 2 * e), tx = this.target?.x ?? a.p.x, tz = this.target?.z ?? a.p.z, ty = (this.target?.y ?? a.p.y) + 0.06;
+      const lift = Math.sin(e * Math.PI) * 0.1 * (1 - e);
+      const px = a.p.x + (tx - a.p.x) * ee, pz = a.p.z + (tz - a.p.z) * ee, py = a.p.y + (ty - a.p.y) * ee + lift;
       const sc = Math.max(0.001, 1 - ee);
       if (a.crit) { a.mesh.position.set(px, py, pz); a.mesh.scale.setScalar(a.s * sc); a.mesh.rotation.y += dt * 9; }
       else {
         _a.makeTranslation(px, py, pz).multiply(_b.makeScale(sc, sc, sc)).multiply(_m.makeTranslation(-a.p.x, -a.p.y, -a.p.z)).multiply(a.base);
         a.mesh.matrix.copy(_a);
       }
-      if (e >= 1) { this.root.remove(a.mesh); if (a.crit) { a.mesh.visible = false; a.mesh.scale.setScalar(a.s); this.pool[a.kind].push(a.mesh); this.root.add(a.mesh); } this.anims.splice(i, 1); }
+      if (e >= 1) {
+        if (!a.gave) { a.gave = true; this.onPick?.(a.item); }
+        this.root.remove(a.mesh); if (a.crit) { a.mesh.visible = false; a.mesh.scale.setScalar(a.s); this.pool[a.kind].push(a.mesh); this.root.add(a.mesh); } this.anims.splice(i, 1);
+      }
     }
   }
   take(g, o) {
@@ -205,14 +209,17 @@ export class Gatherer {
       const i = this.live.indexOf(g); if (i >= 0) this.live.splice(i, 1);
       const pi = this.pool[g.kind].indexOf(m); if (pi >= 0) this.pool[g.kind].splice(pi, 1);       // flying-to-you critter leaves the pool until done
       g.mesh = null; g.slot = -1;
-      this.anims.push({ mesh: m, crit: true, kind: g.kind, p: at, t: 0, s: g.s });
+      this.anims.push({ mesh: m, crit: true, kind: g.kind, p: at, t: 0, s: g.s, item: g, gave: false });
     } else {
       const base = this.seatMatrix(g, new THREE.Matrix4()); at.setFromMatrixPosition(base); at.y += 0.05;
       const mesh = new THREE.Mesh(this.geos[g.kind], g.kind === 'jar' ? this.jarMat : this.mat); mesh.matrixAutoUpdate = false; mesh.frustumCulled = false; mesh.matrix.copy(base); this.root.add(mesh);
       this.release(g);
-      this.anims.push({ mesh, base, p: at, t: 0 });
+      this.anims.push({ mesh, base, p: at, t: 0, item: g, gave: false });
     }
-    this.onPick?.(g);
+    o.scoopToward?.(at.x, at.y, at.z);
   }
-  dispose() { this.scene.remove(this.root); for (const k in this.geos) this.geos[k].dispose(); this.mat.dispose(); this.jarMat.dispose(); for (const k in this.meshes) this.meshes[k].dispose(); }
+  dispose() {
+    for (let i = 0; i < this.anims.length; i++) { const a = this.anims[i]; if (!a.gave) { a.gave = true; this.onPick?.(a.item); } }
+    this.scene.remove(this.root); for (const k in this.geos) this.geos[k].dispose(); this.mat.dispose(); this.jarMat.dispose(); for (const k in this.meshes) this.meshes[k].dispose();
+  }
 }

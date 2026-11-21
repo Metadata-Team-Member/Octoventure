@@ -10,6 +10,10 @@ import { CONFIG } from '../config.js';
 
 const IX = 9200, IZ = 9200;
 const RW = 6.6, RD = 5.6;
+/** 1 u ~ 32 cm (DESIGN.md). A step through a flap is about 1.5 m, stopped short of a wall. */
+export const FLAP_STEP = 1.5 / 0.32;
+export const FLAP_COOL = 1;
+export const ROOM_D = RD;
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
 const G = {};
 const geo = (id, make) => G[id] || (G[id] = make());
@@ -17,6 +21,21 @@ const ball = () => geo('ball', () => new THREE.SphereGeometry(0.5, 8, 6));
 const boxG = () => geo('box', () => new THREE.BoxGeometry(1, 1, 1));
 const disc = () => geo('disc', () => new THREE.CircleGeometry(1, 10));
 const cyl = () => geo('cyl', () => new THREE.CylinderGeometry(0.5, 0.5, 1, 8));
+
+/** where to stand on the way in: local room metres, facing +z (into the room). */
+export function flapInsideLocal() {
+  const doorZ = -RD / 2 + 0.55;
+  const z = Math.min(doorZ + FLAP_STEP, RD / 2 - 0.62);
+  return { x: 0, z, heading: 0, doorZ, gap: z - doorZ };
+}
+/** where to stand on the way out: 1.5 m past the flap, facing away (+z, the yard). */
+export function flapOutside(door) {
+  return { x: door.x, z: (door.z ?? 0) + FLAP_STEP, heading: 0 };
+}
+/** a flap (or the indoor mat) fires only when it is armed, cooled down, and the octopus is inside it. */
+export function flapAllows(f, inside) {
+  return !!(f && f.armed && f.cool <= 0 && inside);
+}
 
 export class Places {
   constructor(game) {
@@ -37,6 +56,8 @@ export class Places {
     this.locking = false;
     this.mazeRun = null;
     this.flaps = [];
+    this.leaveCool = 0;
+    this.leaveArmed = true;
     this.wets = [];
     this.boxes = [];
     this.waters = [];
@@ -136,7 +157,7 @@ export class Places {
     flap.userData.noOutline = true;
     g.add(frame, flap);
     this.root.add(g);
-    this.flaps.push({ home, g, flap, ajar: false });
+    this.flaps.push({ home, g, flap, ajar: false, cool: 0, armed: true });
   }
 
   buildMaze(maze) {
@@ -591,6 +612,11 @@ export class Places {
     this._hop = (this._hop || 0) + dt;
     this._dayT -= dt;
     if (this._dayT <= 0) { this._dayT = 20; this.ensureDaily(); }
+    for (let i = 0; i < this.flaps.length; i++) {
+      const f = this.flaps[i];
+      if (f.cool > 0) f.cool = Math.max(0, f.cool - dt);
+    }
+    if (this.leaveCool > 0) this.leaveCool = Math.max(0, this.leaveCool - dt);
     if (this.phase) { this.stepPhase(dt, o); return; }
     if (this.indoor) this.updateIndoor(dt, o);
     else this.updateOutdoor(dt, o);
@@ -621,12 +647,16 @@ export class Places {
     this.buildRoom(home);
     this.roomRoot.visible = true;
     if (this.game.view) this.game.view.root.visible = false;
-    o.x = this.wx(0);
-    o.z = this.wz(-RD / 2 + 0.9);
+    const spot = flapInsideLocal();
+    o.x = this.wx(spot.x);
+    o.z = this.wz(spot.z);
     o.y = (home.entry ?? home.y ?? 0) + 0.02;
-    o.heading = 0;
+    o.heading = spot.heading;
     o.hiddenIn = null;
     o.speed = 0;
+    this._armFlap(home);
+    this.leaveCool = FLAP_COOL;
+    this.leaveArmed = false;
     this.game.journal?.seeHow('place:home');
     this.game.journal?.seeHow('place:' + home.layout);
     this.game.levels?.did('homevisit', home.id);
@@ -640,12 +670,16 @@ export class Places {
   }
 
   finishLeave(o) {
-    const d = this.indoor?.door || this.outdoor || { x: o.x, z: o.z };
+    const home = this.indoor;
+    const d = home?.door || this.outdoor || { x: o.x, z: o.z };
+    const spot = flapOutside(d);
     const w = this.game.world;
-    o.x = d.x;
-    o.z = (d.z ?? o.z) + 0.45;
-    o.y = d.y ?? w.heightAt(o.x, o.z);
+    o.x = spot.x;
+    o.z = spot.z;
+    o.y = w.heightAt(o.x, o.z);
+    o.heading = spot.heading;
     o.speed = 0;
+    this._armFlap(home);
     this.clearRoom();
     this.baby = null;
     this.indoor = null;
@@ -663,6 +697,14 @@ export class Places {
     const o = this.game.octopus;
     if (this.phase === 'in' && this.pending) this.indoor = this.pending;
     if (o && this.indoor) this.finishLeave(o);
+  }
+
+  _armFlap(home) {
+    if (!home) return;
+    for (let i = 0; i < this.flaps.length; i++) {
+      const f = this.flaps[i];
+      if (f.home === home) { f.cool = FLAP_COOL; f.armed = false; return; }
+    }
   }
 
   tryEnter(home) {
@@ -687,7 +729,9 @@ export class Places {
     for (let i = 0; i < this.flaps.length; i++) {
       const f = this.flaps[i], d = f.home.door;
       const rad = f.ajar ? 0.72 : 0.48;
-      if (o.moving && (o.x - d.x) ** 2 + (o.z - d.z) ** 2 < rad * rad) { this.tryEnter(f.home); return; }
+      const inside = (o.x - d.x) ** 2 + (o.z - d.z) ** 2 < rad * rad;
+      if (!inside) f.armed = true;
+      if (o.moving && flapAllows(f, inside)) { this.tryEnter(f.home); return; }
     }
     this.soak(dt, o);
     const m = this.plan.maze;
@@ -770,8 +814,11 @@ export class Places {
   }
 
   updateIndoor(dt, o) {
-    const doorZ = this.wz(-RD / 2 + 0.55);
-    if (o.moving && (o.x - this.wx(0)) ** 2 + (o.z - doorZ) ** 2 < 0.42) { this.tryLeave(); return; }
+    const spot = flapInsideLocal();
+    const doorZ = this.wz(spot.doorZ);
+    const inside = (o.x - this.wx(0)) ** 2 + (o.z - doorZ) ** 2 < 0.42 * 0.42;
+    if (!inside) this.leaveArmed = true;
+    if (o.moving && flapAllows({ armed: this.leaveArmed, cool: this.leaveCool }, inside)) { this.tryLeave(); return; }
     for (let i = this.pickups.length - 1; i >= 0; i--) {
       const p = this.pickups[i];
       if ((o.x - p.x) ** 2 + (o.z - p.z) ** 2 < p.r * p.r) {

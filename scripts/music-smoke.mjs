@@ -148,16 +148,16 @@ await wait(500);
 const unbag = await snap('unsatchel');
 ok(!unbag.satchel && unbag.out > 0.5, `closing the satchel restores the score (out ${unbag.out?.toFixed?.(3)})`);
 
-// M cycles all → effects only → muted → all
+// N cycles all → effects only → muted → all (cycleSound is the control; the key is covered in features)
 const cycle = await E(() => {
   const g = window.__game.game;
   const step = () => ({ mode: g.cycleSound(), musicOn: g.music.enabled, muted: g.audio.muted, master: g.audio.master.gain.value, out: g.music.out.gain.value });
   return { a: step(), b: step(), c: step() };
 });
 const vol = 0.6;
-ok(cycle.a.mode === 1 && cycle.a.musicOn === false && cycle.a.muted === false, `first M is effects only (${JSON.stringify(cycle.a)})`);
-ok(cycle.b.mode === 2 && cycle.b.muted === true && cycle.b.master === 0, `second M mutes everything (master ${cycle.b.master})`);
-ok(cycle.c.mode === 0 && cycle.c.musicOn === true && cycle.c.muted === false && Math.abs(cycle.c.master - vol) < 1e-6, `third M restores all sound (master ${cycle.c.master})`);
+ok(cycle.a.mode === 1 && cycle.a.musicOn === false && cycle.a.muted === false, `first cycle is effects only (${JSON.stringify(cycle.a)})`);
+ok(cycle.b.mode === 2 && cycle.b.muted === true && cycle.b.master === 0, `second cycle mutes everything (master ${cycle.b.master})`);
+ok(cycle.c.mode === 0 && cycle.c.musicOn === true && cycle.c.muted === false && Math.abs(cycle.c.master - vol) < 1e-6, `third cycle restores all sound (master ${cycle.c.master})`);
 
 // Pressing M on the menu must not be the only path; already in game. Also confirm no page errors so far.
 ok(problems.length === 0, problems.length ? `console stayed clean:\n  ${problems.join('\n  ')}` : 'no console errors or warnings');
