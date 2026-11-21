@@ -674,14 +674,28 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const G = window.__game, g = G.game, o = g.octopus, w = g.world, out = {};
     const settle = (n) => { for (let i = 0; i < n; i++) G.advance(0.05); };
     G.clearPredators(); G.freezeTime(true); G.setTime(0.45); G.setWeather('clear'); g.env.rain = 0; g.env.heat = 0; g.env.apply();
-    const loss1 = () => { G.clearPredators(); G.releaseKey('KeyW'); G.teleport(o.x, o.z); o.speed = 0; o.health = 100; o.wetness = 0; const h0 = o.health; settle(60); return h0 - o.health; };
-    // median of dry spots: a puddle or a creek in one sample used to pull the average onto the 1.3x line
+    // terrain dryness, so a sandy start and a forested inland can be compared on harshness alone
+    const DRY = { lawn: 0.9, grass: 1, forest: 0.7, mud: 0.45, rock: 1.5, scrub: 1.6, road: 2.2, sand: 1.9, dune: 2.1, wet: 0.4, pasture: 1.05, plough: 0.8, litter: 0.8, bank: 0.6, gravel: 1.25, swamp: 0.35, dunegrass: 1.7, headland: 1.35, paving: 2, redsand: 2, gibber: 1.8, spinifex: 1.7, fern: 0.45, mossy: 0.4 };
+    const still = () => {
+      G.releaseKey('KeyW'); G.releaseKey('Space'); G.releaseKey('ShiftLeft'); G.releaseKey('ShiftRight');
+      o.camoWanted = false; o.camoBlend = 0; o.sprinting = false; o.speed = 0; o.hiddenIn = null; o.restF = 0; o.shieldClosed = 0; o.restT = 0;
+      if (o.buff) for (const k in o.buff) o.buff[k] = 0;
+    };
+    const loss1 = () => {
+      still(); G.teleport(o.x, o.z);
+      if (w.waterAt(o.x, o.z) || w.isShallow(o.x, o.z)) return null;
+      const dry = DRY[w.typeAt(o.x, o.z)] || 1;
+      o.health = 100; o.wetness = 0; const h0 = o.health; settle(60);
+      if (w.waterAt(o.x, o.z) || w.isShallow(o.x, o.z)) return null;
+      return (h0 - o.health) / dry;
+    };
+    // median of dry spots, divided by the ground's own dryness: a dune or a puddle used to hide the inland air
     const loss = () => {
       const x0 = o.x, z0 = o.z; const samples = [];
       for (const [dx, dz] of [[0, 0], [25, 0], [-25, 0], [0, 25], [0, -25], [40, 18], [-18, 40]]) {
         G.teleport(x0 + dx, z0 + dz); settle(2);
-        if (w.waterAt(o.x, o.z)) continue;
-        samples.push(loss1());
+        const v = loss1();
+        if (v != null && v > 0) samples.push(v);
       }
       G.teleport(x0, z0);
       if (!samples.length) return 0;
