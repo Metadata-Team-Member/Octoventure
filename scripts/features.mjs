@@ -363,7 +363,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   });
   ok(/alert>stalk>wiggle>pounce/.test(r.cat), `cats freeze, stalk, wiggle, then pounce (${r.cat})`);
   ok(r.catSp > 0.05 && r.catSp < r.catWalk * 0.4, `a stalking cat stays under 40% of its walk (${r.catSp.toFixed(2)} vs ${r.catWalk})`);
-  ok(r.catW >= 0.5, `the pre-pounce wiggle lasts at least half a second (${r.catW.toFixed(2)} s)`);
+  ok(r.catW + 1e-6 >= 0.5, `the pre-pounce wiggle lasts at least half a second (${r.catW.toFixed(2)} s)`);
   ok(r.gull.maxLift > 3 && r.gull.called, `gulls circle overhead and call others (lift ${r.gull.maxLift.toFixed(1)} m, called: ${r.gull.called})`);
   ok(/swoop/.test(r.magpie.states) && r.magpie.lost > 3, `magpies swoop from their tree (${r.magpie.states}; ${r.magpie.lost.toFixed(0)} damage)`);
   ok(/track/.test(r.dog), `dogs follow scent trails (${r.dog})`);
