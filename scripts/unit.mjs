@@ -24,6 +24,7 @@ import * as THREE from 'three';
 import { seat, instanceSpec } from '../src/world/placement.js';
 import { buildGeoLib } from '../src/world/geoLib.js';
 import { Predator, humanCanStep, HUMAN_WADE } from '../src/entities/predators.js';
+import { flapInsideLocal, flapOutside, flapAllows, FLAP_STEP, FLAP_COOL } from '../src/systems/places.js';
 
 let checks = 0;
 const ok = (c, m) => { assert.ok(c, m); checks++; };
@@ -829,6 +830,17 @@ for (const seed of [1, 42, 2026]) {
     }
     ok(farms >= 1, `farm houses are grounded too (seed ${seed}: ${farms})`);
   }
+}
+
+{ // a pet flap stands you clear of its own trigger
+  const inn = flapInsideLocal();
+  ok(inn.heading === 0 && inn.gap > 1 && inn.gap <= FLAP_STEP + 1e-9, `entry is inside the room, facing in (gap ${inn.gap.toFixed(2)} u)`);
+  ok(inn.gap * 0.32 > 1.2 && inn.gap * 0.32 <= 1.5 + 1e-6, `entry is about 1.5 m inside (${(inn.gap * 0.32).toFixed(2)} m)`);
+  ok(inn.z - inn.doorZ > 0.5, 'entry is outside the indoor mat');
+  const out = flapOutside({ x: 3, z: 8 });
+  ok(out.heading === 0 && Math.abs(out.x - 3) < 1e-9 && Math.abs(out.z - (8 + FLAP_STEP)) < 1e-9, 'exit is 1.5 m outside the flap, facing away');
+  ok(Math.abs(FLAP_STEP * 0.32 - 1.5) < 1e-9 && FLAP_COOL === 1, 'the step is 1.5 m and the flap waits a second');
+  ok(!flapAllows({ armed: false, cool: 0 }, true) && !flapAllows({ armed: true, cool: 0.4 }, true) && !flapAllows({ armed: true, cool: 0 }, false) && flapAllows({ armed: true, cool: 0 }, true), 'a flap fires only when it is armed, cooled down, and you are in it');
 }
 
 // ================================================================ people at the shore, perched birds, frame delta

@@ -226,6 +226,15 @@ button.chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .tide-clock .tc-moon circle { fill: #dfe6ff; }
 .tide-clock .tc-moon-cut { fill: #8fa0c8; }
 
+/* corner map: above the tide dial, and above the touch buttons on a phone, so the two never share a pixel */
+#minimap {
+  position: fixed; right: 16px; bottom: 92px; width: 108px; height: 108px; z-index: 4;
+  border-radius: 50%; pointer-events: none; background: #cfd9b6;
+  border: 2px solid rgba(201, 164, 132, 0.95);
+  box-shadow: 0 2px 8px rgba(0, 20, 30, 0.35);
+}
+body.is-mobile #minimap { width: 84px; height: 84px; bottom: 230px; right: 16px; }
+
 @media (max-width: 700px) {
   .sat-page-bag:not([hidden]) { display: flex; flex-direction: column; overflow: auto; }
 }

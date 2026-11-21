@@ -25,6 +25,7 @@ import { Abilities } from './systems/abilities.js';
 import { Inventory, FX, POLLEN, POLLEN_COLOR } from './systems/items.js';
 import { Satchel } from './ui/satchel.js';
 import { Clock } from './ui/clock.js';
+import { MiniMap } from './ui/minimap.js';
 import { Journal } from './systems/journal.js';
 import { Plankton } from './systems/plankton.js';
 import { Levels } from './systems/levels.js';
@@ -63,6 +64,7 @@ export class Game {
     // t248u soft toon look: phones / tablets (touch only) get a lighter setup - no shadow map (blob shadows instead) and a lower
     // pixel-ratio cap; everyone gets toon materials and a hue-preserving tone curve (ACES greyed the saturated palette).
     this.mobile = params.get('mobile') === '1' || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches);
+    document.body.classList.toggle('is-mobile', !!this.mobile);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.mobile || (window.devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.mobile ? CONFIG.graphics.mobilePixelRatioCap : CONFIG.graphics.pixelRatioCap));
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -108,6 +110,7 @@ export class Game {
     this.satchelOpen = false; this._suspendTick = false;
     this.satchel = new Satchel(this.hud.el.satchel, this);
     this.tideClock = new Clock(this.hud.el.clock);
+    this.minimap = new MiniMap(this.hud.el.minimap, this);
     this.plankton = new Plankton(this.scene);
     this.reef = new Reef(this.scene);
     this.decor = new Decor(this);
@@ -133,8 +136,9 @@ export class Game {
     this.input.onLockChange = (locked) => this.onLockChange(locked);
     this.hud.el.pause.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#keys')) return; this.input.requestLock(); });   // the controls list is for reading, not clicking
     this.input.onKey = (e) => {
-      if (e.code === 'KeyM' && !e.repeat && this.state !== 'menu') this.cycleSound();
+      if (e.code === 'KeyN' && !e.repeat && this.state !== 'menu') this.cycleSound();
       if (this.satchelOpen) { this.satchelKey(e); return; }
+      if (e.code === 'KeyM' && !e.repeat && this.state === 'playing') { this.toggleMini(); return; }
       if (e.code === 'Tab' && !e.repeat && this.state === 'playing') { this.openSatchel(); return; }
       // press any (real) key to start
       if (this.state === 'menu' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(F\d+|Tab|Escape|Shift.*|Control.*|Alt.*|Meta.*|CapsLock)$/.test(e.code)) this.begin();
@@ -198,11 +202,18 @@ void main(){
     const d = (this.params.get('difficulty') || st.difficulty || CONFIG.difficulty || 'normal').toLowerCase();
     CONFIG.difficulty = CONFIG.difficulties[d] ? d : 'normal';
     this.daily = this.params.has('daily') ? this.params.get('daily') !== '0' : !!st.daily;
+    this.minimapOn = st.minimap === true;
     this.hud.setOptions({ difficulty: CONFIG.difficulty, daily: this.daily });
+    this.minimap?.setOn(this.minimapOn);
   }
   saveSettings() {
     this.hud.setOptions({ difficulty: CONFIG.difficulty, daily: this.daily });
-    try { localStorage.setItem('octo.settings', JSON.stringify({ difficulty: CONFIG.difficulty, daily: this.daily })); } catch { /* ignore */ }
+    try { localStorage.setItem('octo.settings', JSON.stringify({ difficulty: CONFIG.difficulty, daily: this.daily, minimap: !!this.minimapOn })); } catch { /* ignore */ }
+  }
+  toggleMini() {
+    this.minimapOn = !this.minimapOn;
+    this.saveSettings();
+    this.minimap?.setOn(this.minimapOn);
   }
   setDifficulty(d) { if (!CONFIG.difficulties[d]) return; CONFIG.difficulty = d; this.saveSettings(); }
   /** pause-menu: leave the pause overlay and begin again somewhere else in the (one) world; Daily gives the day's shared start */
@@ -293,7 +304,7 @@ void main(){
     if (locked) { if (this._reLock) { clearTimeout(this._reLock); this._reLock = null; } if (this.satchelOpen) this.closeSatchel(); this.setPaused(false); return; }
     if (this.state === 'playing' && this.input.everLocked) this.setPaused(true);
   }
-  /** M cycles all sound → effects only (music off) → muted. */
+  /** N cycles all sound → effects only (music off) → muted. */
   cycleSound() {
     this.soundMode = ((this.soundMode ?? 0) + 1) % 3;
     const mode = this.soundMode;
@@ -321,6 +332,7 @@ void main(){
       this.audio.resume();
       this.clock.getDelta();
     }
+    this.minimap?.sync();
   }
 
   // ------------------------------------------------------------------ the satchel (Tab)
@@ -492,6 +504,7 @@ void main(){
     this.updateAtmosphere(dt);
     this.hud.update(o);
     this.tideClock?.update(this.env, this.clockHidden());
+    this.minimap?.tick(dt);
     const coast = this.places?.indoor ? 0.35 : clamp(1 + world.distToSea(o.x, o.z) / 420, 0, 1);
     this.audio.update(dt, {
       coast, ambient: this.atmo.ambient, cam: this.camera, health: o.health, moving: o.moving, swim: o.swim, night: world.night,
@@ -614,6 +627,7 @@ void main(){
     this.levels.did('pollen', id);
     this.octopus.pollenCol.setHex(hex || POLLEN_COLOR[id] || 0xffe066);
     this.octopus.pollenT = 4.5;
+    this.octopus.scoopToward?.(x, y, z);
     return true;
   }
 

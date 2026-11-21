@@ -14,7 +14,7 @@ const _ground = new THREE.Color(), _camoT = new THREE.Color(), _camoD = new THRE
 const _mS = new THREE.Matrix4(), _mR = new THREE.Matrix4(), _qI = new THREE.Quaternion();
 const RING_L1 = new THREE.Matrix4().compose(new THREE.Vector3(0, 0.97, 0), new THREE.Quaternion(), new THREE.Vector3(0.78, 0.78, 0.78));
 const RING_L2 = RING_L1.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.01, 0));
-const _qN = new THREE.Quaternion(), _qY = new THREE.Quaternion(), _UP = new THREE.Vector3(0, 1, 0), _nV = new THREE.Vector3();
+const _qN = new THREE.Quaternion(), _qY = new THREE.Quaternion(), _qInv = new THREE.Quaternion(), _UP = new THREE.Vector3(0, 1, 0), _nV = new THREE.Vector3(), _scoopV = new THREE.Vector3();
 
 const TENT = 8, SEG = 12;
 // Australian blue-ringed octopus (Hapalochlaena): small, ochre-yellow/brown body with electric-blue rings.
@@ -65,6 +65,10 @@ export class Octopus {
       this.eyes.push({ eye, pupil });
     }
     this.tentacles = [];
+    this.scoops = [
+      { on: false, arm: 0, t: 0, dur: 0.36, x: 0, y: 0, z: 0 },
+      { on: false, arm: 4, t: 0, dur: 0.36, x: 0, y: 0, z: 0 },
+    ];
     this.mottle(mantle.geometry, 1.3); this.mottle(head.geometry, 4.1);
     const sg = new THREE.SphereGeometry(1, 10, 8);
     this.mottle(sg, 2.2);
@@ -181,6 +185,7 @@ export class Octopus {
     this.health = CONFIG.octopus.maxHealth;
     this.energy = CONFIG.camo.maxEnergy;
     this.pollenT = 0;
+    if (this.scoops) { this.scoops[0].on = false; this.scoops[1].on = false; }
     this.camoWanted = false;
     this.camoBlend = 0;
     this.camoLocked = false;       // true after the energy ran out, until it recovers
@@ -235,6 +240,35 @@ export class Octopus {
     this.health = Math.max(0, this.health - amount * CONFIG.predators.damageMult * diff().damage * (1 - this.armor));
     this.lastDamage = cause;
     this.hurtFlash = 1;
+  }
+
+  /**
+   * One nearby arm reaches for a pickup, curls, and draws it under the body (~0.36 s).
+   * Two scoops can overlap. Reuses the existing arm segments; nothing is allocated per frame.
+   */
+  scoopToward(x, y, z) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    const dx = x - this.x, dz = z - this.z;
+    const c = Math.cos(this.heading), s = Math.sin(this.heading);
+    const ang = Math.atan2(dx * c - dz * s, dx * s + dz * c);
+    const a0 = this.scoops[0], a1 = this.scoops[1];
+    let best = 0, bd = 99, free = -1, fd = 99;
+    for (let i = 0; i < TENT; i++) {
+      const da = Math.atan2(Math.sin(this.tentacles[i].a - ang), Math.cos(this.tentacles[i].a - ang));
+      const ad = da < 0 ? -da : da;
+      if (ad < bd) { bd = ad; best = i; }
+      const busy = (a0.on && a0.arm === i) || (a1.on && a1.arm === i);
+      if (!busy && ad < fd) { fd = ad; free = i; }
+    }
+    const arm = free >= 0 ? free : best;
+    let slot = null;
+    if (a0.on && a0.arm === arm) slot = a0;
+    else if (a1.on && a1.arm === arm) slot = a1;
+    else if (!a0.on) slot = a0;
+    else if (!a1.on) slot = a1;
+    else slot = a0.t >= a1.t ? a0 : a1;
+    slot.on = true; slot.arm = arm; slot.t = 0; slot.dur = 0.36;
+    slot.x = x; slot.y = Number.isFinite(y) ? y : this.y; slot.z = z;
   }
 
   /** input: {mx, mz (world-space move vector, length<=1), sprint, camo} */
@@ -530,9 +564,37 @@ export class Octopus {
       e.pupil.scale.y = this.alive ? 1 : 0.2;
     }
 
-    // tentacles
+    // tilt to terrain before the arms reach, so a scoop aims in this frame's space
+    world.normalAt(this.x, this.z, this.tmpN);
+    if (this.swim > 0.3 || this.carried) { this.tmpN.x = 0; this.tmpN.y = 1; this.tmpN.z = 0; }
+    const n = this.tmpN;
+    this.group.position.set(this.x, this.y + 0.02, this.z);
+    const q = _qN.setFromUnitVectors(_UP, _nV.set(n.x, n.y, n.z));
+    const yaw = _qY.setFromAxisAngle(_UP, this.heading);
+    this.group.quaternion.copy(q.multiply(yaw));
+
+    // tentacles (walk pose, then a scoop blended on top — movement is not frozen)
+    const s0 = this.scoops[0], s1 = this.scoops[1];
+    if (s0.on) { s0.t += dt; if (s0.t >= s0.dur) s0.on = false; }
+    if (s1.on) { s1.t += dt; if (s1.t >= s1.dur) s1.on = false; }
     for (let i = 0; i < TENT; i++) {
       const T = this.tentacles[i];
+      let sc = null;
+      if (s0.on && s0.arm === i) sc = s0;
+      else if (s1.on && s1.arm === i) sc = s1;
+      let lx = 0, lz = 0, dy = 0, pull = 0, hold = 0, curl = 0, inv = 1;
+      if (sc) {
+        const u = sc.t / sc.dur;
+        // world point -> group local (the quaternion already has the ground tilt). Scale is separate.
+        _scoopV.set(sc.x - this.x, sc.y - this.y, sc.z - this.z).applyQuaternion(_qInv.copy(this.group.quaternion).invert());
+        const invS = 1 / (this.sz || 1);
+        lx = _scoopV.x * invS; lz = _scoopV.z * invS; dy = _scoopV.y * invS;
+        // reach and curl first (~0.22 s), then draw it under the body. Movement is never stopped.
+        pull = u < 0.62 ? 0 : u > 0.92 ? 1 : (u - 0.62) / 0.30;
+        hold = u < 0.10 ? u / 0.10 : u > 0.92 ? Math.max(0, 1 - (u - 0.92) / 0.08) : 1;
+        curl = Math.sin(Math.min(1, u / 0.55) * Math.PI) * 0.22 * hold;
+        inv = Math.hypot(lx, lz) || 1;
+      }
       for (let j = 0; j < SEG; j++) {
         const s = j / (SEG - 1);
         const m = T.segs[j];
@@ -540,13 +602,23 @@ export class Octopus {
         let ang = T.a + Math.sin(t * 2.0 + T.phase - s * 3) * 0.16 * (0.3 + move) + (1 - died) * 0 + died * s * 0.5;
         const stride = Math.sin(t * 2.4 + T.phase + i * 0.3 - s * 1.5);
         let lift = move * 0.34 * Math.max(0, stride) * Math.sin(Math.PI * Math.min(1, s * 1.3));
-        const curl = (this.alive ? 0.1 : 0.0) + (1 - move) * 0.12 * Math.sin(t * 0.8 + T.phase) * s;
-        let y = 0.17 - s * 0.1 + lift + curl * 0.5 + (camo > 0.1 ? 0 : 0);
+        const curlIdle = (this.alive ? 0.1 : 0.0) + (1 - move) * 0.12 * Math.sin(t * 0.8 + T.phase) * s;
+        let y = 0.17 - s * 0.1 + lift + curlIdle * 0.5 + (camo > 0.1 ? 0 : 0);
         // tips curl up when idle, flatten out when camouflaged (looks like a pile of kelp)
         y += (1 - move) * s * s * 0.12 * (1 - camo) * (1 - died);
         y = Math.max(0.07 + (1 - s) * 0.06, y);
         const fwd = Math.cos(ang) * reach, side2 = Math.sin(ang) * reach;
         m.position.set(side2, y, fwd);
+        if (sc && hold > 0) {
+          const w = hold * s * s;
+          const tx = lx * (1 - pull) * (0.2 + 0.8 * s);
+          const tz = (lz * (1 - pull) + pull * 0.2) * (0.2 + 0.8 * s);
+          const ty = Math.max(0.08, (dy + 0.12) * (1 - pull) * s + pull * 0.08);
+          const bow = Math.sin(s * Math.PI);
+          m.position.x += (tx + (-lz / inv) * curl * bow - m.position.x) * w;
+          m.position.y += (ty - m.position.y) * w;
+          m.position.z += (tz + (lx / inv) * curl * bow - m.position.z) * w;
+        }
       }
     }
     if (this.pollenT > 0) this.pollenT = Math.max(0, this.pollenT - dt);
@@ -560,16 +632,5 @@ export class Octopus {
     this.group.visible = !this.tunnel;
     this.body.scale.multiplyScalar(1 - 0.35 * hb);
     this.body.position.y -= 0.12 * hb;
-    // tilt to terrain
-    world.normalAt(this.x, this.z, this.tmpN);
-    if (this.swim > 0.3 || this.carried) { this.tmpN.x = 0; this.tmpN.y = 1; this.tmpN.z = 0; }
-    const n = this.tmpN;
-    const tiltX = Math.atan2(n.z, n.y) * 0.0, tiltZ = 0;
-    this.group.position.set(this.x, this.y + 0.02, this.z);
-    this.group.rotation.set(0, this.heading, 0);
-    const q = _qN.setFromUnitVectors(_UP, _nV.set(n.x, n.y, n.z));
-    const yaw = _qY.setFromAxisAngle(_UP, this.heading);
-    this.group.quaternion.copy(q.multiply(yaw));
-    void tiltX; void tiltZ;
   }
 }

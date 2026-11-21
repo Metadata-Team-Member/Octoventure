@@ -61,7 +61,8 @@ npm test
 | Quick keys for what you carry (listed on the pause screen) | **G**, **H**, **V** | LB, RB |
 | Zoom | mouse wheel | |
 | Pause / release the mouse | **Esc** (pause menu: Resume, difficulty, Daily, New start, and a quiet list of these controls) | Start |
-| Sound (all / effects / off) | **M** | |
+| Map (a sketch of ground you have already crossed; fog everywhere else) | **M** | |
+| Sound (all / effects / off) | **N** | |
 | Restart after dying | button, or **R** | |
 
 **Tab** opens your satchel: what you have gathered on the left, what you can make on the right, all in pictures. The game is fully paused while it is open. Gather small things by touching them as you go; work out what they are good for.
@@ -80,7 +81,7 @@ There is **no HUD, timer, tutorial, markers or hint text**. Everything is read f
 * **Camouflage:** your body takes the ground colour and the rings fade; while camouflaged predators cannot hurt you and wander off. It costs energy (rings go paler as it runs out) and freezes you. **Cars ignore camouflage** - they are not looking - so listen: engine noise swells as one approaches and it will honk if it is bearing down on you.
 * **Abilities found by playing:** squeeze through drains, pipes, culverts and fence holes (walk into the mouth); hide in tins, shells, logs and under slabs; ink cloud in water blinds attackers; a quick beak bite (left click) and a venomous bite (right click) that grows more dangerous as you grow in experience; climb fences and walls.
 * **Little octopuses** are hiding around the world; finding one plays a small scene. Nothing is counted on screen.
-* **The sea** is somewhere in the one world, no compass or map (you start at a different place each game, so its direction is never a given); clues: sand and dunes, gulls and surf, pale haze, a sea breeze, streams drifting to the coast, Norfolk pines, a lighthouse. **Reaching it does not end the game**: you can swim, dive (look down), explore the reef and rock pools and walk back inland. Dying (0 health) stops the octopus and offers **Restart game**.
+* **The sea** is somewhere in the one world. There is still no compass pointing to it (you start at a different place each game). **M** toggles a small round sketch of ground you have already walked — the rest stays fog, and it does not say which way to go. Clues: sand and dunes, gulls and surf, pale haze, a sea breeze, streams drifting to the coast, Norfolk pines, a lighthouse. **Reaching it does not end the game**: you can swim, dive (look down), explore the reef and rock pools and walk back inland. Dying (0 health) stops the octopus and offers **Restart game**.
 * The world has 13 biomes: suburb, town, farm, bush, riverbank, wetland, dunes, beach, headland, estuary, red desert, rainforest gully and the sea.
 
 ## Features
