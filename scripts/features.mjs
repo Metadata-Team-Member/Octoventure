@@ -760,6 +760,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     G.teleport(sx - w.dir.x * 12, sz - w.dir.z * 12);
     const h = G.spawnPredator('human', w.dir.x * 12, w.dir.z * 12);
     h.ignore = 99; h.state = 'groom'; h.timer = 40; h.target = null;
+    h.heading = Math.atan2(-w.dir.x, -w.dir.z);
     const d0 = w.seaDepth(h.x, h.z);
     let maxTurn = 0, prev = h.heading;
     for (let i = 0; i < 150; i++) {
