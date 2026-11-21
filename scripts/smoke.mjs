@@ -160,14 +160,24 @@ ok(chroma[100] > chroma[50] && chroma[50] > chroma[5] && chroma[5] < chroma[100]
 
 // ---- wading is faster than walking ---------------------------------------------------------------------
 const spd = await page.evaluate(() => {
-  const G = window.__game, g = G.game, w = g.world;
+  const G = window.__game, g = G.game, w = g.world, o = g.octopus;
   G.clearPredators(); G.setHealth(100);
   G.setWeather('clear'); g.env.rain = 0; w.temp.length = 0;          // a passing shower leaves puddles: measure land on dry land
   g.input.keys.add('KeyW');
-  G.teleport(w.start.x, w.start.z); G.advance(0.6);
-  const land = { speed: G.speed, terrain: G.terrain };
+  // a start can sit in a pasture puddle, which wades as fast as the pond and used to fail the ratio
+  const dry = (x, z) => !w.waterAt(x, z) && !w.isShallow(x, z) && w.heightAt(x, z) > 1.1;
+  let land = null;
+  for (let i = 0; i < 24 && !land; i++) {
+    const a = (i / 24) * Math.PI * 2, rad = 12 + (i % 3) * 14;
+    const x = w.start.x + Math.cos(a) * rad, z = w.start.z + Math.sin(a) * rad;
+    if (!dry(x, z)) continue;
+    G.teleport(x, z); o.speed = 0; G.advance(0.5);
+    if (G.waterKind || !dry(o.x, o.z)) continue;
+    land = { speed: G.speed, terrain: G.terrain };
+  }
+  if (!land) { G.teleport(w.start.x, w.start.z); o.speed = 0; G.advance(0.6); land = { speed: G.speed, terrain: G.terrain }; }
   const pond = w.waters.find((q) => q.kind === 'pond' || q.kind === 'stream' || q.kind === 'puddle');
-  G.teleport(pond.x, pond.z); g.octopus.speed = 7; G.advance(0.15);
+  G.teleport(pond.x, pond.z); o.speed = 0; G.advance(0.5);
   const water = { speed: G.speed, kind: G.waterKind, terrain: G.terrain };
   g.input.keys.delete('KeyW');
   return { land, water };
