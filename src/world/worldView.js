@@ -365,7 +365,10 @@ export class WorldView {
   _buildSea() {
     const w = this.world;
     const size = Math.max(6000, CONFIG.worldSize * 3);
-    const geo = this.track(new THREE.PlaneGeometry(size, size, 1, 1));
+    // one giant quad interpolates depth so badly that the waterline shimmers against the beach.
+    // smaller cells keep polygonOffset local, so the edge stays put at every tide and camera distance.
+    const seg = 72;
+    const geo = this.track(new THREE.PlaneGeometry(size, size, seg, seg));
     geo.rotateX(-Math.PI / 2);
     // normal map made of soft noise, scrolled to look like ripples
     const S = 256, cv = document.createElement('canvas');
@@ -388,12 +391,13 @@ export class WorldView {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.set(size / 28, size / 28);
     this.seaTex = tex;
-    const mat = this.track(toonMat({ color: 0x2c93c4, roughness: 0.18, metalness: 0.05, normalMap: tex, normalScale: new THREE.Vector2(0.55, 0.55), transparent: true, opacity: 0.72, side: THREE.DoubleSide }));
+    const mat = this.track(toonMat({ color: 0x2c93c4, roughness: 0.18, metalness: 0.05, normalMap: tex, normalScale: new THREE.Vector2(0.55, 0.55), transparent: true, opacity: 0.72, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
     const sea = new THREE.Mesh(geo, mat);
     const centre = w.cCoast - 120 + size / 2;
     sea.position.set(w.dir.x * centre, 0, w.dir.z * centre);
     sea.rotation.y = -w.angle;           // local +x now points along the sea direction
     sea.receiveShadow = false;
+    sea.renderOrder = 2;                 // with the other water, after the opaque beach, so the offset edge is stable
     sea.userData.size = size;
     this.sea = sea;
     this.root.add(sea);

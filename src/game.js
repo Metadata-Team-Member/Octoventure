@@ -39,7 +39,7 @@ import { TOON } from './world/toon.js';
 import { TIER, PEOPLE, BITE, killTier, nipsFor, killXP, lethal } from './systems/combat.js';
 import { BIOMES } from './world/biomes.js';
 import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell } from './systems/save.js';
-import { clamp, damp, lerp, mulberry32 } from './util/rng.js';
+import { clamp, damp, lerp, mulberry32, frameDt } from './util/rng.js';
 const _fadeT = new THREE.Vector3(), _camOff = new THREE.Vector3(), _camWant = new THREE.Vector3();   // (t241u: camera scratch, no per-frame allocation)
 
 const TRAIL_MAX = 1200;
@@ -74,7 +74,7 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;  // (was PCFSoft: soft toon bands do the softening, a 4-tap PCF is enough)
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(FOG_COLOR, CONFIG.graphics.fogNear, CONFIG.graphics.fogFar);
-    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, 0.08, 1400);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, 0.22, 1100);
     this.hud = new Hud();
     this.input = new Input(canvas);
     this.audio = new GameAudio();
@@ -113,6 +113,20 @@ export class Game {
     this.decor = new Decor(this);
     this.seaMoment = null;
     window.addEventListener('resize', () => this.resize());
+    // a lost GL context draws nothing; let the browser restore it, and if it does not, reload quietly (the save is already on disk)
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      if (this._glLost) return;
+      this._glLost = true;
+      try { this.saveNow('gl'); } catch { /* a half-built world or blocked storage */ }
+      this._glTimer = setTimeout(() => { try { location.reload(); } catch { /* not a browser */ } }, 700);
+    }, false);
+    canvas.addEventListener('webglcontextrestored', () => {
+      this._glLost = false;
+      if (this._glTimer) { clearTimeout(this._glTimer); this._glTimer = null; }
+      try { this.clock.getDelta(); this.resize(); } catch { /* the reload covers a restore that cannot rebuild buffers */ }
+      if (!this.raf) this.raf = requestAnimationFrame(this.tick);
+    }, false);
     this.resize();
     this.paused = false;
     this.initSettings();
@@ -244,8 +258,10 @@ void main(){
   }
   // ------------------------------------------------------------------ saving (no login: this browser's localStorage)
   saveNow(why = '') {
-    if (!this.saveEnabled || this.state !== 'playing' || !this.octopus?.alive || !this.world || this.hud.el.loading.hidden === false) return false;
-    return writeSave(snapshot(this));
+    try {
+      if (!this.saveEnabled || this.state !== 'playing' || !this.octopus?.alive || !this.world || this.hud.el.loading.hidden === false) return false;
+      return writeSave(snapshot(this));
+    } catch { return false; }
   }
   saveSoon(why) { return this.saveNow(why); }
   /** "Copy code": the whole save as one short text */
@@ -388,6 +404,11 @@ void main(){
     const indoors = !!this.places?.indoor;
     if (this.state === 'menu') { o.update(dt, control, world); }
     else o.update(dt, control, indoors ? this.places.proxy : world);
+    if (!Number.isFinite(o.x) || !Number.isFinite(o.z) || !Number.isFinite(o.y) || !Number.isFinite(o.speed) || !Number.isFinite(o.heading)) {
+      o.speed = 0; o.heading = 0;
+      o.x = world.start?.x || 0; o.z = world.start?.z || 0;
+      o.y = world.heightAt(o.x, o.z);
+    }
     this.reef?.update(dt, this);
     if (playing && !this.places?.indoor) this.decor?.update(dt);
 
@@ -683,8 +704,9 @@ void main(){
   // ------------------------------------------------------------------ loop
   render() { this.renderer.render(this.scene, this.camera); }
   tick = () => {
-    const dt = Math.min(0.05, this.clock.getDelta());
-    this.fps = lerp(this.fps, 1 / Math.max(dt, 1e-4), 0.05);
+    if (this._glLost) { this.raf = 0; return; }
+    const dt = frameDt(this.clock.getDelta());
+    if (dt > 0) this.fps = lerp(this.fps, 1 / dt, 0.05);
     if (this._suspendTick) { this.render(); this.frame++; this.raf = requestAnimationFrame(this.tick); return; }
     if (!this.paused) this.update(dt);
     else {

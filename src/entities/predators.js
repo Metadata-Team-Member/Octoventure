@@ -76,6 +76,14 @@ const BODY_R = { gull: 0.55, cat: 0.65, dog: 0.85, fox: 0.75, crab: 0.6, eagle: 
 const THUMP = { human: 1.0, dog: 0.5, fox: 0.28, cat: 0.28, goanna: 0.22, heron: 0.12 };
 const FLYERS = new Set(['eagle', 'gull', 'magpie', 'kookaburra']);
 export const SIZE = { gull: 1.15, cat: 0.8, dog: 1.05, fox: 0.95, crab: 0.7, eagle: 1.3, human: 1.8, magpie: 1.0, kookaburra: 1.05, snake: 0.9, goanna: 1.15, heron: 1.05 };
+/** people wade this deep (shin-deep on the scaled body) and turn back before the surface covers them */
+export const HUMAN_WADE = 1.35;
+/** true when a person can put a foot here: dry ground, or water no deeper than HUMAN_WADE */
+export function humanCanStep(depth, ground) {
+  if (depth > HUMAN_WADE) return false;
+  if (depth > 0.02) return true;
+  return ground > 0.35;
+}
 
 // ---------------------------------------------------------------- species
 export const SPECIES = {
@@ -410,6 +418,8 @@ export class Predator {
     this.slotA = RND() * 6.2832; this.circR = 6 + RND() * 5; this.circDir = RND() < 0.5 ? -1 : 1; this.seed = RND() * 100;
     this.leaveBias = 0; this.searchPt = null; this.windup = 0; this.windup0 = 0.25; this.recover = 0; this.lookBack = 0; this.preen = 0; this.turnV = 0;
     this.swoops = 0; this.perchAlt = 5.5 + RND() * 3; this.mgr = null; this.pounceT = 0; this.trackPt = null; this.act = 1;
+    this.idleT = 0.4 + (this.seed % 1.9); this.idleMode = Math.floor(this.seed * 4) % 4; this.idleHead = 0; this.hopShift = 0; this.wingFlick = 0;
+    this.flightIn = 9 + (this.seed % 7); this.wade = 0; this.sink = 0;
     if (this.spec.swoop) { this.state = 'perch'; this.alt = this.perchAlt; }
     this.scale = SIZE[kind] ?? 1;
     this.group.scale.setScalar(this.scale);
@@ -430,7 +440,45 @@ export class Predator {
 
   canWalk(nx, nz) {
     const h = this.world.heightAt(nx, nz);
+    if (this.kind === 'human') return humanCanStep(this.world.seaDepth(nx, nz), h);
     return this.spec.shore ? h > 0.03 : h > 0.35;
+  }
+
+  /** turn toward the sample with the shallowest footing. No allocation, and no instant heading snap. */
+  _easeOffWater(dt) {
+    const w = this.world;
+    let best = this.heading, bestS = 1e9;
+    const reach = 1.8;
+    for (let i = 0; i < 8; i++) {
+      const a = this.heading + (i - 3.5) * 0.5;
+      const depth = w.seaDepth(this.x + Math.sin(a) * reach, this.z + Math.cos(a) * reach);
+      const score = (depth > HUMAN_WADE ? 10 + depth : depth) + Math.abs(i - 3.5) * 0.02;
+      if (score < bestS) { bestS = score; best = a; }
+    }
+    this.heading = dampAngle(this.heading, best, 3.5, dt);
+  }
+
+  /** keep a person at wading depth: slow the pose in, and step back if a rising tide (or a bad spawn) left them too deep */
+  _settleWade(dt, world) {
+    let depth = world.seaDepth(this.x, this.z);
+    if (depth > HUMAN_WADE) {
+      this._easeOffWater(dt);
+      const over = depth - HUMAN_WADE;
+      const rate = Math.min(this.spec.speed, this.spec.walk * (1.1 + Math.min(over, 2) * 0.85));
+      const step = rate * dt;
+      const nx = this.x + Math.sin(this.heading) * step, nz = this.z + Math.cos(this.heading) * step;
+      const nd = world.seaDepth(nx, nz);
+      if (nd < depth) { this.x = nx; this.z = nz; depth = nd; }
+    }
+    this.wade = damp(this.wade, clamp(Math.min(depth, HUMAN_WADE) / HUMAN_WADE, 0, 1), 3.2, dt);
+    this.sink = damp(this.sink, Math.min(depth, HUMAN_WADE) * 0.1, 4, dt);
+  }
+
+  /** feet on the ground, or in a shin-deep wade — never planted on the sea floor under the surface */
+  _wadeY(world) {
+    const floor = world.heightAt(this.x, this.z);
+    const depth = world.seaDepth(this.x, this.z);
+    return depth > 0.55 ? floor + (depth - 0.55) : floor;
   }
 
   walkToward(tx, tz, speed, dt) {
@@ -441,12 +489,20 @@ export class Predator {
     this.heading = dampAngle(this.heading, want, this.spec.flying ? 2.5 : 7, dt);
     // only move when roughly facing the target
     const facing = Math.max(0, Math.cos(angleDiff(this.heading, want)));
-    const sp = speed * (0.25 + 0.75 * facing);
+    let sp = speed * (0.25 + 0.75 * facing);
+    if (this.kind === 'human') {
+      const depth = this.world.seaDepth(this.x, this.z);
+      if (depth > 0.05) sp *= 1 - 0.55 * clamp(depth / HUMAN_WADE, 0, 1);
+    }
     this.speed = damp(this.speed, sp, 6, dt);
     const step = Math.min(this.speed * dt, d);
     let nx = this.x + Math.sin(this.heading) * step, nz = this.z + Math.cos(this.heading) * step;
     if (!this.spec.flying) {
-      if (!this.canWalk(nx, nz)) { this.heading += 1.2; this.speed *= 0.5; this.pickTargetSoon = true; return d; }
+      if (!this.canWalk(nx, nz)) {
+        if (this.kind === 'human') this._easeOffWater(dt);
+        else this.heading += 1.2;
+        this.speed *= 0.5; this.pickTargetSoon = true; return d;
+      }
       const r = this.world.resolve(nx, nz, 0.9 * this.scale * (this.kind === 'human' ? 1.0 : 1)); nx = r.x; nz = r.z;
     }
     this.x = nx; this.z = nz;
@@ -502,6 +558,33 @@ export class Predator {
   }
   release() { this.carrying = false; this.state = 'leave'; this.timer = 5; this.ignore = 10; this.target = null; }
 
+  /** perched forest birds: head, preen, a hop along the branch, a wing shuffle, sometimes a short flight. Staggered by seed. Distant ones hold still. */
+  _perchIdle(dt, dist) {
+    const still = dist > 78, near = dist < 46;
+    if (still) {
+      this.idleHead = damp(this.idleHead, 0, 2, dt); this.preen = 0; this.wingFlick = 0;
+      this.hopShift = damp(this.hopShift, 0, 3, dt); return;
+    }
+    this.idleT -= dt;
+    if (this.idleT <= 0) {
+      this.idleMode = (this.idleMode + 1 + (Math.floor(this.seed) % 3)) % (near ? 4 : 2);
+      this.idleT = 1.15 + ((this.seed * 1.7 + this.idleMode * 0.37) % 1.6);
+    }
+    const look = Math.sin(this.phase * (0.42 + (this.seed % 0.15)) + this.seed) * (this.idleMode === 0 ? 0.95 : 0.28);
+    this.idleHead = damp(this.idleHead, near ? look : look * 0.45, 2.4, dt);
+    this.preen = near && this.idleMode === 1 ? 1 : 0;
+    this.hopShift = damp(this.hopShift, near && this.idleMode === 2 ? Math.sin(this.seed) * 0.22 : 0, 3, dt);
+    this.wingFlick = near && this.idleMode === 3 ? 1 : 0;
+    if (!near) return;
+    this.flightIn -= dt;
+    if (this.flightIn <= 0 && dist > 18) {
+      this.flightIn = 14 + (this.seed % 8);
+      const r = 3.4 + (this.seed % 2.2), a = this.seed * 2.1;
+      this._fx = Math.cos(a) * r; this._fz = Math.sin(a) * r;
+      this.state = 'hopflight';
+    }
+  }
+
   /** magpies & kookaburras: wait in a tree, swoop at the octopus when it passes underneath, fly back up */
   updateSwooper(dt, player, dist) {
     const s = this.spec, w = this.world;
@@ -520,7 +603,20 @@ export class Predator {
         this.x = lerp(this.x, this.home.x + this.perchOff.x, 1 - Math.exp(-3 * dt)); this.z = lerp(this.z, this.home.z + this.perchOff.z, 1 - Math.exp(-3 * dt));
         if (alive && !fooled && this.ignore <= 0 && this.cool <= 0 && dist < noticeR) {
           this.state = 'alert'; this.alertT = 0.55; this.events.push({ type: 'call', kind: s.call, x: this.x, z: this.z });
-        }
+        } else this._perchIdle(dt, dist);
+        break;
+      }
+      case 'hopflight': {
+        // a short hop to another bit of the same tree, then sit again. The octopus still flushes them into a real swoop.
+        this.cue(0);
+        const tx = this.home.x + (this._fx || 0), tz = this.home.z + (this._fz || 0);
+        const hd = Math.hypot(tx - this.x, tz - this.z);
+        this.heading = dampAngle(this.heading, Math.atan2(tx - this.x, tz - this.z), 4, dt);
+        this.speed = Math.min(9, 4 + hd);
+        this.x += Math.sin(this.heading) * this.speed * dt; this.z += Math.cos(this.heading) * this.speed * dt;
+        this.alt = damp(this.alt, this.perchAlt + 0.9, 2, dt);
+        if (alive && !fooled && this.ignore <= 0 && this.cool <= 0 && dist < noticeR) { this.state = 'alert'; this.alertT = 0.4; break; }
+        if (hd < 0.7) { this.perchOff.x = this._fx || 0; this.perchOff.z = this._fz || 0; this.state = 'perch'; this.speed = 0; }
         break;
       }
       case 'alert': {
@@ -879,7 +975,8 @@ export class Predator {
         break;
       }
     }
-    this.y = world.heightAt(this.x, this.z);
+    if (this.kind === 'human') this._settleWade(dt, world);
+    this.y = this.kind === 'human' ? this._wadeY(world) : world.heightAt(this.x, this.z);
     this.sync(dt);
     return dmg;
   }
@@ -977,6 +1074,9 @@ export class Predator {
     this.updateShadow();
     const s = this.spec, p = this.parts, t = this.phase;
     this.group.position.set(this.x, this.y + (this.lift || 0), this.z);
+    if (this.kind === 'human' && (this.wade > 0.02 || this.sink > 0.001)) {
+      this.group.position.y += Math.sin(this.phase * 7.2 + this.seed) * 0.035 * Math.min(this.wade, 1) - this.sink;
+    }
     const faceOffset = s.side ? Math.PI / 2 : 0;
     this.group.rotation.y = this.heading + faceOffset;
     const mv = clamp(this.speed / (s.speed * 0.6 + 0.001), 0, 1.4);
@@ -986,15 +1086,33 @@ export class Predator {
     this._h0 = this.heading;
     if (s.flying) {
       this.awareV = damp(this.awareV, this.aware, 6, dt || 0.016);
-      if (p.head) p.head.rotation.y = clamp(angleDiff(this.toPlayer, this.heading), -1.1, 1.1) * Math.min(1, this.awareV * 1.4);   // looks down at you before it commits
+      if (p.head) {
+        p.head.rotation.y = clamp(angleDiff(this.toPlayer, this.heading), -1.1, 1.1) * Math.min(1, this.awareV * 1.4);
+        p.head.rotation.x = 0; p.head.rotation.z = 0;
+      }
       const flap = this.state === 'dive' ? 0.15 : Math.sin(t * 0.9) * 0.15;
-      if (s.swoop) p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'perch' ? -0.9 + 0.08 * Math.sin(this.phase * 0.7 + this.seed) : this.state === 'alert' ? 1.0 : this.state === 'swoop' ? 0.6 : Math.sin(this.phase * 16) * 0.7); });   // wings flick up just before a swoop
-      else p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'dive' ? 0.7 : this.state === 'alert' ? 0.45 : flap + 0.08); });
-      if (p.head && this.state === 'perch') p.head.rotation.y += Math.sin(this.phase * 0.5 + this.seed) * 0.6 * Math.max(0, Math.sin(this.phase * 0.17 + this.seed));   // perched: looks about
-      this.group.rotation.z = Math.sin(t * 0.2) * 0.15; this.group.rotation.x = this.state === 'dive' || this.state === 'swoop' ? 0.6 : this.state === 'climb' ? -0.35 : 0;
+      if (s.swoop) {
+        const flick = this.wingFlick ? Math.sin(this.phase * 11 + this.seed) * 0.38 : 0;
+        const perched = this.state === 'perch';
+        p.wings.forEach((w, i) => {
+          const side = i ? -1 : 1;
+          const fold = perched ? -0.9 + 0.1 * Math.sin(this.phase * 0.7 + this.seed) + flick : this.state === 'alert' ? 1.0 : this.state === 'swoop' ? 0.6 : this.state === 'hopflight' ? Math.sin(this.phase * 14 + this.seed) * 0.55 : Math.sin(this.phase * 16) * 0.7;
+          w.rotation.z = side * fold;
+        });
+        if (p.g) {
+          p.g.position.x = perched ? this.hopShift : 0;
+          p.g.position.y = perched ? Math.abs(this.hopShift) * 0.35 : 0;
+        }
+        if (p.head && perched) {
+          p.head.rotation.y += this.idleHead;
+          if (this.preen) { p.head.rotation.z = 0.85; p.head.rotation.x = 0.55; p.head.rotation.y += 0.7; }
+        }
+      } else p.wings.forEach((w, i) => { w.rotation.z = (i ? -1 : 1) * (this.state === 'dive' ? 0.7 : this.state === 'alert' ? 0.45 : flap + 0.08); });
+      this.group.rotation.z = Math.sin(t * 0.2) * 0.15;
+      this.group.rotation.x = this.state === 'dive' || this.state === 'swoop' ? 0.6 : this.state === 'climb' ? -0.35 : this.state === 'hopflight' ? -0.18 : 0;
       return;
     }
-    if (p.legs) p.legs.forEach((l, i) => { l.rotation.x = s.side ? 0 : swing * (i % 2 ? 1 : -1) * (this.kind === 'human' ? 0.9 : 1); if (s.side) l.rotation.z = (i % 2 ? 1 : -1) * Math.sin(t * 6 + i) * 0.25 * mv - (i < 3 ? -0.3 : 0.3) * 0; });
+    if (p.legs) p.legs.forEach((l, i) => { l.rotation.x = s.side ? 0 : swing * (i % 2 ? 1 : -1) * (this.kind === 'human' ? 0.9 + 0.45 * this.wade : 1); if (s.side) l.rotation.z = (i % 2 ? 1 : -1) * Math.sin(t * 6 + i) * 0.25 * mv - (i < 3 ? -0.3 : 0.3) * 0; });
     if (p.arms) p.arms.forEach((a, i) => { a.rotation.x = -swing * (i ? 1 : -1) * 0.8 + (this.state === 'attack' ? -1.6 * Math.sin(this.lunge * Math.PI) : 0); });
     // ---- body language: awareness is read from the animal itself (no markers above heads)
     this.awareV = damp(this.awareV, this.state === 'blind' || this.state === 'leave' || this.state === 'home' ? 0 : this.aware, 6, dt || 0.016);

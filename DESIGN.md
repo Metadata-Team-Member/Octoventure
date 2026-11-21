@@ -293,3 +293,13 @@ The Perth date picks one daily surprise inside the same world: a hopping visitor
 
 Try: `?home=1` beside the first flap, `?maze=1` at the mouth of the maze, `?poi=shed` (or `drain`, `garden`, `light`, `play`).
 
+## Shore, birds, and a steadier frame
+
+**People and the sea.** A blocked step used to add 1.2 radians to the heading and stay put, so a person meeting the water spun in place. Deeper than that, the body was planted on `heightAt` and walked around under the surface. People now wade up to 1.35 u (shin-deep on the scaled body): the walk slows as the water gets deeper, the body eases down a few centimetres and bobs, and past that they turn — over a fraction of a second, sampling eight headings — back toward shallower ground. If the water is already over them, the feet stay in that wade while they walk out, instead of on the sea floor. A rising tide or a bad spot does the same. Herons still use the old shore rule. Nothing is drawn for the wade; there is no splash sprite.
+
+**Forest birds.** A perched magpie or kookaburra used to hold one pose, with a tiny head sine. Near the octopus they now look about, preen, hop a little along the branch and shuffle their wings, and every so often fly a few metres to another part of the tree and land. The octopus still flushes them into the same swoop as before. Each bird's seed staggers the timer so a tree does not move as one. Past ~78 u they hold still. The hop is a local offset on the shared mesh; the short flight reuses the swoop motion. No extra geometries.
+
+**The waterline.** The sea was one quad the size of the map, drawn at `seaLevel` with no depth offset, so it shared a depth with every beach triangle it crossed. That shimmered at every tide, worse in the distance because the camera near plane was 0.08 against a far plane of 1400. The sea is now a grid (72×72), drawn with `polygonOffset` and without writing depth, the same idea as the puddle discs. The camera near plane is 0.22 and the far plane 1100 (the sky is a 900 u sphere). The water height is still the tide, so the edge moves with it and does not crawl up the sand.
+
+**Frame hazards.** `frameDt` drops a non-finite delta and caps a hitch at 50 ms, so a hidden tab does not fast-forward the world. A non-finite octopus position is put back on the start ground instead of poisoning the frame. `saveNow` cannot throw. A lost WebGL context reloads the page quietly (the save is written first); a restored one resumes. An unhandled promise rejection is swallowed so it does not kill the loop. Saves stay at v9. A NaN position is rejected, and a storage that throws is ignored.
+

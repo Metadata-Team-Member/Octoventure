@@ -12,7 +12,7 @@ import { waterDisc } from '../src/world/placement.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE, LORE, loreOf, POLLEN, pollenOf } from '../src/systems/items.js';
 import { GATHER_COUNT, GATHER_KINDS, HABITAT, BIOME_MATERIALS } from '../src/world/gather.js';
-import { mulberry32 } from '../src/util/rng.js';
+import { mulberry32, frameDt, angleDiff } from '../src/util/rng.js';
 import { separate, minGap } from '../src/util/separate.js';
 import { ICON_IDS } from '../src/ui/icons.js';
 import { Levels, BADGES, xpForLevel, levelOf, perks, XP } from '../src/systems/levels.js';
@@ -23,6 +23,7 @@ import { SAVE_VERSION, SAVE_KEY, LEGACY_KEYS, validateSave, migrate, readSaveTex
 import * as THREE from 'three';
 import { seat, instanceSpec } from '../src/world/placement.js';
 import { buildGeoLib } from '../src/world/geoLib.js';
+import { Predator, humanCanStep, HUMAN_WADE } from '../src/entities/predators.js';
 
 let checks = 0;
 const ok = (c, m) => { assert.ok(c, m); checks++; };
@@ -505,6 +506,10 @@ for (const seed of [1, 42, 2026]) {
   // corruption
   const junk = ['', 'null', '[]', '42', '"x"', '{', '{"v":1}', '{"v":2}', '{"v":"1","seed":1}', '{"v":2,"seed":9,"octo":{"x":"q","z":1}}', '{"v":2,"seed":-4,"octo":{"x":1,"z":1}}', '{"v":1,"seed":-4,"octo":{"x":1,"z":1}}', '{"v":1,"seed":1.5,"octo":{"x":1,"z":1}}', '{"v":1,"seed":5,"octo":{"x":"a","z":1}}', '{"v":1,"seed":5,"octo":{"x":1e12,"z":1}}', '{"v":-1,"seed":5}', '{"v":99,"seed":5,"octo":{"x":1,"z":1}}', 'not json at all \u0000\ufffd', '{"v":1,"seed":5,"octo":null}'];
   ok(junk.every((t) => readSaveText(t) === null), `${junk.length} kinds of damaged saves are all rejected, none throws`);
+  const nanPos = fixture(); nanPos.octo = { ...nanPos.octo, x: NaN };
+  ok(validateSave(nanPos) === null, 'a NaN position is not a save');
+  const throwing = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('full'); }, removeItem() { throw new Error('no'); } };
+  ok(loadSave(throwing) === null && writeSave(fixture(), throwing) === false && clearSave(throwing) === undefined, 'blocked or full storage never throws');
   const wild = fixture(); wild.octo.health = -50; wild.octo.energy = 1e9; wild.env.t = 7; wild.env.kind = 'meteors'; wild.fx.buff.shield = 1e9; wild.fx.ink = 1e6; wild.inv.counts = { crab: -3, hax: 9, jar: 1e9 }; wild.got = ['o1', '<script>', 42, 'x'.repeat(100), 'o2']; wild.dens = [{ x: 1, z: 2 }, { x: 'a' }, null, { x: 1, z: 1 }, { x: 2, z: 2 }, { x: 3, z: 3 }]; wild.shells.o = [-1, 5, 1e9, 'a']; wild.hack = { evil: true };
   const cw = validateSave(wild);
   ok(cw && cw.octo.health === 1 && cw.octo.energy === 100 && cw.env.t === 1 && cw.env.kind === 'clear' && cw.fx.buff.shield === 600 && cw.fx.ink === 20, 'out-of-range numbers are clamped, unknown weather falls back');
@@ -824,6 +829,74 @@ for (const seed of [1, 42, 2026]) {
     }
     ok(farms >= 1, `farm houses are grounded too (seed ${seed}: ${farms})`);
   }
+}
+
+// ================================================================ people at the shore, perched birds, frame delta
+{
+  ok(frameDt(1 / 60) === 1 / 60 && frameDt(2) === 0.05 && frameDt(-1) === 0 && frameDt(NaN) === 0 && frameDt(undefined) === 0, 'a frame delta is capped at 50 ms and a bad one is dropped');
+  ok(humanCanStep(0, 2) && humanCanStep(0.4, -0.2) && !humanCanStep(HUMAN_WADE + 0.2, -2) && !humanCanStep(0, 0.1), 'people can wade in the shallows and not on the sea floor or a dry hole');
+  const scene = { add() {}, remove() {} };
+  const shore = {
+    // water covers the slope before the old 0.35 land wall, so a walker has to wade and then turn
+    heightAt(x, z) { return 1.6 - Math.max(0, z) * 0.35; },
+    seaDepth(x, z) { return Math.max(0, 0.85 - (1.6 - Math.max(0, z) * 0.35)); },
+    resolve(x, z) { return { x, z }; },
+    faceNormal() { return { x: 0, y: 1, z: 0 }; },
+    night: 0, raining: false, weatherKind: 'clear', ink: null, bait: null,
+  };
+  const person = new Predator('human', 0, 0, shore, scene);
+  person.heading = 0; person.state = 'wander';
+  let maxD = 0, maxTurn = 0, prev = person.heading;
+  for (let i = 0; i < 180; i++) {
+    person.walkToward(0, 40, person.spec.walk, 1 / 30);
+    maxD = Math.max(maxD, shore.seaDepth(person.x, person.z));
+    const turn = Math.abs(angleDiff(prev, person.heading));
+    if (i) maxTurn = Math.max(maxTurn, turn);
+    prev = person.heading;
+  }
+  ok(maxD > 0.4 && maxD <= HUMAN_WADE + 0.05, `a person walking into the sea wades, then stops (depth ${maxD.toFixed(2)}, cap ${HUMAN_WADE})`);
+  ok(maxTurn < 0.7, `turning back off the water is smooth (largest step ${maxTurn.toFixed(2)} rad, was a 1.2 snap)`);
+  const stuck = new Predator('human', 0, 16, shore, scene);
+  stuck.ignore = 99; stuck.state = 'groom'; stuck.timer = 40; stuck.heading = 0;
+  const player = { x: 0, z: -40, alive: true, won: false, camoProtected: false, birdHidden: false, moving: false, visibility: 1, sprinting: false, damage() {} };
+  const d0 = shore.seaDepth(stuck.x, stuck.z);
+  stuck.update(1 / 30, player, shore);
+  ok(stuck.y > shore.heightAt(stuck.x, stuck.z) + 1, `feet stay in the wade, not on the sea floor (y ${stuck.y.toFixed(2)}, floor ${shore.heightAt(stuck.x, stuck.z).toFixed(2)})`);
+  for (let i = 0; i < 119; i++) stuck.update(1 / 30, player, shore);
+  const d1 = shore.seaDepth(stuck.x, stuck.z);
+  ok(d0 > 3 && d1 < d0 - 1, `a person already in deep water walks back out (${d0.toFixed(1)} -> ${d1.toFixed(1)})`);
+  ok(stuck.wade <= 1 && stuck.sink < 0.2, 'the wade settles instead of popping the body under the surface');
+
+  const farPlayer = { ...player, x: 200, z: 0 };
+  const bird = (seed, x) => {
+    const b = new Predator('magpie', x, 0, shore, scene);
+    b.seed = seed; b.home = { x, z: 0 }; b.ignore = 99; b.state = 'perch'; b.alt = b.perchAlt; b.flightIn = 30; b.idleT = 0.2; b.idleHead = 0; b.phase = 1;
+    return b;
+  };
+  const a = bird(0.2, 0), b = bird(4.8, 3);
+  let varyA = 0, varyB = 0, wing = 0, differ = 0;
+  const h0 = () => a.parts.head.rotation.y, w0 = a.parts.wings[0].rotation.z;
+  for (let i = 0; i < 150; i++) {
+    a.update(1 / 30, player, shore); b.update(1 / 30, player, shore);
+    varyA = Math.max(varyA, Math.abs(h0() - 0));
+    varyB = Math.max(varyB, Math.abs(b.parts.head.rotation.y));
+    wing = Math.max(wing, Math.abs(a.parts.wings[0].rotation.z - w0));
+    differ = Math.max(differ, Math.abs(a.idleHead - b.idleHead));
+  }
+  ok(a.state === 'perch' && b.state === 'perch', 'perched birds stay perched while the octopus is not close');
+  ok(varyA > 0.2 && varyB > 0.15 && differ > 0.05, `idle heads move, and not in unison (magpie ${varyA.toFixed(2)}, other ${varyB.toFixed(2)}, apart ${differ.toFixed(2)})`);
+  ok(wing > 0.05 || Math.abs(a.hopShift) > 0.02 || a.preen === 1 || a.wingFlick === 1, 'a near bird also preens, hops or flicks its wings');
+  const statue = bird(1.3, 0); statue.x = 0; statue.home = { x: 0, z: 0 };
+  for (let i = 0; i < 40; i++) statue.update(1 / 30, farPlayer, shore);
+  ok(Math.abs(statue.idleHead) < 0.08 && statue.wingFlick === 0 && statue.state === 'perch', 'a distant perched bird stays still');
+  const flyer = bird(2.2, 0);
+  flyer.flightIn = 0.05; flyer.x = 0; flyer.z = 0; flyer.home = { x: 0, z: 0 }; flyer.perchOff = { x: 0, z: 0 };
+  let flew = 0; const states = new Set();
+  for (let i = 0; i < 150; i++) {
+    flyer.update(1 / 30, player, shore); states.add(flyer.state);
+    flew = Math.max(flew, Math.hypot(flyer.x - flyer.home.x, flyer.z - flyer.home.z));
+  }
+  ok(states.has('hopflight') && flew > 1.2 && flyer.state === 'perch', `a perched bird takes a short flight and lands again (went ${flew.toFixed(1)} u, ${[...states].join(',')})`);
 }
 
 console.log(`unit checks passed (${checks} assertions).`);

@@ -728,6 +728,54 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.farFlowerInst && r.farShellSlot && r.farShellGot, 'flowers and shells out in the far land are drawn, and a far shell can be picked up');
 }
 
+// ================================================================ shore, wading people, living birds
+{
+  const r = await E(() => {
+    const G = window.__game, g = G.game, w = g.world, o = g.octopus;
+    G.clearPredators();
+    const sea = g.view.sea, m = sea.material;
+    const shore = {
+      near: g.camera.near, far: g.camera.far,
+      off: m.polygonOffsetFactor, units: m.polygonOffsetUnits, depthWrite: m.depthWrite,
+      seg: sea.geometry.parameters.widthSegments,
+    };
+    g.advance(0.05);
+    shore.level = Math.abs(sea.position.y - w.seaLevel);
+    let sx = o.x, sz = o.z, found = false;
+    for (let s = 0; s < 1600 && !found; s += 3) {
+      const x = w.start.x + w.dir.x * s, z = w.start.z + w.dir.z * s;
+      if (w.seaDepth(x, z) > 2.2) { sx = x; sz = z; found = true; }
+    }
+    G.teleport(sx - w.dir.x * 12, sz - w.dir.z * 12);
+    const h = G.spawnPredator('human', w.dir.x * 12, w.dir.z * 12);
+    h.ignore = 99; h.state = 'groom'; h.timer = 40; h.target = null;
+    const d0 = w.seaDepth(h.x, h.z);
+    let maxTurn = 0, prev = h.heading;
+    for (let i = 0; i < 150; i++) {
+      g.advance(1 / 30);
+      h.ignore = 99;
+      const turn = Math.abs(Math.atan2(Math.sin(h.heading - prev), Math.cos(h.heading - prev)));
+      if (i) maxTurn = Math.max(maxTurn, turn);
+      prev = h.heading;
+    }
+    const d1 = w.seaDepth(h.x, h.z);
+    const a = G.spawnPredator('magpie', 36, 6), b = G.spawnPredator('kookaburra', 36, -7);
+    for (const p of [a, b]) { p.ignore = 99; p.state = 'perch'; p.flightIn = 40; p.alt = p.perchAlt; p.home = { x: p.x, z: p.z }; }
+    let vary = 0, differ = 0;
+    for (let i = 0; i < 80; i++) {
+      g.advance(1 / 30);
+      vary = Math.max(vary, Math.abs(a.parts.head.rotation.y));
+      differ = Math.max(differ, Math.abs(a.idleHead - b.idleHead));
+    }
+    const perched = a.state === 'perch' && b.state === 'perch';
+    G.clearPredators();
+    return { shore, found, d0, d1, maxTurn, vary, differ, perched };
+  });
+  ok(r.shore.off < 0 && r.shore.units < 0 && r.shore.depthWrite === false && r.shore.seg >= 48 && r.shore.near >= 0.15 && r.shore.far <= 1200 && r.shore.level < 1e-4, `the sea sits on the tide without fighting the beach (offset ${r.shore.off}, ${r.shore.seg} cells, near ${r.shore.near}, far ${r.shore.far})`);
+  ok(r.found && r.d0 > 2 && r.d1 < r.d0 - 0.3 && r.maxTurn < 0.8, `a person in the sea walks out without snapping (depth ${r.d0.toFixed(2)} -> ${r.d1.toFixed(2)}, turn ${r.maxTurn.toFixed(2)})`);
+  ok(r.perched && r.vary > 0.15 && r.differ > 0.04, `forest birds idle out of sync while perched (head ${r.vary.toFixed(2)}, apart ${r.differ.toFixed(2)})`);
+}
+
 // ================================================================ the screen stays clean
 {
   await E(() => { const G = window.__game; if (G.paused) G.game.setPaused(false); });
