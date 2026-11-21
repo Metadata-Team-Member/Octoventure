@@ -155,7 +155,8 @@ export function planPlaces(world) {
     return {
       id: 'h' + n, x: h.x, z: h.z, y: h.y, w: h.w, d: h.d,
       layout, floor, pet, baby, tint,
-      door: { x: h.x - h.w * 0.28, z: h.z + h.d / 2 + 0.85, y: h.y || 0 },
+      door: { x: h.x - h.w * 0.28, z: h.z + h.d / 2 + 0.85, y: h.y },
+      entry: h.y,
     };
   });
 

@@ -67,7 +67,7 @@ export class Places {
     return {
       hides: [], tunnels: [], raining: false, gates: null, dryMult: 1, seaLevel: -20,
       typeAt() { const f = self.indoor?.floor; return f === 'tile' ? 'paving' : f === 'board' ? 'litter' : 'lawn'; },
-      heightAt() { return 0.02; },
+      heightAt() { return (self.indoor?.entry ?? self.indoor?.y ?? 0) + 0.02; },
       isSea() { return false; },
       isShallow() { return false; },
       normalAt(x, z, out = { x: 0, y: 1, z: 0 }) { out.x = 0; out.y = 1; out.z = 0; return out; },
@@ -392,6 +392,7 @@ export class Places {
     this.roomRoot.traverse((o) => { if (o.isMesh && o.userData.own) dump.push(o); });
     for (let i = 0; i < dump.length; i++) { /* shared materials and geometry */ }
     while (this.roomRoot.children.length) this.roomRoot.remove(this.roomRoot.children[0]);
+    this.roomRoot.position.y = 0;
     this.boxes.length = 0;
     this.waters.length = 0;
     this.pickups.length = 0;
@@ -438,6 +439,7 @@ export class Places {
 
   buildRoom(home) {
     this.clearRoom();
+    this.roomRoot.position.y = home.entry ?? home.y ?? 0;
     const floorHex = home.floor === 'tile' ? 0xd7dbe2 : home.floor === 'board' ? 0xc4a574 : 0x8f4d4d;
     const floor = new THREE.Mesh(boxG(), this.mat(floorHex));
     floor.scale.set(RW, 0.08, RD);
@@ -621,7 +623,7 @@ export class Places {
     if (this.game.view) this.game.view.root.visible = false;
     o.x = this.wx(0);
     o.z = this.wz(-RD / 2 + 0.9);
-    o.y = 0.04;
+    o.y = (home.entry ?? home.y ?? 0) + 0.02;
     o.heading = 0;
     o.hiddenIn = null;
     o.speed = 0;
@@ -642,7 +644,7 @@ export class Places {
     const w = this.game.world;
     o.x = d.x;
     o.z = (d.z ?? o.z) + 0.45;
-    o.y = w.heightAt(o.x, o.z);
+    o.y = d.y ?? w.heightAt(o.x, o.z);
     o.speed = 0;
     this.clearRoom();
     this.baby = null;

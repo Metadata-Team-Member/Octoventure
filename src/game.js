@@ -646,7 +646,7 @@ void main(){
     // swimming at depth: the camera drops down beside the octopus so the water is visible around it
     const dv = o.dive || 0;
     const want = _camWant.set(tx + off.x, ty + C.height * 0.4 * k + off.y * (1 - dv * 0.8) - dv * 0.5 * k, tz + off.z);
-    const gy = this.places?.indoor ? 0 : this.world.heightAt(want.x, want.z);
+    const gy = this.places?.indoor ? (this.places.indoor.entry ?? this.places.indoor.y ?? 0) : this.world.heightAt(want.x, want.z);
     if (want.y < gy + 0.9 * k) want.y = gy + 0.9 * k;
     if (!this.camInit || snap) { this.camPos.copy(want); this.camInit = true; }
     else this.camPos.lerp(want, 1 - Math.exp(-14 * dt));

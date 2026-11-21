@@ -57,8 +57,44 @@ export function placeAreas(w) {
 }
 
 // ------------------------------------------------------------------------------------------------ suburb
+/**
+ * Lowest ground under the front wall and the front step. The step's base is local y = 0 (the 1.7× vertical
+ * stretch does not move y = 0), so this is the height the whole house must sit at.
+ */
+function houseStepHeight(w, h) {
+  let y = Infinity;
+  const zF = h.z + h.d / 2;
+  for (let i = 0; i <= 6; i++) {
+    const x = h.x + (i / 6 - 0.5) * h.w;
+    const g = w.heightAt(x, zF);
+    if (g < y) y = g;
+  }
+  for (let i = 0; i <= 4; i++) {
+    const x = h.x + (i / 4 - 0.5) * 2;             // the step is 2 wide
+    for (let k = 0; k < 3; k++) {
+      const g = w.heightAt(x, zF + 0.15 + k * 0.3);
+      if (g < y) y = g;
+    }
+  }
+  const flap = w.heightAt(h.x - h.w * 0.28, zF + 0.85);
+  if (flap < y) y = flap;
+  return y;
+}
+/**
+ * Sit the house on that step height and level the lot to it. fixedY is required: seat() would otherwise plant the
+ * wall skirt (2 m below the floor, 1.7x stretched, so ~2.9 m) and leave the step, plinth and door in the air.
+ */
+function placeHouse(ctx, h) {
+  const { w, prop } = ctx;
+  const y = houseStepHeight(w, h);
+  h.y = y;
+  w.addHousePad(h, y);
+  prop('house' + h.variant, h.x, h.z, { y, collide: false, extra: { fixedY: true } });
+  w._addBox(h.x, h.z, h.w / 2 + 0.3, h.d / 2 + 0.3, { kind: 'house', y });
+}
+
 function suburb(ctx) {
-  const { w, rnd, K, prop } = ctx;
+  const { w, rnd, K } = ctx;
   const target = Math.round(14 * K);
   let guard = 0;
   while (w.houses.length < target && guard++ < target * 40) {
@@ -73,11 +109,9 @@ function suburb(ctx) {
     if (bad || Math.hypot(s.x - w.start.x, s.z - w.start.z) < 22) continue;
     if (w.houses.some((h) => Math.abs(h.x - s.x) < yw * 2 + 6 && Math.abs(h.z - s.z) < yd * 2 + 6)) continue;
     if (!w._farFromWater(s.x, s.z, 14) || w._blocked(s.x, s.z, 6)) continue;
-    const y = w.baseHeight(s.x, s.z);
-    const house = { x: s.x, z: s.z, w: V.w, d: V.d, h: V.h, y, variant: vi };
+    const house = { x: s.x, z: s.z, w: V.w, d: V.d, h: V.h, y: 0, variant: vi };
     w.houses.push(house);
-    prop('house' + vi, s.x, s.z, { y, collide: false });
-    w._addBox(s.x, s.z, V.w / 2 + 0.3, V.d / 2 + 0.3, { kind: 'house' });
+    placeHouse(ctx, house);
     yard(ctx, cx, cz, yw, yd, s, V);
   }
 }
@@ -216,7 +250,12 @@ function farm(ctx) {
     if (w._blocked(bx, bz, 8) || w.waterAt(bx, bz)) continue;
     prop('barn', bx, bz, {});
     const hx = c.x + 12, hz = c.z + 14;
-    if (!w._blocked(hx, hz, 8)) { const V = HOUSE_VARIANTS[1]; w.houses.push({ x: hx, z: hz, w: V.w, d: V.d, h: V.h, y: w.baseHeight(hx, hz), variant: 1, farm: true }); prop('house1', hx, hz, { collide: false }); w._addBox(hx, hz, V.w / 2 + 0.3, V.d / 2 + 0.3, { kind: 'house' }); }
+    if (!w._blocked(hx, hz, 8)) {
+      const V = HOUSE_VARIANTS[1];
+      const house = { x: hx, z: hz, w: V.w, d: V.d, h: V.h, y: 0, variant: 1, farm: true };
+      w.houses.push(house);
+      placeHouse(ctx, house);
+    }
     if (!w._blocked(c.x - 2, c.z - 14, 4)) prop('silo', c.x - 2, c.z - 14, {});
     const mx = c.x + 18, mz = c.z - 10;
     if (!w._blocked(mx, mz, 4)) { prop('windmill', mx, mz, {}); w.landmarks.push({ kind: 'windmill', x: mx, z: mz }); w._addWater('trough', mx + 2.5, mz, 1.8, { carve: false }); prop('trough', mx + 2.5, mz, { collide: false }); }

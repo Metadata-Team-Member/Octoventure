@@ -32,6 +32,20 @@ export class Hash {
 }
 const EMPTY = [];
 
+/** 1 inside a house lot, falling smoothly to 0 across `blend` metres (chebyshev, so the corners stay level too) */
+function housePadWeight(p, x, z) {
+  const dx = x > p.x ? x - p.x : p.x - x;
+  let ax = 0;
+  if (dx > p.hx) { ax = (dx - p.hx) / p.blend; if (ax >= 1) return 0; }
+  let az = 0;
+  if (z < p.z0) { az = (p.z0 - z) / p.blend; if (az >= 1) return 0; }
+  else if (z > p.z1) { az = (z - p.z1) / p.blend; if (az >= 1) return 0; }
+  const t = ax > az ? ax : az;
+  if (t <= 0) return 1;
+  const u = 1 - t;
+  return u * u * (3 - 2 * u);
+}
+
 const STILL = new Set(['puddle', 'dam', 'pond', 'tidepool', 'drip', 'aircon', 'trough']);
 
 export class WorldData {
@@ -52,6 +66,7 @@ export class WorldData {
     this.roadOff = { x: this.rnd() * 90, z: this.rnd() * 90 };
 
     this.carveHash = new Hash(16);
+    this.padHash = new Hash(16);   // levelled house lots (see addHousePad)
     this.waterHash = new Hash(16);
     this.colHash = new Hash(12);
     this.centreHash = new Hash(32);
@@ -64,6 +79,7 @@ export class WorldData {
     this.dryMult = 1; this.night = 0; this.weatherKind = 'clear'; this.gust = 0; this.raining = false;
     this.seaLevel = 0;       // tide: the Environment moves this a little (+-0.5) over time
     this.houses = [];
+    this.pads = [];          // {x,z,H,hx,z0,z1,blend} flat lots under houses, blended at the edge
     this.taps = [];          // visual props for drips / seeps / sprinklers / aircon
     this.sprinklers = [];
     this.colliders = [];     // circles {x,z,r} and boxes {x,z,hw,hd}  (+ optional climb/h/kind)
@@ -277,23 +293,52 @@ export class WorldData {
     out.x = -hx / l; out.y = 1 / l; out.z = -hz / l;
     return out;
   }
-  /** terrain height including carved puddles, streams etc. (analytic; the mesh samples this at its vertices) */
+  /** terrain height including carved puddles, streams and levelled house lots (analytic; the mesh samples this at its vertices) */
   rawHeightAt(x, z) {
     const base = this.baseHeight(x, z);
     const list = this.carveHash.at(x, z);
-    if (list.length === 0) return base;
-    let wSum = 0, hSum = 0, wMax = 0;
-    for (let i = 0; i < list.length; i++) {
-      const c = list[i];
-      const d = Math.hypot(x - c.x, z - c.z);
-      const reach = c.r * 1.7;
-      if (d >= reach) continue;
-      const w = 1 - ss(c.r * 0.85, reach, d);
-      wSum += w; hSum += w * (c.H - c.depth);
-      if (w > wMax) wMax = w;
+    let h = base, wMax = 0;
+    if (list.length) {
+      let wSum = 0, hSum = 0;
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i];
+        const d = Math.hypot(x - c.x, z - c.z);
+        const reach = c.r * 1.7;
+        if (d >= reach) continue;
+        const w = 1 - ss(c.r * 0.85, reach, d);
+        wSum += w; hSum += w * (c.H - c.depth);
+        if (w > wMax) wMax = w;
+      }
+      if (wSum) h = lerp(base, hSum / wSum, wMax);
     }
-    if (wSum === 0) return base;
-    return lerp(base, hSum / wSum, wMax);
+    const pads = this.padHash.at(x, z);
+    if (!pads.length || wMax >= 1) return h;
+    const keep = 1 - wMax;                                  // a real pool keeps its dip; a house lot never overlaps one
+    for (let i = 0; i < pads.length; i++) {
+      const k = housePadWeight(pads[i], x, z);
+      if (k > 0) h = lerp(h, pads[i].H, k * keep);
+    }
+    return h;
+  }
+  /**
+   * Level the ground under a house to H. The flat rect covers the footprint, the front step and one terrain cell past
+   * them (so heightAt, which interpolates the mesh, is exactly H on the step). A smooth blend outside hides the cut.
+   */
+  addHousePad(h, H) {
+    const cell = this.cfg.terrainCell + 0.25;
+    const front = 1.7;                                     // step (0.8) plus the flap and the step-off in front of it
+    const pad = {
+      x: h.x, z: h.z, H,
+      hx: h.w / 2 + cell,
+      z0: h.z - h.d / 2 - cell,
+      z1: h.z + h.d / 2 + front + cell,
+      blend: 4.5,
+    };
+    this.pads.push(pad);
+    const reach = Math.max(pad.hx, h.d / 2 + front + cell) + pad.blend;
+    this.padHash.add(h.x, h.z, reach, pad);
+    if (this._grid) this._dirtyGrid(h.x, h.z, reach);
+    return pad;
   }
   normalAt(x, z, out = { x: 0, y: 1, z: 0 }) {
     const e = 0.8;
