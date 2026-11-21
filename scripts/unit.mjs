@@ -20,6 +20,9 @@ import { Journal, ENTRIES, TABS, RARE, ENTRY_IDS } from '../src/systems/journal.
 import { inkDeter, inkUnder, cloudCovers, INK_NEAR, INK_AQUA_NEAR, INK_BLIND, INK_AQUA_BLIND, INK_BIRD_RANGE, AQUA, FLYERS } from '../src/systems/ink.js';
 import { Music, ROOT, MOOD } from '../src/systems/music.js';
 import { SAVE_VERSION, SAVE_KEY, LEGACY_KEYS, validateSave, migrate, readSaveText, encodeCode, decodeCode, loadSave, writeSave, clearSave, MIGRATIONS, exploreCell, unpackCell } from '../src/systems/save.js';
+import * as THREE from 'three';
+import { seat, instanceSpec } from '../src/world/placement.js';
+import { buildGeoLib } from '../src/world/geoLib.js';
 
 let checks = 0;
 const ok = (c, m) => { assert.ok(c, m); checks++; };
@@ -785,6 +788,42 @@ for (const seed of [1, 42, 2026]) {
   ok(L.badges.has('rainbow') && L.badges.has('secret'), 'rainbow dust and the hidden light are badges');
   const J = new Journal();
   ok(J.seeHow('place:home') && J.seeHow('place:lounge') && J.seeHow('place:maze') && J.seeHow('place:shed') && J.has('find-photo') === false && J.seeHow('place:photo') && J.has('find-photo'), 'houses, the maze and the places fill journal pages');
+  ok(a.homes.every((hm) => hm.entry === hm.y && hm.door.y === hm.y), 'the pet flap and the interior entry use the house ground');
+  for (const hm of a.homes) {
+    const g = w.heightAt(hm.door.x, hm.door.z);
+    ok(Math.abs(g - hm.door.y) <= 0.05, `flap is on the grass (${hm.id}: door ${hm.door.y.toFixed(2)}, ground ${g.toFixed(2)})`);
+  }
+}
+
+{ // every house, suburb and farm, sits its front step on the terrain
+  const lib = buildGeoLib();
+  const m = new THREE.Matrix4();
+  for (const seed of SEEDS) {
+    const w = worlds[seed];
+    ok(w.houses.length >= 20, `grounding covers the houses (seed ${seed}: ${w.houses.length})`);
+    let farms = 0;
+    for (const h of w.houses) {
+      if (h.farm) farms++;
+      const zF = h.z + h.d / 2;
+      const step = w.heightAt(h.x, zF + 0.4);
+      ok(Math.abs(step - h.y) <= 0.05, `front step is within 5 cm of the ground (seed ${seed}, y ${h.y.toFixed(2)}, ground ${step.toFixed(2)})`);
+      for (const sx of [-1, 0, 1]) {
+        const g = w.heightAt(h.x + sx, zF + 0.75);
+        ok(Math.abs(g - h.y) <= 0.05, `step lip stays level (seed ${seed})`);
+      }
+      for (const sx of [-h.w / 2, h.w / 2]) {
+        const g = w.heightAt(h.x + sx, zF);
+        ok(h.y - g <= 0.15, `front corner is not above the ground (seed ${seed}, gap ${(h.y - g).toFixed(3)})`);
+      }
+      const prop = w.props.find((p) => p.kind === 'house' + h.variant && p.x === h.x && p.z === h.z);
+      ok(prop && prop.fixedY === true && prop.y === h.y, 'the drawn house is fixed to the step');
+      seat(w, lib.propGeo(prop.kind), instanceSpec('prop', prop.kind, prop), m);
+      ok(Math.abs(m.elements[13] - h.y) < 1e-4, 'rendered step base is the house floor');
+      const col = w.colliders.find((c) => c.kind === 'house' && c.x === h.x && c.z === h.z);
+      ok(col && col.y === h.y, 'the house collider uses the same ground');
+    }
+    ok(farms >= 1, `farm houses are grounded too (seed ${seed}: ${farms})`);
+  }
 }
 
 console.log(`unit checks passed (${checks} assertions).`);
