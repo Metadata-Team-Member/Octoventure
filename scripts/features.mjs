@@ -619,25 +619,45 @@ const uiBefore = await E(() => document.body.innerText.trim());
   const r = await E(() => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world, F = g.flowers, out = {};
     if (G.paused) g.setPaused(false);
+    if (g.state !== 'playing') g.state = 'playing';
+    g.places?.leaveNow?.();
+    G.clearPredators();
+    g.input.keys.clear(); g.input.pressed.clear();
+    o.alive = true; o.speed = 0; o.health = 100;
+    const armor0 = o.armor; o.armor = 1;   // a passing car must not end the run while a flower reopens
     const f = w.decor.flowers.find((q) => q.inst && q.inst.mesh.parent && w.typeAt(q.x, q.z) !== 'road');
-    G.teleport(f.x - 3, f.z); G.advance(0.3); o.health = 60; F.rand = () => 0.01; F.nextSip = 0; f.cd = 0;
-    const mesh = f.inst.mesh, mat = () => Array.from(mesh.instanceMatrix.array.slice(f.inst.i * 16, f.inst.i * 16 + 16)), m0 = mat();
+    // stand off the flower, the road and every other bloom, then stay there: a knock or a
+    // second touch used to restart the curl, so the instance never came back
+    for (let ring = 4; ring <= 16 && !out.parked; ring += 4) for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2, x = f.x + Math.cos(a) * ring, z = f.z + Math.sin(a) * ring;
+      if (w.isRoad(x, z, 4) || w.waterAt(x, z) || F.near(x, z, 1.6).length) continue;
+      G.teleport(x, z); o.speed = 0; out.parked = true; break;
+    }
+    if (!out.parked) { G.teleport(f.x + 8, f.z); o.speed = 0; }
+    G.advance(0.3); o.health = 60; F.rand = () => 0.01; F.nextSip = 0; f.cd = 0;
+    const matOf = (flower) => Array.from(flower.inst.mesh.instanceMatrix.array.slice(flower.inst.i * 16, flower.inst.i * 16 + 16));
+    const m0 = matOf(f);
     const before = o.health; const rec = F.touch(f, o);
-    out.started = !!rec; out.hidden = mat()[0] === 0;
+    out.started = !!rec; out.hidden = matOf(f)[0] === 0;
     G.advance(0.6); out.curl = rec.curl;
     out.sipped = o.health - before; out.sparks = Array.from(F.sl).filter((x) => x > 0).length; out.critter = F.critters.some((c) => c.on);
     // touching again right away: no second sip (per-flower cooldown + global gap)
     o.health = 60; F.touch(f, o); G.advance(0.1); out.again = o.health - 60;
     // another flower within the global gap: animates but gives nothing
     const f2 = w.decor.flowers.find((q) => q !== f && q.inst && !q.live); o.health = 60; f2.cd = 0; F.touch(f2, o); out.gap = o.health - 60;
-    G.advance(12);
-    const m1 = mat();
+    const still = () => { G.clearPredators(); g.input.keys.clear(); g.input.pressed.clear(); o.speed = 0; o.armor = 1; o.alive = true; if (g.state !== 'playing') g.state = 'playing'; o.health = Math.max(o.health, 80); };
+    still(); G.advance(12);
+    const m1 = matOf(f);
     out.reopened = m0.every((v, i) => Math.abs(v - m1[i]) < 1e-5) && !f.live;
     out.pool = F.pool.filter((p) => p.busy).length;
-    F.nextSip = 0; o.health = 60; f.cd = F.t + 1000; F.touch(f, o); out.cool = o.health - 60; G.advance(12);
+    out.state = g.state;
+    F.nextSip = 0; o.health = 60; f.cd = F.t + 1000; F.touch(f, o); out.cool = o.health - 60;
+    still(); G.advance(12);
     // many flowers at once never exceed the pool
-    const near = w.decor.flowers.filter((q) => q.inst && !q.live).slice(0, 40); near.forEach((q) => F.touch(q, o)); out.maxLive = F.live.length; G.advance(14);
+    const near = w.decor.flowers.filter((q) => q.inst && !q.live).slice(0, 40); near.forEach((q) => F.touch(q, o)); out.maxLive = F.live.length;
+    still(); G.advance(14);
     out.liveAfter = F.live.length;
+    o.armor = armor0;
     return out;
   });
   ok(r.started && r.hidden, 'touching a flower swaps its instance for an animated live copy (instance hidden meanwhile)');
@@ -646,8 +666,8 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.sparks >= 4, `dew sparkles lift off (${r.sparks} sparks)`);
   ok(r.critter, 'a butterfly or bee lifts off (forced here; ~1 touch in 5 otherwise)');
   ok(r.again < 0.1 && r.gap < 0.1 && r.cool < 0.1, 'no second sip: per-flower cooldown, and a global gap between any two sips');
-  ok(r.reopened && r.pool === 0, 'the flower slowly reopens and its original instance is restored exactly');
-  ok(r.maxLive <= 8 && r.liveAfter === 0, `at most 8 live flowers animate at a time (${r.maxLive}), all released afterwards`);
+  ok(r.reopened && r.pool === 0, `the flower slowly reopens and its original instance is restored exactly (open ${r.reopened}, pool ${r.pool}, ${r.state})`);
+  ok(r.maxLive <= 8 && r.liveAfter === 0, `at most 8 live flowers animate at a time (${r.maxLive}), all released afterwards (${r.liveAfter} left)`);
 }
 // ================================================================ hidden babies give a faint tell, and the squelch is occasional
 {
@@ -950,10 +970,14 @@ const uiBefore = await E(() => document.body.innerText.trim());
     // something in the water
     let wet = null;
     const items = g.gather.items();
-    for (let i = 0; i < items.length; i++) {
+    for (let i = 0; i < items.length && !wet; i++) {
       const q = items[i];
       if (q.got || q.reg) continue;
-      if (w.waterAt(q.x, q.z) || w.isShallow(q.x, q.z)) { wet = q; break; }
+      if (!(w.waterAt(q.x, q.z) || w.isShallow(q.x, q.z))) continue;
+      const crit = q.kind === 'shrimp' || q.kind === 'crab';
+      if (crit && !q.mesh) { G.teleport(q.x, q.z); g.gather.scan(o); if (!q.mesh) g.gather.acquire(q); }
+      if (crit && !q.mesh) continue;   // take() needs the live body; a pooled-out critter is not this check
+      wet = q;
     }
     let wetOk = false, wetIn = false, wetN = 0;
     if (wet) {
