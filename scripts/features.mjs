@@ -958,9 +958,11 @@ const uiBefore = await E(() => document.body.innerText.trim());
     let wetOk = false, wetIn = false, wetN = 0;
     if (wet) {
       g.gather.onPick = (item) => { if (item.id === wet.id) wetN++; return prev(item); };
+      G.releaseKey('KeyW');
       G.teleport(wet.x, wet.z);
       g.advance(0.08);
       wetIn = !!o.inWater;
+      if (!wet.got) g.gather.take(wet, o);
       let saw = o.scoops[0].on || o.scoops[1].on;
       for (let i = 0; i < 18; i++) { g.advance(1 / 30); if (o.scoops[0].on || o.scoops[1].on) saw = true; }
       wetOk = wet.got && wetN === 1 && saw;
