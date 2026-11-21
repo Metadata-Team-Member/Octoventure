@@ -330,7 +330,7 @@ ok(Math.hypot(startAfter.x - startBefore.x, startAfter.z - startBefore.z) > 20 &
 await page.evaluate(() => { const G = window.__game; G.clearPredators(); G.setHealth(40); });
 const before = await page.evaluate(() => ({ uiText: document.body.innerText, overlays: [...document.querySelectorAll('.overlay')].filter((e) => !e.hidden).length }));
 const sea = await page.evaluate(() => window.__game.teleportToOcean(6));
-await page.evaluate(() => window.__game.advance(0.5));
+await page.evaluate(() => { const G = window.__game; for (let i = 0; i < 25 && !G.game.seaMoment; i++) G.advance(0.1); });
 const arr = await page.evaluate(() => ({ s: window.__game.state, reached: window.__game.game.progress.seaReached, moment: !!window.__game.game.seaMoment, h: window.__game.health, end: window.__game.restartVisible }));
 ok(sea && arr.s === 'playing' && arr.reached && !arr.end, 'reaching the sea does NOT end the game (state stays playing, no end screen)');
 ok(arr.moment, 'first arrival triggers the quiet sea moment (camera drift + fade)');
