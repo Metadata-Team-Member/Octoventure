@@ -68,7 +68,7 @@ await sleep(400);
   const ff = await E(() => { const g = window.__game.game; return g.atmo.fireflies ? g.atmo.fireflies.material.opacity : -1; });
   ok(ff > 0, 'fireflies come out at night');
   await frames(4); await shot('night');
-  const r = await E(async () => { const G = window.__game, g = G.game, o = g.octopus; G.setTime(0.45); G.setWeather('rain'); g.env.rain = 0.7; g.env.apply(); o.health = 50; G.advance(3); return { h: o.health, raining: g.world.raining }; });
+  const r = await E(async () => { const G = window.__game, g = G.game, o = g.octopus; G.clearPredators(); o.alive = true; o.hiddenIn = null; o.tunnel = null; G.setTime(0.45); G.setWeather('rain'); g.env.rain = 0.7; g.env.apply(); o.health = 50; G.advance(3); return { h: o.health, raining: g.world.raining }; });
   ok(r.raining && r.h > 50, `rain showers top the octopus up (moisture 50 -> ${r.h.toFixed(1)})`);
   await frames(4); await shot('rain');
   const h = await E(() => { const G = window.__game, g = G.game; G.setWeather('clear'); g.env.rain = 0; g.env.heat = 0; g.env.apply(); const a = g.world.dryMult; G.setWeather('heatwave'); g.env.heat = 1; g.env.apply(); return { a, b: g.world.dryMult }; });
@@ -92,7 +92,7 @@ await sleep(400);
   ok(hm.hermits > 0, `hermit crabs live on the beach (${hm.hermits})`);
   const bw = await E(() => { const G = window.__game; G.setTime(0.45); G.teleportToBiome('rainforest'); G.advance(12); return G.critters; });
   ok(bw.butterflies > 0 && bw.wrens > 0, `butterflies and fairy-wrens live in the rainforest (${bw.butterflies} butterflies, ${bw.wrens} wrens)`);
-  const s = await E(() => { const G = window.__game, g = G.game; g.progress.seaReached = false; G.teleportToOcean(4); G.advance(0.4); const a = { sea: g.progress.seaReached, beat: G.seaBeatActive, badge: g.levels.badges.has('sea'), state: g.state }; G.advance(8); a.after = G.seaBeatActive; a.state2 = g.state; return a; });
+  const s = await E(() => { const G = window.__game, g = G.game; g.progress.seaReached = false; g.seaMoment = null; G.teleportToOcean(4); for (let i = 0; i < 25 && !g.seaMoment; i++) G.advance(0.1); const a = { sea: g.progress.seaReached, beat: G.seaBeatActive, badge: g.levels.badges.has('sea'), state: g.state }; for (let i = 0; i < 40 && g.seaMoment; i++) G.advance(0.25); a.after = G.seaBeatActive; a.state2 = g.state; return a; });
   ok(s.sea && s.beat && s.badge, 'reaching the sea plays the underwater moment and earns the sea badge');
   ok(!s.after && s.state2 === 'playing', 'then play simply continues');
 }
