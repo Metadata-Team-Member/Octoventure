@@ -57,10 +57,11 @@ SPAN_CM = 20.0
 EXPORT_SPAN = SPAN_CM * CM
 
 # Warm golden body, cream underside, electric blue rings.
-BODY = (0xFF / 255, 0xB0 / 255, 0x16 / 255, 1.0)        # #FFB016, reads as #F0B429-ish under Workbench
+BODY = (0xDC / 255, 0x9C / 255, 0x14 / 255, 1.0)        # #DC9C14, reads as #D9A21E mustard-ochre under Workbench
 BELLY = (0xF6 / 255, 0xE4 / 255, 0xB8 / 255, 1.0)       # #F6E4B8
-RING = (0x2E / 255, 0x7B / 255, 0xFF / 255, 1.0)        # #2E7BFF
-RING_EDGE = (0x0A / 255, 0x1C / 255, 0x66 / 255, 1.0)   # #0A1C66
+RING = (0x1E / 255, 0x6B / 255, 0xFF / 255, 1.0)        # #1E6BFF electric blue
+RING_EDGE = (0x0A / 255, 0x1C / 255, 0x66 / 255, 1.0)   # #0A1C66 navy outline
+RING_CORE = (0x4A / 255, 0x3C / 255, 0x18 / 255, 1.0)   # #4A3C18 dark olive-brown centre
 EYE = (0x1A / 255, 0x1A / 255, 0x1A / 255, 1.0)
 HIGHLIGHT = (1.0, 1.0, 1.0, 1.0)
 BEAK = (0x3A / 255, 0x2C / 255, 0x22 / 255, 1.0)
@@ -442,6 +443,32 @@ def export_glb():
 
 
 
+def add_flat_disc(name, center, normal, radius, segments=14, lift=0.006):
+    """A filled flat disc decal, used for the dark ring centres."""
+    n = Vector(normal)
+    if n.length < 1e-9:
+        n = Vector((0.0, 0.0, 1.0))
+    n.normalize()
+    verts = [(0.0, 0.0, 0.0)]
+    for i in range(segments):
+        a = (i / segments) * 2.0 * math.pi
+        verts.append((radius * math.cos(a), radius * math.sin(a), 0.0))
+    faces = []
+    for i in range(segments):
+        faces.append((0, i + 1, 1 + (i + 1) % segments))
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.rotation_mode = "QUATERNION"
+    obj.rotation_quaternion = Vector((0.0, 0.0, 1.0)).rotation_difference(n)
+    obj.location = Vector(center) + n * (lift * CM)
+    apply_all(obj)
+    shade_smooth(obj)
+    return obj
+
+
 def add_flat_ring(name, center, normal, inner, outer, segments=18, lift=0.007):
     """A truly flat annulus decal (no thickness) sitting flush on the skin."""
     n = Vector(normal)
@@ -700,10 +727,10 @@ def paint_body_weights(obj):
             obj.vertex_groups.new(name=name)
     # Approximate bone regions in world / object space (applied, origin at 0).
     body_c = Vector((0.0, 0.15, 1.45)) * CM
-    head_c = Vector((0.0, -1.35, 2.55)) * CM
-    m0_c = Vector((0.0, -0.15, 3.00)) * CM
-    m1_c = Vector((0.0, 1.15, 3.25)) * CM
-    m2_c = Vector((0.0, 2.55, 3.00)) * CM
+    head_c = Vector((0.0, -1.50, 2.50)) * CM
+    m0_c = Vector((0.0, 0.20, 3.10)) * CM
+    m1_c = Vector((0.0, 1.70, 3.35)) * CM
+    m2_c = Vector((0.0, 3.40, 3.30)) * CM
     centers = {
         "body": body_c,
         "head": head_c,
@@ -728,7 +755,7 @@ def paint_body_weights(obj):
             w = max(0.0, 1.0 - dist / (2.8 * CM))
             if name == "head" and v.co.y > 0.4 * CM:
                 w *= 0.15
-            if name.startswith("mantle") and v.co.y < -1.6 * CM:
+            if name.startswith("mantle") and v.co.y < -1.8 * CM:
                 w *= 0.2
             if name == "body" and v.co.z > 2.6 * CM:
                 w *= 0.25
@@ -753,18 +780,21 @@ def snap_to_mesh(obj, guess):
     return Vector(guess), Vector((0.0, 0.0, 1.0))
 
 
-def add_ring_decal(parts, tag, surface, normal, radius_cm, group, mats, lift=0.008):
+def add_ring_decal(parts, tag, surface, normal, radius_cm, group, mats, lift=0.008, segments=14):
+    """Photo-like ring: olive-brown core, electric blue band, thin navy edge."""
     r = radius_cm * CM
-    # Navy outline slightly larger, blue ring inside, centre of the ring
-    # stays the gold body (open annulus).
-    edge = add_flat_ring(tag + "_edge", surface, normal, r * 0.72, r * 1.08, segments=18, lift=lift)
+    edge = add_flat_ring(tag + "_edge", surface, normal, r * 0.82, r * 1.06, segments=segments, lift=lift)
     set_material(edge, mats["ringEdge"])
     assign_group(edge, group)
     parts.append(edge)
-    disc = add_flat_ring(tag, surface, normal, r * 0.42, r * 0.86, segments=18, lift=lift + 0.002)
-    set_material(disc, mats["rings"])
-    assign_group(disc, group)
-    parts.append(disc)
+    band = add_flat_ring(tag, surface, normal, r * 0.56, r * 0.90, segments=segments, lift=lift + 0.002)
+    set_material(band, mats["rings"])
+    assign_group(band, group)
+    parts.append(band)
+    core = add_flat_disc(tag + "_core", surface, normal, r * 0.60, segments=segments, lift=lift + 0.004)
+    set_material(core, mats["ringCore"])
+    assign_group(core, group)
+    parts.append(core)
 
 
 def build_web(parts, mats, attach):
@@ -811,31 +841,38 @@ def build_meshes(mats):
     parts = []
     bones = []
 
-    # --- one continuous teardrop: overlapping blobs, voxel-remeshed ---
-    # Rounded mantle bulb leaning back, flowing into a slightly lower head.
+    # --- one continuous swept-back teardrop, softly pointed at the rear ---
+    # Head in front, mantle leaning back behind it into a rounded point.
     blobs = []
-    mantle_c = Vector((0.0, 1.45, 3.05)) * CM
-    # fat back of the mantle
-    blobs.append(add_uv_sphere("blob_mantle", 1.0, 16, 10, mantle_c,
-                               scale=Vector((2.55, 3.05, 2.55)) * CM))
-    # mid body, fills the neck so there is no seam
-    blobs.append(add_uv_sphere("blob_mid", 1.0, 14, 9,
-                               Vector((0.0, 0.15, 2.70)) * CM,
-                               scale=Vector((2.35, 2.10, 2.15)) * CM))
-    # head, slightly lower and forward, same volume family
-    head_c = Vector((0.0, -1.35, 2.55)) * CM
+    head_c = Vector((0.0, -1.50, 2.50)) * CM
     blobs.append(add_uv_sphere("blob_head", 1.0, 14, 9, head_c,
-                               scale=Vector((2.05, 1.85, 1.70)) * CM))
+                               scale=Vector((2.00, 1.80, 1.65)) * CM))
+    # mid / neck, keeps the head and mantle one smooth volume
+    blobs.append(add_uv_sphere("blob_mid", 1.0, 14, 9,
+                               Vector((0.0, 0.25, 2.75)) * CM,
+                               scale=Vector((2.15, 1.95, 2.00)) * CM))
+    # fat mid-back of the mantle, slightly higher than the head
+    mantle_c = Vector((0.0, 2.15, 3.30)) * CM
+    blobs.append(add_uv_sphere("blob_mantle", 1.0, 16, 10, mantle_c,
+                               scale=Vector((2.35, 2.70, 2.35)) * CM))
+    # taper toward the tip
+    blobs.append(add_uv_sphere("blob_taper", 1.0, 12, 8,
+                               Vector((0.0, 3.70, 3.40)) * CM,
+                               scale=Vector((1.70, 1.85, 1.70)) * CM))
+    # softly pointed rounded tip, leaning back
+    blobs.append(add_uv_sphere("blob_tip", 1.0, 10, 7,
+                               Vector((0.0, 4.90, 3.30)) * CM,
+                               scale=Vector((1.05, 1.35, 1.05)) * CM))
     # lower crown, so arms have a body to merge into
     blobs.append(add_uv_sphere("blob_crown", 1.0, 12, 8,
-                               Vector((0.0, 0.10, 1.55)) * CM,
+                               Vector((0.0, 0.05, 1.55)) * CM,
                                scale=Vector((1.85, 1.70, 1.15)) * CM))
-    # slightly raised eye bumps, sides-front of the head
+    # raised eye bumps on the upper sides of the head (not the front)
     for side, tag in ((1, "L"), (-1, "R")):
         blobs.append(add_uv_sphere(
             f"blob_eye_{tag}", 1.0, 10, 7,
-            Vector((side * 1.20, -2.15, 2.85)) * CM,
-            scale=Vector((0.72, 0.62, 0.60)) * CM,
+            Vector((side * 1.55, -1.52, 3.38)) * CM,
+            scale=Vector((0.70, 0.58, 0.62)) * CM,
         ))
     for b in blobs:
         set_material(b, mats["body"])
@@ -851,68 +888,115 @@ def build_meshes(mats):
     assign_group(beak, "beak")
     parts.append(beak)
 
-    # Eyes: big, glossy, sitting on the remeshed bumps, with catchlights.
+    # Eyes: big, cute, sitting high on the side bumps, with catchlights.
     eye_bones = {}
+    eye_pts = []
     for side, name in ((1, "eye_L"), (-1, "eye_R")):
-        guess = Vector((side * 1.28, -2.35, 2.88)) * CM
+        guess = Vector((side * 1.62, -1.60, 3.42)) * CM
         surface, normal = snap_to_mesh(body, guess)
-        # park the eye slightly proud of the bump
-        tip = surface + normal * (0.28 * CM)
-        eye_r = 0.64 * CM
+        # park the eye slightly proud of the bump, kept on the upper side
+        tip = surface + normal * (0.26 * CM)
+        eye_r = 0.62 * CM
         eye = add_uv_sphere(name, eye_r, 14, 10, tip)
         set_material(eye, mats["eye"])
         assign_group(eye, name)
         parts.append(eye)
-        hl_dir = (normal + Vector((-side * 0.15, -0.35, 0.40))).normalized()
-        hl = add_uv_sphere(name + "_hl", 0.20 * CM, 8, 6, tip + hl_dir * (eye_r * 0.72))
+        hl_dir = (normal + Vector((-side * 0.20, -0.25, 0.50))).normalized()
+        hl = add_uv_sphere(name + "_hl", 0.19 * CM, 8, 6, tip + hl_dir * (eye_r * 0.72))
         set_material(hl, mats["highlight"])
         assign_group(hl, name)
         parts.append(hl)
         eye_bones[name] = (tip - normal * (0.15 * CM), tip)
+        eye_pts.append(tip)
 
-    # Rings: flat crisp decals on the remeshed skin, varied sizes.
+    # Rings: dense, even, photo-like (brown core, blue band, navy edge).
+    # Directions cover the upper and side mantle, skipping the face and belly.
     mantle_rings = [
-        ((0.48, -0.32, 0.78), 0.40),
-        ((0.72, -0.18, 0.52), 0.40),
-        ((0.55,  0.50, 0.55), 0.36),
-        ((0.82,  0.22, 0.12), 0.34),
-        ((0.40,  0.78, 0.28), 0.30),
-        ((-0.48, -0.32, 0.78), 0.40),
-        ((-0.72, -0.18, 0.52), 0.40),
-        ((-0.55,  0.50, 0.55), 0.36),
-        ((-0.82,  0.22, 0.12), 0.34),
-        ((-0.40,  0.78, 0.28), 0.30),
-        ((0.00,  0.15, 0.98), 0.42),
-        ((0.00,  0.88, 0.18), 0.32),
-        ((0.28,  0.35, 0.88), 0.28),
-        ((-0.28,  0.35, 0.88), 0.28),
+        ((0.00,  0.12, 0.98), 0.38),
+        ((0.00,  0.50, 0.84), 0.36),
+        ((0.00,  0.82, 0.52), 0.34),
+        ((0.00,  0.96, 0.18), 0.30),
+        ((0.38,  0.18, 0.90), 0.34),
+        ((-0.38,  0.18, 0.90), 0.34),
+        ((0.62,  0.08, 0.74), 0.36),
+        ((-0.62,  0.08, 0.74), 0.36),
+        ((0.82,  0.22, 0.48), 0.32),
+        ((-0.82,  0.22, 0.48), 0.32),
+        ((0.50,  0.55, 0.62), 0.33),
+        ((-0.50,  0.55, 0.62), 0.33),
+        ((0.72,  0.55, 0.28), 0.30),
+        ((-0.72,  0.55, 0.28), 0.30),
+        ((0.40,  0.82, 0.30), 0.28),
+        ((-0.40,  0.82, 0.30), 0.28),
+        ((0.55, -0.12, 0.78), 0.32),
+        ((-0.55, -0.12, 0.78), 0.32),
+        ((0.28,  0.35, 0.88), 0.26),
+        ((-0.28,  0.35, 0.88), 0.26),
+        ((0.88, -0.22, 0.42), 0.30),
+        ((-0.88, -0.22, 0.42), 0.30),
+        ((0.78, -0.28, 0.58), 0.28),
+        ((-0.78, -0.28, 0.58), 0.28),
     ]
-    origin = Vector((0.0, 0.40, 2.70)) * CM
+    origin = Vector((0.0, 1.80, 3.10)) * CM
+    placed = []
     for i, (d, rad) in enumerate(mantle_rings):
         direction = Vector(d).normalized()
-        guess = origin + Vector((direction.x * 2.6, direction.y * 3.2, direction.z * 2.6)) * CM
+        guess = origin + Vector((direction.x * 2.5, direction.y * 3.4, direction.z * 2.5)) * CM
         surface, normal = snap_to_mesh(body, guess)
-        # skip the very front of the face so rings don't sit on the eyes
-        if surface.y < -2.0 * CM and surface.z > 2.3 * CM:
+        if surface.y < -2.05 * CM and surface.z > 2.2 * CM:
             continue
-        group = "head" if surface.y < -0.6 * CM else "mantle1"
-        add_ring_decal(parts, f"mring_{i}", surface, normal, rad, group, mats)
+        if normal.z < -0.30:
+            continue
+        if any((surface - e).length < 0.95 * CM for e in eye_pts):
+            continue
+        if any((surface - p).length < 0.72 * CM for p in placed):
+            continue
+        group = "head" if surface.y < -0.5 * CM else ("mantle2" if surface.y > 3.2 * CM else "mantle1")
+        add_ring_decal(parts, f"mring_{i}", surface, normal, rad, group, mats, segments=14)
+        placed.append(surface)
 
+    # A few smaller rings on the sides of the head, behind the eyes.
     head_rings = [
-        ((0.90,  0.05, 0.15), 0.28),
-        ((0.55,  0.40, 0.40), 0.24),
-        ((-0.90,  0.05, 0.15), 0.28),
-        ((-0.55,  0.40, 0.40), 0.24),
+        ((0.95,  0.15, 0.20), 0.24),
+        ((0.70,  0.35, 0.45), 0.22),
+        ((1.00, -0.15, 0.10), 0.22),
+        ((0.90,  0.00, 0.40), 0.20),
+        ((-0.95,  0.15, 0.20), 0.24),
+        ((-0.70,  0.35, 0.45), 0.22),
+        ((-1.00, -0.15, 0.10), 0.22),
+        ((-0.90,  0.00, 0.40), 0.20),
     ]
     for i, (d, rad) in enumerate(head_rings):
         direction = Vector(d).normalized()
-        guess = head_c + Vector((direction.x * 2.0, direction.y * 1.9, direction.z * 1.7)) * CM
+        guess = head_c + Vector((direction.x * 2.05, direction.y * 1.85, direction.z * 1.70)) * CM
         surface, normal = snap_to_mesh(body, guess)
-        if (surface - Vector(eye_bones["eye_L"][1])).length < 0.9 * CM:
+        if any((surface - e).length < 0.90 * CM for e in eye_pts):
             continue
-        if (surface - Vector(eye_bones["eye_R"][1])).length < 0.9 * CM:
+        add_ring_decal(parts, f"hring_{i}", surface, normal, rad, "head", mats, segments=14)
+        placed.append(surface)
+
+    # Tiny pale speckles in the gaps on the mantle (subtle, cute).
+    speckles = [
+        (0.18, 0.28, 0.94), ( -0.18, 0.62, 0.74),
+        (0.30, 0.70, 0.50), ( -0.48, 0.30, 0.80),
+        (0.58, 0.40, 0.40), ( -0.22, 0.88, 0.28),
+        (0.10, 0.05, 0.98), ( -0.70, 0.10, 0.55),
+    ]
+    for i, d in enumerate(speckles):
+        direction = Vector(d).normalized()
+        guess = origin + Vector((direction.x * 2.5, direction.y * 3.4, direction.z * 2.5)) * CM
+        surface, normal = snap_to_mesh(body, guess)
+        if any((surface - p).length < 0.40 * CM for p in placed):
             continue
-        add_ring_decal(parts, f"hring_{i}", surface, normal, rad, "head", mats)
+        if any((surface - e).length < 1.0 * CM for e in eye_pts):
+            continue
+        if normal.z < 0.05:
+            continue
+        sp = add_flat_disc(f"speckle_{i}", surface, normal, 0.07 * CM, segments=8, lift=0.007)
+        set_material(sp, mats["belly"])
+        assign_group(sp, "mantle1")
+        parts.append(sp)
+        placed.append(surface)
 
     # --- eight continuous arms ---
     attach = []
@@ -930,32 +1014,33 @@ def build_meshes(mats):
         paint_downside_belly(tube, mats["body"], mats["belly"], z_thresh=-0.12)
         parts.append(tube)
 
-        # two to three small flat rings along the top of each arm
-        ring_slots = ((0.24, 0.13), (0.50, 0.15), (0.74, 0.12))
-        for s_i, (s, rad) in enumerate(ring_slots):
-            # skip the last ring on odd arms so sizes feel varied
-            if s_i == 2 and i % 2:
-                continue
+        # A line of rings along the top of the arm, shrinking toward the tip.
+        n_arm_rings = 7
+        for s_i in range(n_arm_rings):
+            s = 0.14 + 0.74 * (s_i / (n_arm_rings - 1))
             idx = min(int(s * (len(dense) - 1)), len(dense) - 1)
             p = dense[idx]
-            # sit on the upper surface, not wrapped around the sides
-            outward = Vector((d.x * 0.25, d.y * 0.25, 1.0)).normalized()
+            outward = Vector((d.x * 0.22, d.y * 0.22, 1.0)).normalized()
             surface = p + outward * (dense_r[idx] * 0.98)
-            # pick the nearest bone for weighting
-            # s along 0..1 maps to bones
+            # radius tracks the local arm width so rings stay as full circles
+            rad = 0.20 * (1.0 - 0.42 * s)
             k = min(int(s * ARM_SEGS), ARM_SEGS - 1)
-            add_ring_decal(parts, f"aring_{i}_{s_i}", surface, outward, rad, names[k], mats, lift=0.014)
+            add_ring_decal(
+                parts, f"aring_{i}_{s_i}", surface, outward, rad, names[k], mats,
+                lift=0.014, segments=10,
+            )
 
-        # a couple of tiny suckers on the underside, mid arm
-        for s, kk in ((0.38, 2), (0.62, 3)):
+        # A row of small sucker bumps along the underside.
+        for s_i, s in enumerate((0.22, 0.38, 0.52, 0.66, 0.80)):
             idx = min(int(s * (len(dense) - 1)), len(dense) - 1)
             p = dense[idx]
+            suc_r = (0.12 - 0.05 * s) * CM
             suc = add_uv_sphere(
-                f"arm{i}_s{kk}", 0.13 * CM, 6, 4,
-                p + Vector((0.0, 0.0, -dense_r[idx] * 0.85)),
+                f"arm{i}_s{s_i}", suc_r, 5, 3,
+                p + Vector((0.0, 0.0, -dense_r[idx] * 0.88)),
             )
             set_material(suc, mats["sucker"])
-            assign_group(suc, names[kk])
+            assign_group(suc, names[min(int(s * ARM_SEGS), ARM_SEGS - 1)])
             parts.append(suc)
 
         for k in range(ARM_SEGS):
@@ -964,14 +1049,16 @@ def build_meshes(mats):
 
     build_web(parts, mats, attach)
 
+    build_web(parts, mats, attach)
+
     # Armature bones for the body
     root_tail = Vector((0.0, 0.0, 0.4)) * CM
     body_head = Vector((0.0, 0.0, 0.5)) * CM
     body_tail = Vector((0.0, 0.0, 1.5)) * CM
-    m0 = Vector((0.0, -0.4, 3.00)) * CM
-    m1 = Vector((0.0,  1.0, 3.25)) * CM
-    m2 = Vector((0.0,  2.40, 3.05)) * CM
-    m3 = Vector((0.0,  3.60, 2.55)) * CM
+    m0 = Vector((0.0, -0.3, 3.05)) * CM
+    m1 = Vector((0.0,  1.30, 3.30)) * CM
+    m2 = Vector((0.0,  2.90, 3.40)) * CM
+    m3 = Vector((0.0,  4.70, 3.25)) * CM
     h0 = head_c + Vector((0, 0.4, -0.2)) * CM
     h1 = head_c + Vector((0, -0.8, 0.2)) * CM
     bk0 = beak_c + Vector((0, 0.15, 0.05)) * CM
@@ -1202,7 +1289,8 @@ def animate_swim(arm):
         key_scale(arm.pose.bones["mantle2"], fr, (1.0, 1.0, 0.86 + 0.22 * jet))
         key_euler(arm.pose.bones["body"], fr, (math.radians(pitch), 0, 0))
         key_loc(arm.pose.bones["body"], fr, (0.0, 0.0, lift_cm * CM))
-        key_euler(arm.pose.bones["head"], fr, (math.radians(-4 + 5 * jet), 0, 0))
+        # Chin slightly tucked so the eyes stay high on the sides, not wheeled at the front.
+        key_euler(arm.pose.bones["head"], fr, (math.radians(-10 + 3 * jet), 0, 0))
         bpy.context.view_layer.update()
         for i in range(N_ARMS):
             targets = swim_targets(arm, i, flare)
@@ -1493,8 +1581,8 @@ def render_preview(arm):
         print("preview:", path)
 
     # Front 3/4 slightly from above, so the spread arms and face read clearly.
-    view_34 = ((7.0, -16.5, 7.2), (0.0, -0.8, 2.3))
-    view_side = ((17.0, 0.3, 5.8), (0.0, -0.4, 2.2))
+    view_34 = ((10.0, -14.5, 8.6), (0.0, 0.2, 2.6))
+    view_side = ((18.5, 1.4, 5.6), (0.0, 0.8, 2.5))
     PREVIEW_REPO.parent.mkdir(parents=True, exist_ok=True)
     _shot(PREVIEW_REPO, *view_34, "idle", 8)
     shutil.copy2(PREVIEW_REPO, PREVIEW_WORKSPACE)
@@ -1554,10 +1642,10 @@ def inspect_glb(path, expected_span):
         "expected_span": expected_span,
     }
     print("GLB inspect:", json.dumps(report, indent=2))
-    if tris == 0 or tris > 14000:
-        raise SystemExit(f"triangle count {tris} out of range (1–14000)")
-    if path.stat().st_size > int(1.2 * 1024 * 1024):
-        print("WARNING: glb is over 1.2 MB")
+    if tris == 0 or tris > 16000:
+        raise SystemExit(f"triangle count {tris} out of range (1–16000)")
+    if path.stat().st_size > int(1.5 * 1024 * 1024):
+        print("WARNING: glb is over 1.5 MB")
     want = {"idle", "walk", "swim", "swimIdle", "bite", "venomBite", "ink", "scoop", "threat", "celebrate"}
     have = set(anims)
     missing = sorted(want - have)
@@ -1586,6 +1674,7 @@ def main():
         "belly": make_mat("belly", BELLY, roughness=0.70, metallic=0.0),
         "rings": set_coat(make_mat("rings", RING, roughness=0.16, metallic=0.15, emission=0.35), 0.40, 0.16),
         "ringEdge": make_mat("ringEdge", RING_EDGE, roughness=0.45, metallic=0.0),
+        "ringCore": make_mat("ringCore", RING_CORE, roughness=0.55, metallic=0.0),
         "eye": make_mat("eye", EYE, roughness=0.16, metallic=0.0),
         "highlight": make_mat("highlight", HIGHLIGHT, roughness=0.22, metallic=0.0, emission=0.35),
         "beak": make_mat("beak", BEAK, roughness=0.55, metallic=0.0),
@@ -1595,7 +1684,7 @@ def main():
     mesh = join_objects("Octopus", parts)
     tris = triangle_count(mesh)
     print(f"joined mesh triangles: {tris}")
-    if tris > 14000:
+    if tris > 16000:
         raise SystemExit(f"too many triangles: {tris}")
     arm = build_armature(bones)
     bind(mesh, arm)
