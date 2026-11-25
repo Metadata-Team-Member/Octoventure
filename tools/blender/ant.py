@@ -1,5 +1,6 @@
-"""Build the Octoventure soft-toon ant and export public/models/ant.glb.
+"""Build the Octoventure soft-toon ant and export src/assets/models/ant.glb.
 
+The game imports that file (not a public/ URL) so the single-file build inlines it.
 Run from the repo (or anywhere) with:
     /opt/blender/blender -b --python tools/blender/ant.py
 
@@ -40,7 +41,7 @@ from mathutils import Vector
 # Paths and scale
 # ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parents[2]
-GLB_PATH = ROOT / "public" / "models" / "ant.glb"
+GLB_PATH = ROOT / "src" / "assets" / "models" / "ant.glb"
 PREVIEW_REPO = ROOT / "tools" / "blender" / "ant-preview.png"
 PREVIEW_WORKSPACE = Path("/workspace/ant-preview.png")
 PREVIEW_SIDE = Path("/workspace/ant-preview-side.png")

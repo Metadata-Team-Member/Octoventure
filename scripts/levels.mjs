@@ -111,6 +111,42 @@ await sleep(400);
   });
   ok(p.night > 0.7 && p.on && p.op > 0, `bioluminescent plankton glows in the night sea (biome ${p.biome}, opacity ${p.op.toFixed(2)})`);
 }
+// ---- the ant model (walk / idle, on the ground, not every ant simulating)
+{
+  await page.waitForFunction(() => window.__game.game.critters.antReady || window.__game.game.critters.antError, { timeout: 20000 });
+  const a = await E(() => {
+    const G = window.__game, g = G.game, C = g.critters, o = g.octopus;
+    G.clearPredators(); G.setWeather('clear'); g.env.rain = 0; g.env.apply();
+    G.teleportToBiome('desert'); C.antPace = 1; G.advance(6);
+    const tr = C.tr.find((t) => t.on);
+    if (tr) { G.teleport(tr.x, tr.z); o.speed = 0; }
+    G.advance(0.8);
+    const march = C.antProbe();
+    const journal = g.journal.has('ant');
+    C.antPace = 0; G.advance(0.45);
+    const held = C.antProbe();
+    C.antPace = 1; G.advance(0.45);
+    const again = C.antProbe();
+    g.env.rain = 1; G.setWeather('storm'); g.env.apply(); G.advance(4);
+    const packed = C.counts().trails;
+    C.antPace = 1; g.env.rain = 0; G.setWeather('clear'); g.env.apply();
+    const ground = march.samples.reduce((m, s) => Math.max(m, Math.abs(s.y - s.ground)), 0);
+    const face = march.samples.reduce((m, s) => Math.max(m, s.face), 0);
+    return { march, held, again, journal, packed, ground, face, trails: C.counts().trails };
+  });
+  ok(a.march.ready && !a.march.error && a.march.clips.includes('walk') && a.march.clips.includes('idle'), `the ant model loaded (${a.march.clips.join('+') || a.march.error})`);
+  ok(Math.abs(a.march.dur.walk - 0.5) < 0.05 && Math.abs(a.march.dur.idle - 2) < 0.05, `walk is a 0.5 s loop and idle is 2 s (${a.march.dur.walk}, ${a.march.dur.idle})`);
+  ok(a.march.tris > 1000 && a.march.farTris > 0 && a.march.farTris < 180, `the trail uses the glb (${a.march.tris} tris) and a cheap stand-in (${a.march.farTris} tris)`);
+  ok(a.march.samples.length > 0 && a.march.samples.every((s) => s.scale === 1) && Math.abs(a.march.instScale - 1) < 1e-5, `ants use scale 1 (mesh ${a.march.samples[0]?.scale}, stand-in ${a.march.instScale})`);
+  ok(a.ground < 0.05, `ants sit on the ground (${a.ground.toFixed(3)} u off heightAt)`);
+  ok(a.face < 0.05, `ants face along the trail (${a.face.toFixed(3)} rad)`);
+  ok(a.march.simulating > 0 && a.march.simulating <= a.march.cap && a.march.simulating < 100 && a.march.instanced > 0, `only nearby ants simulate (${a.march.simulating} mixers, cap ${a.march.cap}, ${a.march.instanced} instanced)`);
+  ok(a.march.walk > 0 && a.march.idle === 0, `marching ants play walk (${a.march.walk} walk, ${a.march.idle} idle)`);
+  ok(a.held.idle > 0 && a.held.walk === 0, `stopped ants play idle (${a.held.walk} walk, ${a.held.idle} idle)`);
+  ok(a.again.walk > 0, `the line walks again when it moves (${a.again.walk})`);
+  ok(a.journal, 'ants count in the field journal');
+  ok(a.packed === 0, `ants pack up in heavy rain (${a.packed} trails left)`);
+}
 ok(problems.length === 0, `no page errors${problems.length ? ': ' + problems.join(' | ') : ''}`);
 await browser.close();
 console.log(failed ? `\n${failed} FAILED` : '\nall levels / badges / day-night / weather checks passed');
