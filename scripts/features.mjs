@@ -682,11 +682,13 @@ const uiBefore = await E(() => document.body.innerText.trim());
     out.peekFar = g.collect.peek.count === Math.min(24, within);       // only the babies close by get a live slot
     // squelch: walk wet for 20 s and count step sounds
     let n = 0; const orig = g.audio.step; g.audio.step = () => { n++; };
-    const dsp = w.findBiomeSpot('desert'); G.teleport(dsp.x, dsp.z); G.advance(0.2); g.input.yaw = Math.PI / 2;   // open, dry, flat red sand (no tide to reach it) G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; o.health = 100; o.energy = 100; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig;
-    out.steps = n; return out;
+    G.clearPredators(); g.input.keys.clear(); g.input.pressed.clear(); o.alive = true; if (g.state !== 'playing') g.state = 'playing'; o.carried = null; o.tunnel = null;
+    const dsp = w.findBiomeSpot('desert'); G.teleport(dsp.x, dsp.z); G.advance(0.2); g.input.yaw = Math.PI / 2;   // open, dry, flat red sand (no tide to reach it)
+    G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; o.health = 100; o.energy = 100; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig;
+    out.steps = n; out.walk = `${Math.abs(o.x - dsp.x).toFixed(0)} m`; return out;
   });
   ok(r.peekNear && r.peekFar, 'a hidden baby wriggles into view only when the octopus is near');
-  ok(r.steps <= 10 && r.steps >= 2, `the wet squelch is occasional (${r.steps} in 20 s walking, not 5-8 per second)`);
+  ok(r.steps <= 10 && r.steps >= 2, `the wet squelch is occasional (${r.steps} in 20 s walking, not 5-8 per second; walked ${r.walk})`);
 }
 
 // ================================================================ the endless land: no edge, nothing breaks far from the start
