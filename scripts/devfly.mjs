@@ -36,11 +36,18 @@ await page.keyboard.press('Enter'); await sleep(80); await page.keyboard.type('f
 s = await E(() => ({ fly: !!window.__game.game.dev.fly, box: !!document.getElementById('devcmd') }));
 ok(s.fly && !s.box, 'typing fly + Enter starts the fly camera and the box goes away');
 const still = await E(() => { const g = window.__game.game, c = g.camera.position; return { cam: [c.x, c.y, c.z], o: [g.octopus.x, g.octopus.z], hp: g.octopus.health, cells: g.explored.size }; });
-await page.keyboard.down('KeyW'); await page.keyboard.down('Space'); await sleep(1500); await page.keyboard.up('KeyW'); await page.keyboard.up('Space');
+await page.keyboard.down('KeyW'); await page.keyboard.down('Space');
+// hold until the camera has gone far enough (slow CI frames are dt-clamped), up to 6 s
+for (let t = 0; t < 6000; t += 250) {
+  await sleep(250);
+  const d = await E(([x, y, z]) => { const c = window.__game.game.camera.position; return [Math.hypot(c.x - x, c.z - z), c.y - y]; }, still.cam);
+  if (t >= 1250 && d[0] > 15 && d[1] > 10) break;
+}
+await page.keyboard.up('KeyW'); await page.keyboard.up('Space');
 await page.keyboard.press('Tab'); await page.keyboard.press('KeyM'); await sleep(200);
 const mid = await E(() => { const g = window.__game.game, c = g.camera.position; return { cam: [c.x, c.y, c.z], o: [g.octopus.x, g.octopus.z], hp: g.octopus.health, sat: g.satchelOpen, cells: g.explored.size, preds: g.predators.list.length }; });
 const moved = Math.hypot(mid.cam[0] - still.cam[0], mid.cam[2] - still.cam[2]);
-ok(moved > 15 && mid.cam[1] > still.cam[1] + 10, `W and Space fly the camera fast (${moved.toFixed(0)} m across, up ${(mid.cam[1] - still.cam[1]).toFixed(0)} m in 1.5 s of slow headless frames)`);
+ok(moved > 15 && mid.cam[1] > still.cam[1] + 10, `W and Space fly the camera fast (${moved.toFixed(0)} m across, up ${(mid.cam[1] - still.cam[1]).toFixed(0)} m while W and Space are held)`);
 ok(Math.hypot(mid.o[0] - still.o[0], mid.o[1] - still.o[1]) < 0.01 && Math.abs(mid.hp - still.hp) < 0.01, 'the octopus stays put and untouched while flying (the world is frozen)');
 ok(!mid.sat && mid.cells === still.cells, `no satchel and no map exploring while flying (cells ${still.cells} -> ${mid.cells})`);
 // wheel changes speed
