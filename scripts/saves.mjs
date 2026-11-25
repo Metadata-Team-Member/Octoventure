@@ -61,7 +61,7 @@ let before;
   const s = await saved();
   ok(!!s && s.v === 10 && s.seed === seed1, 'opening the satchel saves the game (versioned)');
   ok(s && Math.abs(s.octo.x - before.pos.x) < 0.1 && Math.abs(s.octo.z - before.pos.z) < 0.1 && Math.abs(s.octo.health - before.health) < 0.3, 'the save holds position and health');
-  ok(s && s.got.includes(before.id) && s.shells.o.length === 1 && s.babies.length === 1 && s.dens.length === 1 && s.fx.ink === 3 && s.inv.counts.crab === 2, `it holds ${s && JSON.stringify({ got: s.got.includes(before.id), so: s.shells.o.length, b: s.babies.length, d: s.dens.length, ink: s.fx.ink, crab: s.inv.counts.crab })} what was taken, the shell, the baby, the den, the ink and the satchel`);// what was taken, the shell, the baby, the den, the ink and the satchel');
+  ok(s && s.got.includes(before.id) && s.shells.o.length + s.shells.r.length === 1 && s.babies.length === 1 && s.dens.length === 1 && s.fx.ink === 3 && s.inv.counts.crab === 2, `it holds ${s && JSON.stringify({ got: s.got.includes(before.id), so: s.shells.o.length + s.shells.r.length, b: s.babies.length, d: s.dens.length, ink: s.fx.ink, crab: s.inv.counts.crab })} what was taken, the shell, the baby, the den, the ink and the satchel`);// what was taken, the shell, the baby, the den, the ink and the satchel');
   ok(s && s.explored.length > 0 && s.env.kind === 'rain' && Math.abs(s.env.t - before.t) < 0.01, 'and explored cells, time of day and weather');
   ok(s && !JSON.stringify(s).match(/https?:|@|navigator|userAgent/), 'no personal data in the save');
   await page.keyboard.press('Tab'); await sleep(300);
@@ -78,7 +78,7 @@ let before;
   const a = await E((id) => {
     const G = window.__game, g = G.game, o = g.octopus;
     const it = g.gather.items().find((q) => q.id === id);
-    const shellsGot = g.world.shells.filter((s) => !s.reg && s.got).length;
+    const shellsGot = g.world.shells.filter((s) => s.got).length;
     const babyFound = g.world.babies.filter((b) => b.found).length;
     return { state: G.state, pos: { x: o.x, z: o.z }, health: o.health, inv: g.inv.toJSON(), den: g.abilities.dens.length, hide: g.world.hides.filter((h) => h.kind === 'den').length, buff: { ...o.buff }, ink: o.inkCharges, shells: g.progress.shells, armor: o.armor, babies: g.progress.babies, babyFound, shellsGot, t: g.env.t, kind: g.env.kind, taken: it?.got, slot: it?.slot, explored: g.explored.size, run: g.runTime };
   }, before.id);
