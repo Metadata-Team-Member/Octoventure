@@ -346,3 +346,25 @@ The playable square is x -690 to 690 and z -690 (north) to 735 (sea edge). Mount
 **Performance (`?mobile=1`, seed 2026, `scripts/perf.mjs`, average of two back-to-back runs against main on the same machine).** Across the nine shared biome spots the mean is 203 draw calls (main 212), 622k triangles (main 751k) and 99.5 ms a frame under software GL (main 98.1 ms, within noise). Mud flats and wasteland are the cheapest places (about 110 calls, 230k triangles). To get there: every shell now streams through the pool within ~120 m instead of all being drawn; pooled gatherables draw only up to their highest used slot; the yard places (gnomes, sheds, garden, playground) are grouped in 80 m cells skipped past the fog; on a phone small clutter props and water discs are skipped past 150 m. Per spot the beach (more clutter on a narrow strip) and the farm still draw more calls than main's spots of the same name.
 
 **Tests.** `scripts/bands.mjs` (in `npm test`): band order south to north, each band's middle is its own biomes, the start is in the sea within 30 m of the shell, the edges hold, the ranges rise past them, v9 to v10 keeps what was earned, the new landmarks sit on the ground, sludge is only purple or yellow, and predator density and alertness rise northward.
+
+## Dev tools
+For checking the map quickly. These aren't player features and aren't in the README. They're keyboard only, with nothing on phones.
+
+- **Enter** (while playing, not in the satchel, a menu, a pause or indoors) opens a tiny command box at the bottom of the screen. It's the one exception to "no in-play UI", and it's gone as soon as you press Enter or Esc. Esc, or Enter with nothing typed, closes it. Unknown commands do nothing. The world waits while you type.
+- **`fly` + Enter** starts a free camera (`src/systems/devfly.js`). The world is frozen while flying: nothing moves, nothing can hurt the octopus, and there's no journal, biome or map discovery and no autosave tick.
+  - Mouse: look (the pointer is captured again, or drag with the left button if it can't be).
+  - **W/A/S/D** or the arrow keys: move along the view.
+  - **Space** or **E**: up. **Q** or **Ctrl**: down.
+  - **Shift**: 4× faster.
+  - **Mouse wheel**: speed (default 120 m/s, 5 to 1500), so the whole map can be crossed in about ten seconds.
+  - Fog thins and the land streams in around the camera (700 m) while flying. The camera can't go under the ground or above 900 m.
+- **Esc** ends fly mode and snaps straight back to the follow camera behind the octopus, with the old heading and zoom. In a browser, Esc first releases the pointer lock, and that also ends fly mode instead of showing the pause screen. While flying, every other key (Tab, M, R and so on) is ignored. Click once to capture the mouse again.
+
+`scripts/devfly.mjs` (in `npm test`) checks:
+- the box opens and closes;
+- unknown commands do nothing;
+- fly moves the camera while the octopus stays put and unhurt;
+- no cells are explored;
+- the wheel changes speed;
+- Esc, or losing the lock, restores the follow camera without pausing;
+- Enter does nothing with the satchel open.

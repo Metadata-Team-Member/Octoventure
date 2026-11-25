@@ -39,6 +39,7 @@ import { RareFinds } from './systems/rares.js';
 import { TOON } from './world/toon.js';
 import { TIER, PEOPLE, BITE, killTier, nipsFor, killXP, lethal } from './systems/combat.js';
 import { BIOMES } from './world/biomes.js';
+import { DevTools } from './systems/devfly.js';
 import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell, unpackCell } from './systems/save.js';
 import { clamp, damp, lerp, mulberry32, frameDt } from './util/rng.js';
 const _fadeT = new THREE.Vector3(), _camOff = new THREE.Vector3(), _camWant = new THREE.Vector3();   // (t241u: camera scratch, no per-frame allocation)
@@ -134,8 +135,10 @@ export class Game {
     this.paused = false;
     this.initSettings();
     this.input.onLockChange = (locked) => this.onLockChange(locked);
+    this.dev = new DevTools(this);
     this.hud.el.pause.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#keys')) return; this.input.requestLock(); });   // the controls list is for reading, not clicking
     this.input.onKey = (e) => {
+      if (this.dev?.key(e)) return;                 // dev tools: Enter opens the command box; while flying they take every key
       if (e.code === 'KeyN' && !e.repeat && this.state !== 'menu') this.cycleSound();
       if (this.satchelOpen) { this.satchelKey(e); return; }
       if (e.code === 'KeyM' && !e.repeat && this.state === 'playing') { this.toggleMini(); return; }
@@ -303,6 +306,7 @@ void main(){
   /** pointer lock gained / lost: losing it mid-game pauses; regaining it resumes */
   onLockChange(locked) {
     this.canvas.classList.toggle('locked', locked);
+    if (!locked && this.dev?.fly) { this.dev.exitFly(); return; }   // Esc in a browser drops the lock first: that is the way out of fly mode
     if (locked) { if (this._reLock) { clearTimeout(this._reLock); this._reLock = null; } if (this.satchelOpen) this.closeSatchel(); this.setPaused(false); return; }
     if (this.state === 'playing' && this.input.everLocked) this.setPaused(true);
   }
@@ -725,6 +729,7 @@ void main(){
     const dt = frameDt(this.clock.getDelta());
     if (dt > 0) this.fps = lerp(this.fps, 1 / dt, 0.05);
     if (this._suspendTick) { this.render(); this.frame++; this.raf = requestAnimationFrame(this.tick); return; }
+    if (this.dev?.busy) { if (this.dev.fly) this.dev.update(dt); this.render(); this.frame++; this.raf = requestAnimationFrame(this.tick); return; }   // typing a dev command or flying: the world waits
     if (!this.paused) this.update(dt);
     else {
       const gp = this.input.pad.poll(dt);
