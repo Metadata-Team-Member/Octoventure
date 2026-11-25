@@ -38,7 +38,7 @@ import sys
 from pathlib import Path
 
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Quaternion, Vector
 
 ROOT = Path(__file__).resolve().parents[2]
 GLB_PATH = ROOT / "public" / "models" / "octopus.glb"
@@ -57,7 +57,7 @@ SPAN_CM = 20.0
 EXPORT_SPAN = SPAN_CM * CM
 
 # Warm golden body, cream underside, electric blue rings.
-BODY = (0xE8 / 255, 0xB2 / 255, 0x3A / 255, 1.0)        # #E8B23A
+BODY = (0xFF / 255, 0xB0 / 255, 0x16 / 255, 1.0)        # #FFB016, reads as #F0B429-ish under Workbench
 BELLY = (0xF6 / 255, 0xE4 / 255, 0xB8 / 255, 1.0)       # #F6E4B8
 RING = (0x2E / 255, 0x7B / 255, 0xFF / 255, 1.0)        # #2E7BFF
 RING_EDGE = (0x0A / 255, 0x1C / 255, 0x66 / 255, 1.0)   # #0A1C66
@@ -360,6 +360,22 @@ def key_euler(pb, frame, euler, interpolation="BEZIER"):
                         kp.handle_right_type = "AUTO"
 
 
+
+def key_quat(pb, frame, quat, interpolation="BEZIER"):
+    pb.rotation_mode = "QUATERNION"
+    pb.rotation_quaternion = Quaternion(quat)
+    pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+    if pb.id_data.animation_data and pb.id_data.animation_data.action:
+        action = pb.id_data.animation_data.action
+        for fc in action.fcurves:
+            if fc.data_path == f'pose.bones["{pb.name}"].rotation_quaternion':
+                for kp in fc.keyframe_points:
+                    if int(kp.co.x) == frame:
+                        kp.interpolation = interpolation
+                        kp.handle_left_type = "AUTO"
+                        kp.handle_right_type = "AUTO"
+
+
 def push_nla(arm, action, name):
     if arm.animation_data is None:
         arm.animation_data_create()
@@ -426,31 +442,24 @@ def export_glb():
 
 
 
-def add_annulus(name, center, normal, inner, outer, thickness, segments=12):
-    """A thin open ring (annulus) in a plane, axis along `normal`."""
+def add_flat_ring(name, center, normal, inner, outer, segments=18, lift=0.007):
+    """A truly flat annulus decal (no thickness) sitting flush on the skin."""
     n = Vector(normal)
     if n.length < 1e-9:
         n = Vector((0.0, 0.0, 1.0))
     n.normalize()
     verts = []
-    th = thickness * 0.5
-    for zsign in (-1.0, 1.0):
-        for i in range(segments):
-            a = (i / segments) * 2.0 * math.pi
-            c, s = math.cos(a), math.sin(a)
-            verts.append((outer * c, outer * s, zsign * th))
-            verts.append((inner * c, inner * s, zsign * th))
-
-    def vi(layer, i, which):
-        return layer * segments * 2 + i * 2 + which
-
+    for i in range(segments):
+        a = (i / segments) * 2.0 * math.pi
+        c, s = math.cos(a), math.sin(a)
+        verts.append((outer * c, outer * s, 0.0))
+        verts.append((inner * c, inner * s, 0.0))
     faces = []
     for i in range(segments):
         j = (i + 1) % segments
-        faces.append((vi(1, i, 0), vi(1, j, 0), vi(1, j, 1), vi(1, i, 1)))
-        faces.append((vi(0, i, 0), vi(0, i, 1), vi(0, j, 1), vi(0, j, 0)))
-        faces.append((vi(0, i, 0), vi(0, j, 0), vi(1, j, 0), vi(1, i, 0)))
-        faces.append((vi(0, i, 1), vi(1, i, 1), vi(1, j, 1), vi(0, j, 1)))
+        oi, ii = i * 2, i * 2 + 1
+        oj, ij = j * 2, j * 2 + 1
+        faces.append((oi, oj, ij, ii))
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(verts, [], faces)
     mesh.update()
@@ -458,10 +467,15 @@ def add_annulus(name, center, normal, inner, outer, thickness, segments=12):
     bpy.context.collection.objects.link(obj)
     obj.rotation_mode = "QUATERNION"
     obj.rotation_quaternion = Vector((0.0, 0.0, 1.0)).rotation_difference(n)
-    obj.location = Vector(center) + n * (thickness * 0.55)
+    obj.location = Vector(center) + n * (lift * CM)
     apply_all(obj)
     shade_smooth(obj)
     return obj
+
+
+def add_annulus(name, center, normal, inner, outer, thickness, segments=12):
+    # Kept for compatibility; rings now use the flat decal helper.
+    return add_flat_ring(name, center, normal, inner, outer, segments=max(segments, 16))
 
 
 def on_ellipsoid(center, half, direction, embed=1.0):
@@ -483,23 +497,313 @@ def arm_bone(i, k):
 
 
 def arm_joints():
-    """Rest-pose joint positions for one arm in a local frame (out along +X, up +Z)."""
-    # 7 joints (6 bones). Total arm length ~ 7.2 cm from the crown, sitting on the ground.
-    # span 2 * 7.2 + a little body overlap ≈ 20 cm.
-    lengths = (1.35, 1.30, 1.20, 1.15, 1.10, 1.10)  # cm, between joints
+    """Rest-pose joint offsets along one arm, in cm."""
+    # 7 joints (6 bones). Arms are ~7.7 cm from the crown, about 1.4x the
+    # ~5.5 cm mantle, plump and tip-curled for a cute silhouette.
+    lengths = (1.45, 1.45, 1.35, 1.25, 1.15, 1.05)
     pts = [Vector((0.0, 0.0, 0.0))]
     x = 0.0
-    z = 0.0
-    for k, length in enumerate(lengths):
+    for length in lengths:
         x += length
-        # drop quickly onto the ground, then travel, tip curls up a little
-        t = (k + 1) / len(lengths)
-        if t < 0.28:
-            z = 0.0 - (0.0)  # relative to crown; applied later
         pts.append(Vector((x, 0.0, 0.0)))
-    # overwrite z in crown space: crown is at z=1.20 cm, ground feet at 0.18 cm
-    # We'll place these in world space in build_meshes.
     return pts, lengths
+
+
+# Rest-pose arm path in centimetres. Shared by the mesh and the armature.
+ARM_ALONG = [0.0, 1.45, 2.90, 4.25, 5.50, 6.65, 7.70]
+ARM_HEIGHT = [1.35, 0.98, 0.55, 0.32, 0.26, 0.42, 0.85]
+ARM_RADII = [1.10, 0.96, 0.80, 0.62, 0.46, 0.32, 0.16]
+ARM_SPREAD = 0.72  # crown radius, cm
+ARM_LOOPS = 22     # rings of verts along each arm (smooth bends)
+
+
+def world_joint(i, k):
+    d = arm_dir(i)
+    t = ARM_ALONG[k] / ARM_ALONG[-1]
+    # slight inward pull toward the tip so the arm isn't a stiff spoke
+    radial = ARM_SPREAD + ARM_ALONG[k] - 0.45 * t * t
+    return Vector((
+        d.x * radial * CM,
+        d.y * radial * CM,
+        ARM_HEIGHT[k] * CM,
+    ))
+
+
+def lerp_path(points, radii, count):
+    """Evenly resample a polyline (and its radii) to `count` points."""
+    pts = [Vector(p) for p in points]
+    segs = [ (pts[i + 1] - pts[i]).length for i in range(len(pts) - 1) ]
+    total = sum(segs) or 1.0
+    out_p, out_r = [], []
+    for j in range(count):
+        target = (j / (count - 1)) * total
+        acc = 0.0
+        placed = False
+        for i, length in enumerate(segs):
+            if acc + length >= target or i == len(segs) - 1:
+                t = 0.0 if length < 1e-12 else min(1.0, max(0.0, (target - acc) / length))
+                out_p.append(pts[i].lerp(pts[i + 1], t))
+                out_r.append((1.0 - t) * radii[i] + t * radii[i + 1])
+                placed = True
+                break
+            acc += length
+        if not placed:
+            out_p.append(pts[-1])
+            out_r.append(radii[-1])
+    return out_p, out_r
+
+
+def add_tapered_tube(name, points, radii, circ=8):
+    """One continuous smooth tapered tube with a rounded tip."""
+    pts = [Vector(p) for p in points]
+    n = len(pts)
+    verts = []
+    # stable frames along the path
+    frames = []
+    ref_up = Vector((0.0, 0.0, 1.0))
+    for i, p in enumerate(pts):
+        if i < n - 1:
+            tangent = (pts[i + 1] - p)
+        else:
+            tangent = (p - pts[i - 1])
+        if tangent.length < 1e-12:
+            tangent = Vector((0.0, 1.0, 0.0))
+        tangent.normalize()
+        up = ref_up
+        if abs(tangent.dot(up)) > 0.92:
+            up = Vector((1.0, 0.0, 0.0))
+        side = tangent.cross(up)
+        if side.length < 1e-12:
+            side = Vector((1.0, 0.0, 0.0))
+        side.normalize()
+        norm = side.cross(tangent).normalized()
+        frames.append((norm, side, tangent))
+        ref_up = norm
+        for j in range(circ):
+            a = (j / circ) * 2.0 * math.pi
+            verts.append(p + radii[i] * (math.cos(a) * norm + math.sin(a) * side))
+    # rounded tip vertex just past the last ring
+    tip = pts[-1] + frames[-1][2] * (radii[-1] * 0.85)
+    tip_index = len(verts)
+    verts.append(tip)
+
+    faces = []
+    for i in range(n - 1):
+        for j in range(circ):
+            a = i * circ + j
+            b = i * circ + (j + 1) % circ
+            c = (i + 1) * circ + (j + 1) % circ
+            d = (i + 1) * circ + j
+            faces.append((a, b, c, d))
+    last = (n - 1) * circ
+    for j in range(circ):
+        faces.append((last + j, last + (j + 1) % circ, tip_index))
+
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    for poly in mesh.polygons:
+        poly.use_smooth = True
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    shade_smooth(obj)
+    return obj
+
+
+def skin_along_chain(obj, bone_names, joints):
+    """Soft weight blend along a polyline of rest joints (one bone per span)."""
+    joints = [Vector(j) for j in joints]
+    spans = [(joints[k + 1] - joints[k]).length for k in range(len(joints) - 1)]
+    total = sum(spans) or 1.0
+    # cumulative length at each joint
+    cum = [0.0]
+    for length in spans:
+        cum.append(cum[-1] + length)
+    n_bones = len(bone_names)
+    for name in bone_names:
+        if obj.vertex_groups.get(name) is None:
+            obj.vertex_groups.new(name=name)
+    for v in obj.data.vertices:
+        # closest parameter along the polyline
+        best_s = 0.0
+        best_d = 1e9
+        acc = 0.0
+        for k, length in enumerate(spans):
+            a, b = joints[k], joints[k + 1]
+            ab = b - a
+            if length < 1e-12:
+                continue
+            t = max(0.0, min(1.0, (v.co - a).dot(ab) / (length * length)))
+            proj = a + ab * t
+            d = (v.co - proj).length
+            if d < best_d:
+                best_d = d
+                best_s = (acc + t * length) / total
+            acc += length
+        x = best_s * n_bones
+        weights = {}
+        for k in range(n_bones):
+            center = k + 0.5
+            dist = abs(x - center)
+            w = max(0.0, 1.0 - dist / 1.20)
+            if w > 0.01:
+                weights[k] = w
+        ssum = sum(weights.values()) or 1.0
+        for k, w in weights.items():
+            obj.vertex_groups[bone_names[k]].add([v.index], w / ssum, "REPLACE")
+
+
+def paint_downside_belly(obj, body_mat, belly_mat, z_thresh=-0.18, max_z=None, hide_front=False):
+    if body_mat.name not in obj.data.materials:
+        obj.data.materials.append(body_mat)
+    if belly_mat.name not in obj.data.materials:
+        obj.data.materials.append(belly_mat)
+    body_i = list(obj.data.materials).index(body_mat)
+    belly_i = list(obj.data.materials).index(belly_mat)
+    for poly in obj.data.polygons:
+        center = poly.center
+        use = poly.normal.z < z_thresh
+        if max_z is not None and center.z > max_z:
+            use = False
+        # keep the face and chin gold so the remesh edge isn't a jagged cream scallop
+        if hide_front and center.y < -0.6 * CM and center.z > 1.45 * CM:
+            use = False
+        poly.material_index = belly_i if use else body_i
+
+
+def join_and_remesh(name, objects, voxel, smooth_iter=10):
+    obj = join_objects(name, objects)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    mod = obj.modifiers.new("Remesh", "REMESH")
+    mod.mode = "VOXEL"
+    mod.voxel_size = voxel
+    bpy.ops.object.modifier_apply(modifier="Remesh")
+    lap = obj.modifiers.new("Lap", "LAPLACIANSMOOTH")
+    lap.iterations = 8
+    if hasattr(lap, "lambda_factor"):
+        lap.lambda_factor = 0.45
+    bpy.ops.object.modifier_apply(modifier="Lap")
+    sm = obj.modifiers.new("Smooth", "SMOOTH")
+    sm.factor = 1.0
+    sm.iterations = smooth_iter
+    bpy.ops.object.modifier_apply(modifier="Smooth")
+    shade_smooth(obj)
+    print(f"remeshed {name}: {triangle_count(obj)} tris, voxel={voxel:.5f}")
+    return obj
+
+
+def paint_body_weights(obj):
+    names = ["body", "mantle0", "mantle1", "mantle2", "head"]
+    for name in names:
+        if obj.vertex_groups.get(name) is None:
+            obj.vertex_groups.new(name=name)
+    # Approximate bone regions in world / object space (applied, origin at 0).
+    body_c = Vector((0.0, 0.15, 1.45)) * CM
+    head_c = Vector((0.0, -1.35, 2.55)) * CM
+    m0_c = Vector((0.0, -0.15, 3.00)) * CM
+    m1_c = Vector((0.0, 1.15, 3.25)) * CM
+    m2_c = Vector((0.0, 2.55, 3.00)) * CM
+    centers = {
+        "body": body_c,
+        "head": head_c,
+        "mantle0": m0_c,
+        "mantle1": m1_c,
+        "mantle2": m2_c,
+    }
+    # Stretch so the mantle chain prefers the upper back and the head the front.
+    scales = {
+        "body": Vector((1.0, 1.0, 1.4)),
+        "head": Vector((1.0, 0.85, 1.0)),
+        "mantle0": Vector((1.0, 1.1, 1.0)),
+        "mantle1": Vector((1.0, 1.0, 0.9)),
+        "mantle2": Vector((1.0, 0.9, 1.0)),
+    }
+    for v in obj.data.vertices:
+        weights = {}
+        for name, c in centers.items():
+            d = v.co - c
+            s = scales[name]
+            dist = Vector((d.x / s.x, d.y / s.y, d.z / s.z)).length
+            w = max(0.0, 1.0 - dist / (2.8 * CM))
+            if name == "head" and v.co.y > 0.4 * CM:
+                w *= 0.15
+            if name.startswith("mantle") and v.co.y < -1.6 * CM:
+                w *= 0.2
+            if name == "body" and v.co.z > 2.6 * CM:
+                w *= 0.25
+            if w > 0.02:
+                weights[name] = w
+        if not weights:
+            weights["body"] = 1.0
+        ssum = sum(weights.values())
+        for name, w in weights.items():
+            obj.vertex_groups[name].add([v.index], w / ssum, "REPLACE")
+
+
+def snap_to_mesh(obj, guess):
+    """Closest surface point and normal on an applied mesh."""
+    ok, loc, normal, _idx = obj.closest_point_on_mesh(Vector(guess))
+    if ok:
+        n = Vector(normal)
+        if n.length < 1e-9:
+            n = (Vector(guess) - Vector((0.0, 0.4, 2.5)) * CM)
+        n.normalize()
+        return Vector(loc), n
+    return Vector(guess), Vector((0.0, 0.0, 1.0))
+
+
+def add_ring_decal(parts, tag, surface, normal, radius_cm, group, mats, lift=0.008):
+    r = radius_cm * CM
+    # Navy outline slightly larger, blue ring inside, centre of the ring
+    # stays the gold body (open annulus).
+    edge = add_flat_ring(tag + "_edge", surface, normal, r * 0.72, r * 1.08, segments=18, lift=lift)
+    set_material(edge, mats["ringEdge"])
+    assign_group(edge, group)
+    parts.append(edge)
+    disc = add_flat_ring(tag, surface, normal, r * 0.42, r * 0.86, segments=18, lift=lift + 0.002)
+    set_material(disc, mats["rings"])
+    assign_group(disc, group)
+    parts.append(disc)
+
+
+def build_web(parts, mats, attach):
+    """Subtle webbing between neighbouring arm bases around the crown."""
+    inner_r = 0.28 * CM
+    # two concentric rings of 8*3 verts for a soft scalloped web
+    steps = N_ARMS * 3
+    inner = []
+    outer = []
+    crown_z = 1.22 * CM
+    for s in range(steps):
+        ang = s * (2.0 * math.pi / steps)
+        # scallop: higher and slightly more extended between arms
+        phase = (s % 3) / 3.0
+        scallop = math.sin(phase * math.pi)
+        d = Vector((math.sin(ang), -math.cos(ang), 0.0))
+        iz = crown_z + 0.10 * CM
+        oz = crown_z + 0.02 * CM + 0.10 * CM * scallop
+        inner.append(d * inner_r + Vector((0.0, 0.0, iz)))
+        # outer sits on the arm bases (radius close to ARM_SPREAD)
+        orad = (ARM_SPREAD + 0.35 + 0.28 * scallop) * CM
+        outer.append(d * orad + Vector((0.0, 0.0, oz)))
+    verts = inner + outer
+    faces = []
+    for s in range(steps):
+        t = (s + 1) % steps
+        faces.append((s, t, steps + t, steps + s))
+    mesh = bpy.data.meshes.new("web")
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    for poly in mesh.polygons:
+        poly.use_smooth = True
+    obj = bpy.data.objects.new("web", mesh)
+    bpy.context.collection.objects.link(obj)
+    shade_smooth(obj)
+    set_material(obj, mats["body"])
+    assign_group(obj, "body")
+    parts.append(obj)
+    return obj
 
 
 def build_meshes(mats):
@@ -507,178 +811,167 @@ def build_meshes(mats):
     parts = []
     bones = []
 
-    # --- body: rounded mantle + slightly squashed head ---
-    mantle_c = Vector((0.0, 1.35, 3.20)) * CM
-    mantle_s = Vector((2.70, 2.70, 2.55)) * CM
-    head_c = Vector((0.0, -1.15, 2.65)) * CM
-    head_s = Vector((2.15, 1.95, 1.70)) * CM
-
-    mantle = add_uv_sphere("mantle", 1.0, 20, 12, mantle_c, scale=mantle_s)
-    set_material(mantle, mats["body"])
-    assign_group(mantle, "mantle1")
-    parts.append(mantle)
-
-    head = add_uv_sphere("head", 1.0, 16, 10, head_c, scale=head_s)
-    set_material(head, mats["body"])
-    assign_group(head, "head")
-    parts.append(head)
-
-    # soft brow ridges above the eyes
-    for side, name in ((1, "brow_L"), (-1, "brow_R")):
-        loc = Vector((side * 1.05, -2.15, 3.35)) * CM
-        brow = add_uv_sphere(name, 1.0, 8, 5, loc, scale=Vector((0.55, 0.28, 0.22)) * CM)
-        set_material(brow, mats["body"])
-        assign_group(brow, "head")
-        parts.append(brow)
+    # --- one continuous teardrop: overlapping blobs, voxel-remeshed ---
+    # Rounded mantle bulb leaning back, flowing into a slightly lower head.
+    blobs = []
+    mantle_c = Vector((0.0, 1.45, 3.05)) * CM
+    # fat back of the mantle
+    blobs.append(add_uv_sphere("blob_mantle", 1.0, 16, 10, mantle_c,
+                               scale=Vector((2.55, 3.05, 2.55)) * CM))
+    # mid body, fills the neck so there is no seam
+    blobs.append(add_uv_sphere("blob_mid", 1.0, 14, 9,
+                               Vector((0.0, 0.15, 2.70)) * CM,
+                               scale=Vector((2.35, 2.10, 2.15)) * CM))
+    # head, slightly lower and forward, same volume family
+    head_c = Vector((0.0, -1.35, 2.55)) * CM
+    blobs.append(add_uv_sphere("blob_head", 1.0, 14, 9, head_c,
+                               scale=Vector((2.05, 1.85, 1.70)) * CM))
+    # lower crown, so arms have a body to merge into
+    blobs.append(add_uv_sphere("blob_crown", 1.0, 12, 8,
+                               Vector((0.0, 0.10, 1.55)) * CM,
+                               scale=Vector((1.85, 1.70, 1.15)) * CM))
+    # slightly raised eye bumps, sides-front of the head
+    for side, tag in ((1, "L"), (-1, "R")):
+        blobs.append(add_uv_sphere(
+            f"blob_eye_{tag}", 1.0, 10, 7,
+            Vector((side * 1.20, -2.15, 2.85)) * CM,
+            scale=Vector((0.72, 0.62, 0.60)) * CM,
+        ))
+    for b in blobs:
+        set_material(b, mats["body"])
+    body = join_and_remesh("body_shell", blobs, voxel=0.26 * CM, smooth_iter=16)
+    paint_body_weights(body)
+    paint_downside_belly(body, mats["body"], mats["belly"], z_thresh=-0.40, max_z=1.85 * CM, hide_front=True)
+    parts.append(body)
 
     # Beak under the front of the head, at the arm crown.
-    beak_c = Vector((0.0, -0.35, 1.35)) * CM
-    beak = add_uv_sphere("beak", 1.0, 8, 6, beak_c, scale=Vector((0.35, 0.32, 0.28)) * CM)
+    beak_c = Vector((0.0, -0.30, 1.28)) * CM
+    beak = add_uv_sphere("beak", 1.0, 8, 6, beak_c, scale=Vector((0.34, 0.30, 0.26)) * CM)
     set_material(beak, mats["beak"])
     assign_group(beak, "beak")
     parts.append(beak)
 
-    # Eyes: big, glossy, on the front of the head, with catchlights.
+    # Eyes: big, glossy, sitting on the remeshed bumps, with catchlights.
     eye_bones = {}
     for side, name in ((1, "eye_L"), (-1, "eye_R")):
-        tip = Vector((side * 1.20, -2.55, 3.05)) * CM
-        eye_r = 0.62 * CM
-        eye = add_uv_sphere(name, eye_r, 12, 8, tip)
+        guess = Vector((side * 1.28, -2.35, 2.88)) * CM
+        surface, normal = snap_to_mesh(body, guess)
+        # park the eye slightly proud of the bump
+        tip = surface + normal * (0.28 * CM)
+        eye_r = 0.64 * CM
+        eye = add_uv_sphere(name, eye_r, 14, 10, tip)
         set_material(eye, mats["eye"])
         assign_group(eye, name)
         parts.append(eye)
-        direction = Vector((-side * 0.15, -0.85, 0.28)).normalized()
-        surface = tip + direction * eye_r
-        hl = add_uv_sphere(name + "_hl", 0.18 * CM, 7, 5, surface - direction * (0.03 * CM))
+        hl_dir = (normal + Vector((-side * 0.15, -0.35, 0.40))).normalized()
+        hl = add_uv_sphere(name + "_hl", 0.20 * CM, 8, 6, tip + hl_dir * (eye_r * 0.72))
         set_material(hl, mats["highlight"])
         assign_group(hl, name)
         parts.append(hl)
-        eye_bones[name] = (tip + Vector((0, 0.15, 0)) * CM, tip)
+        eye_bones[name] = (tip - normal * (0.15 * CM), tip)
 
-    # Rings on the mantle and head (blue disc + slightly larger navy outline).
-    def add_ring(tag, center, half, direction, radius_cm, group):
-        # Open rings with a navy outline, centre shows the body.
-        surface = on_ellipsoid(center, half, direction, 1.0)
-        normal = ellipsoid_normal(center, half, surface)
-        r = radius_cm * CM
-        edge = add_annulus(tag + "_edge", surface, normal, r * 0.52, r * 1.08, 0.07 * CM, 10)
-        set_material(edge, mats["ringEdge"])
-        assign_group(edge, group)
-        parts.append(edge)
-        disc = add_annulus(tag, surface + normal * (0.04 * CM), normal, r * 0.62, r * 0.98, 0.08 * CM, 10)
-        set_material(disc, mats["rings"])
-        assign_group(disc, group)
-        parts.append(disc)
-
+    # Rings: flat crisp decals on the remeshed skin, varied sizes.
     mantle_rings = [
-        ((0.20, -0.50, 0.80), 0.48),
-        ((0.75, -0.10, 0.50), 0.42),
-        ((0.50,  0.55, 0.50), 0.38),
-        ((0.80,  0.25, 0.10), 0.36),
-        ((-0.20, -0.50, 0.80), 0.48),
-        ((-0.75, -0.10, 0.50), 0.42),
-        ((-0.50,  0.55, 0.50), 0.38),
-        ((-0.80,  0.25, 0.10), 0.36),
-        ((0.00,  0.20, 0.98), 0.44),
-        ((0.00,  0.85, 0.15), 0.34),
+        ((0.48, -0.32, 0.78), 0.40),
+        ((0.72, -0.18, 0.52), 0.40),
+        ((0.55,  0.50, 0.55), 0.36),
+        ((0.82,  0.22, 0.12), 0.34),
+        ((0.40,  0.78, 0.28), 0.30),
+        ((-0.48, -0.32, 0.78), 0.40),
+        ((-0.72, -0.18, 0.52), 0.40),
+        ((-0.55,  0.50, 0.55), 0.36),
+        ((-0.82,  0.22, 0.12), 0.34),
+        ((-0.40,  0.78, 0.28), 0.30),
+        ((0.00,  0.15, 0.98), 0.42),
+        ((0.00,  0.88, 0.18), 0.32),
+        ((0.28,  0.35, 0.88), 0.28),
+        ((-0.28,  0.35, 0.88), 0.28),
     ]
+    origin = Vector((0.0, 0.40, 2.70)) * CM
     for i, (d, rad) in enumerate(mantle_rings):
-        add_ring(f"mring_{i}", mantle_c, mantle_s, d, rad, "mantle1")
+        direction = Vector(d).normalized()
+        guess = origin + Vector((direction.x * 2.6, direction.y * 3.2, direction.z * 2.6)) * CM
+        surface, normal = snap_to_mesh(body, guess)
+        # skip the very front of the face so rings don't sit on the eyes
+        if surface.y < -2.0 * CM and surface.z > 2.3 * CM:
+            continue
+        group = "head" if surface.y < -0.6 * CM else "mantle1"
+        add_ring_decal(parts, f"mring_{i}", surface, normal, rad, group, mats)
 
     head_rings = [
-        ((0.85,  0.15, 0.10), 0.30),
-        ((0.50,  0.50, 0.35), 0.26),
-        ((-0.85,  0.15, 0.10), 0.30),
-        ((-0.50,  0.50, 0.35), 0.26),
+        ((0.90,  0.05, 0.15), 0.28),
+        ((0.55,  0.40, 0.40), 0.24),
+        ((-0.90,  0.05, 0.15), 0.28),
+        ((-0.55,  0.40, 0.40), 0.24),
     ]
     for i, (d, rad) in enumerate(head_rings):
-        add_ring(f"hring_{i}", head_c, head_s, d, rad, "head")
+        direction = Vector(d).normalized()
+        guess = head_c + Vector((direction.x * 2.0, direction.y * 1.9, direction.z * 1.7)) * CM
+        surface, normal = snap_to_mesh(body, guess)
+        if (surface - Vector(eye_bones["eye_L"][1])).length < 0.9 * CM:
+            continue
+        if (surface - Vector(eye_bones["eye_R"][1])).length < 0.9 * CM:
+            continue
+        add_ring_decal(parts, f"hring_{i}", surface, normal, rad, "head", mats)
 
-    # --- eight arms ---
-    crown = Vector((0.0, 0.0, 1.20)) * CM
-    # Joint offsets along the arm, in cm, and height in cm (world Z).
-    # drop onto the ground, travel, tip curls slightly up.
-    # distances from crown along the arm:
-    along = [0.0, 1.35, 2.65, 3.85, 5.00, 6.10, 7.20]  # 7 joints
-    height = [1.20, 0.85, 0.45, 0.22, 0.18, 0.20, 0.32]  # cm above ground
-    radii = [0.85, 0.72, 0.58, 0.45, 0.34, 0.24, 0.16]  # cm, at each joint
-
-    def world_joint(i, k):
-        d = arm_dir(i)
-        spread = 0.55 * CM  # crown radius
-        return Vector((
-            d.x * (spread / CM + along[k]) * CM,
-            d.y * (spread / CM + along[k]) * CM,
-            height[k] * CM,
-        ))
-
+    # --- eight continuous arms ---
+    attach = []
     for i in range(N_ARMS):
         d = arm_dir(i)
         joints = [world_joint(i, k) for k in range(ARM_SEGS + 1)]
         names = [arm_bone(i, k) for k in range(ARM_SEGS)]
-        # coxa / shoulder, body-weighted so the arm stays seated on the crown
-        coxa = add_uv_sphere(f"arm{i}_coxa", radii[0] * 1.05 * CM, 6, 4, joints[0])
-        set_material(coxa, mats["body"])
-        assign_group(coxa, "body")
-        parts.append(coxa)
-        for k in range(ARM_SEGS):
-            a, b = joints[k], joints[k + 1]
-            r0, r1 = radii[k] * CM, radii[k + 1] * CM
-            r = 0.5 * (r0 + r1)
-            mid = (a + b) * 0.5
-            bone = names[k]
-            parent = "body" if k == 0 else names[k - 1]
-            # tube
-            tube = add_cylinder_between(f"arm{i}_t{k}", a, b, r, verts=8)
-            set_material(tube, mats["body"])
-            assign_group(tube, bone)
-            parts.append(tube)
-            if k % 2 == 0:
-                down = Vector((0.0, 0.0, -1.0))
-                belly = add_uv_sphere(
-                    f"arm{i}_b{k}", r * 0.72, 6, 4,
-                    mid + down * (r * 0.55),
-                    scale=Vector((1.05, 1.05, 0.55)),
-                )
-                set_material(belly, mats["belly"])
-                assign_group(belly, bone)
-                parts.append(belly)
-            if k < ARM_SEGS - 1:
-                kn = add_uv_sphere(f"arm{i}_j{k}", r0 * 0.72, 6, 4, b)
-                set_material(kn, mats["body"])
-                assign_weights(kn, [(bone, 0.55), (names[k + 1], 0.45)])
-                parts.append(kn)
-            else:
-                tip = add_uv_sphere(f"arm{i}_end", r1 * 1.15, 6, 4, b)
-                set_material(tip, mats["body"])
-                assign_group(tip, bone)
-                parts.append(tip)
-            if k == 2:
-                outward = Vector((d.x, d.y, 0.45)).normalized()
-                add_ring(f"aring_{i}_{k}", mid, Vector((r, r, r)), outward, 0.26, bone)
-            if k in (1, 3):
-                suc = add_uv_sphere(
-                    f"arm{i}_s{k}", 0.14 * CM, 6, 4,
-                    mid + Vector((0.0, 0.0, -r * 0.85)),
-                )
-                set_material(suc, mats["sucker"])
-                assign_group(suc, bone)
-                parts.append(suc)
+        attach.append(joints[0])
+        dense, dense_r = lerp_path(joints, [r * CM for r in ARM_RADII], ARM_LOOPS)
+        # start the tube slightly inside the crown so it merges with the body
+        dense[0] = dense[0] - d * (0.28 * CM) + Vector((0.0, 0.0, 0.04 * CM))
+        tube = add_tapered_tube(f"arm{i}", dense, dense_r, circ=8)
+        set_material(tube, mats["body"])
+        skin_along_chain(tube, names, joints)
+        paint_downside_belly(tube, mats["body"], mats["belly"], z_thresh=-0.12)
+        parts.append(tube)
 
-        # arm bones: parent chain
+        # two to three small flat rings along the top of each arm
+        ring_slots = ((0.24, 0.13), (0.50, 0.15), (0.74, 0.12))
+        for s_i, (s, rad) in enumerate(ring_slots):
+            # skip the last ring on odd arms so sizes feel varied
+            if s_i == 2 and i % 2:
+                continue
+            idx = min(int(s * (len(dense) - 1)), len(dense) - 1)
+            p = dense[idx]
+            # sit on the upper surface, not wrapped around the sides
+            outward = Vector((d.x * 0.25, d.y * 0.25, 1.0)).normalized()
+            surface = p + outward * (dense_r[idx] * 0.98)
+            # pick the nearest bone for weighting
+            # s along 0..1 maps to bones
+            k = min(int(s * ARM_SEGS), ARM_SEGS - 1)
+            add_ring_decal(parts, f"aring_{i}_{s_i}", surface, outward, rad, names[k], mats, lift=0.014)
+
+        # a couple of tiny suckers on the underside, mid arm
+        for s, kk in ((0.38, 2), (0.62, 3)):
+            idx = min(int(s * (len(dense) - 1)), len(dense) - 1)
+            p = dense[idx]
+            suc = add_uv_sphere(
+                f"arm{i}_s{kk}", 0.13 * CM, 6, 4,
+                p + Vector((0.0, 0.0, -dense_r[idx] * 0.85)),
+            )
+            set_material(suc, mats["sucker"])
+            assign_group(suc, names[kk])
+            parts.append(suc)
+
         for k in range(ARM_SEGS):
             parent = "body" if k == 0 else names[k - 1]
             bones.append((names[k], parent, joints[k], joints[k + 1]))
+
+    build_web(parts, mats, attach)
 
     # Armature bones for the body
     root_tail = Vector((0.0, 0.0, 0.4)) * CM
     body_head = Vector((0.0, 0.0, 0.5)) * CM
     body_tail = Vector((0.0, 0.0, 1.5)) * CM
-    # mantle chain, front to back along +Y (behind the face)
-    m0 = Vector((0.0, -0.4, 3.10)) * CM
-    m1 = Vector((0.0,  0.9, 3.30)) * CM
-    m2 = Vector((0.0,  2.40, 3.10)) * CM
-    m3 = Vector((0.0,  3.70, 2.70)) * CM
+    m0 = Vector((0.0, -0.4, 3.00)) * CM
+    m1 = Vector((0.0,  1.0, 3.25)) * CM
+    m2 = Vector((0.0,  2.40, 3.05)) * CM
+    m3 = Vector((0.0,  3.60, 2.55)) * CM
     h0 = head_c + Vector((0, 0.4, -0.2)) * CM
     h1 = head_c + Vector((0, -0.8, 0.2)) * CM
     bk0 = beak_c + Vector((0, 0.15, 0.05)) * CM
@@ -697,6 +990,7 @@ def build_meshes(mats):
     ]
     bones = core + bones
     return parts, bones
+
 
 
 def key_loc(pb, frame, loc, interpolation="BEZIER"):
@@ -746,6 +1040,7 @@ def key_zero(arm, frame, extra=()):
             continue
         key_euler(pb, frame, (0, 0, 0))
         key_scale(pb, frame, (1, 1, 1))
+        key_loc(pb, frame, (0, 0, 0))
 
 
 def arm_curl(amount, lift=0.0, swing=0.0, flare=0.0):
@@ -810,7 +1105,7 @@ def animate_walk(arm):
             phase = u * 2 * math.pi + i * (2 * math.pi / N_ARMS)
             wave = math.sin(phase)
             # lift when wave > 0, plant and pull when wave < 0
-            lift = 18 * max(0.0, wave)
+            lift = 12 * max(0.0, wave)
             curl = 0.20 + 0.35 * max(0.0, -wave)
             swing = 16 * math.cos(phase)  # reach / retract along the circle
             key_arm(arm, i, fr, arm_curl(curl, lift=lift, swing=swing, flare=4))
@@ -819,34 +1114,100 @@ def animate_walk(arm):
     return action
 
 
+
+def _zero_arm_quat(arm, i):
+    for k in range(ARM_SEGS):
+        pb = arm.pose.bones[arm_bone(i, k)]
+        pb.rotation_mode = "QUATERNION"
+        pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0, 0.0))
+
+
+def swim_targets(arm, i, flare):
+    """World-space polyline for a trailing swim arm.
+
+    Travel is +Z after export (Blender -Y is forward, +Y is behind).
+    Arms stream back and slightly down; the front arm tucks under, never
+    crossing the face. `flare` 1 = spread, 0 = swept together.
+    """
+    _zero_arm_quat(arm, i)
+    bpy.context.view_layer.update()
+    pb = arm.pose.bones[arm_bone(i, 0)]
+    start = arm.matrix_world @ pb.head
+    d = arm_dir(i)
+    length = 7.2 * CM
+    pts = [Vector(start)]
+    for k in range(1, ARM_SEGS + 1):
+        s = k / ARM_SEGS
+        if d.y < -0.70:
+            # Front arm: drop immediately and trail under the body, slightly aside.
+            lat = Vector((0.50 * CM, 0.0, 0.0)) * (0.35 + 0.75 * flare) * math.sin(s * math.pi)
+            back = Vector((0.0, 1.0, 0.0)) * (s * length)
+            down = Vector((0.0, 0.0, -1.0)) * ((0.85 * s + 0.20) * CM)
+        elif d.y > 0.70:
+            # Rear arms already point back; stream them and spread with flare.
+            lat = Vector((d.x, 0.0, 0.0)) * ((1.0 + 2.4 * flare) * s * CM)
+            back = Vector((0.0, 1.0, 0.0)) * (s * length * 0.90)
+            down = Vector((0.0, 0.0, -0.25 * s * CM))
+        else:
+            # Side arms: trail +Y, flare out on X, stay below the mantle.
+            lat = Vector((d.x, 0.0, 0.0)) * ((1.2 + 3.0 * flare) * (0.35 + 0.65 * s) * CM)
+            back = Vector((0.0, 1.0, 0.0)) * (s * length)
+            down = Vector((0.0, 0.0, -0.50 * s * CM))
+        pts.append(start + lat + back + down)
+    return pts
+
+
+def pose_arm_to_points(arm, i, targets):
+    """Aim each arm bone's +Y at the next target, after parents are posed."""
+    for k in range(ARM_SEGS):
+        pb = arm.pose.bones[arm_bone(i, k)]
+        pb.rotation_mode = "QUATERNION"
+        pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0, 0.0))
+        bpy.context.view_layer.update()
+        desired = (Vector(targets[k + 1]) - Vector(targets[k]))
+        if desired.length < 1e-12:
+            continue
+        desired.normalize()
+        dir_arm = (arm.matrix_world.inverted().to_3x3() @ desired).normalized()
+        cur = pb.y_axis.normalized()
+        q = cur.rotation_difference(dir_arm)
+        pb.rotation_quaternion = q @ pb.rotation_quaternion
+        bpy.context.view_layer.update()
+
+
+def key_arm_quat(arm, i, frame):
+    """Key the posed aim as XYZ eulers so every clip shares one rotation mode."""
+    for k in range(ARM_SEGS):
+        pb = arm.pose.bones[arm_bone(i, k)]
+        pb.rotation_mode = "XYZ"
+        key_euler(pb, frame, tuple(pb.rotation_euler))
+
+
 def animate_swim(arm):
     action = ensure_action(arm, "swim", SWIM_FRAMES)
     bpy.context.view_layer.objects.active = arm
     bpy.ops.object.mode_set(mode="POSE")
     zero_pose(arm)
-    for fr in (0, 7, 14, 21, 28):
-        u = fr / SWIM_FRAMES
-        jet = 0.5 + 0.5 * math.sin(u * 2 * math.pi)
-        # mantle pulses (jet): inflate then squeeze
-        key_scale(arm.pose.bones["mantle1"], fr, (1.0 + 0.10 * (1 - jet), 1.0, 0.88 + 0.20 * jet))
-        key_scale(arm.pose.bones["mantle2"], fr, (1.0, 1.0, 0.85 + 0.25 * jet))
-        key_euler(arm.pose.bones["body"], fr, (math.radians(-8), 0, 0))
-        key_euler(arm.pose.bones["head"], fr, (math.radians(-6 + 4 * jet), 0, 0))
+    # Pulse: flare out, then sweep the arms back together behind the body.
+    # Body is pitched nose-down so travel reads +Z (Blender -Y) and horizontal.
+    keys = (
+        (0,  0.85, 24, 0.45, 1.55),
+        (7,  1.00, 26, 0.95, 1.70),
+        (14, 0.38, 23, 0.30, 1.45),
+        (21, 0.10, 22, 0.20, 1.35),
+        (28, 0.85, 24, 0.45, 1.55),
+    )
+    for fr, flare, pitch, jet, lift_cm in keys:
+        key_scale(arm.pose.bones["mantle1"], fr, (1.0 + 0.08 * (1 - jet), 1.0, 0.90 + 0.18 * jet))
+        key_scale(arm.pose.bones["mantle2"], fr, (1.0, 1.0, 0.86 + 0.22 * jet))
+        key_euler(arm.pose.bones["body"], fr, (math.radians(pitch), 0, 0))
+        key_loc(arm.pose.bones["body"], fr, (0.0, 0.0, lift_cm * CM))
+        key_euler(arm.pose.bones["head"], fr, (math.radians(-4 + 5 * jet), 0, 0))
+        bpy.context.view_layer.update()
         for i in range(N_ARMS):
-            # trail behind (toward +Y / export -Z): curl arms backward, slightly spread
-            # arm0 is forward; we sweep every arm toward the back.
-            # A backward curl is a negative flare for front arms, mixed for sides.
-            ang = i * (2 * math.pi / N_ARMS)
-            # 0 at front, 1 at back
-            back = 0.5 - 0.5 * math.cos(ang)
-            wave = 0.25 * math.sin(u * 2 * math.pi + i * 0.5)
-            # lift the arms off the ground and stream them back
-            lift = 14 + 8 * jet
-            side = 1 if math.sin(ang) >= 0 else -1
-            swing = (28 + 12 * jet) * (0.3 + 0.7 * (1 - back)) * side * 0.35
-            curl = 0.35 + 0.20 * jet + wave
-            flare = -32 * (0.25 + 0.75 * (1 - back))  # stream backward
-            key_arm(arm, i, fr, arm_curl(curl, lift=lift, swing=swing, flare=flare))
+            targets = swim_targets(arm, i, flare)
+            pose_arm_to_points(arm, i, targets)
+            key_arm_quat(arm, i, fr)
     bpy.ops.object.mode_set(mode="OBJECT")
     push_nla(arm, action, "swim")
     return action
@@ -865,11 +1226,15 @@ def animate_swim_idle(arm):
         (72, 1.00, 0.0),
     ):
         key_scale(arm.pose.bones["mantle1"], fr, (1.0, 1.0, pulse))
-        key_euler(arm.pose.bones["body"], fr, (math.radians(-6), 0, 0))
+        key_euler(arm.pose.bones["body"], fr, (math.radians(18), 0, 0))
+        key_loc(arm.pose.bones["body"], fr, (0.0, 0.0, 1.2 * CM))
         for i in range(N_ARMS):
             phase = drift * math.sin(i * 0.9 + fr * 0.08)
             # spread in a soft 3D star, slightly lifted off a flat plane
-            key_arm(arm, i, fr, arm_curl(0.20 + 0.15 * phase, lift=10 + 4 * phase, flare=6))
+            lift = 6 + 3 * phase
+            if i == 0:
+                lift = -8 + 2 * phase  # front arm stays down, never over the face
+            key_arm(arm, i, fr, arm_curl(0.20 + 0.15 * phase, lift=lift, flare=6))
     bpy.ops.object.mode_set(mode="OBJECT")
     push_nla(arm, action, "swimIdle")
     return action
@@ -1046,7 +1411,7 @@ def render_preview(arm):
         vs.look = "None"
     except Exception:
         pass
-    vs.exposure = 0.20
+    vs.exposure = 0.22
     vs.gamma = 1.0
 
     scene.render.engine = "BLENDER_WORKBENCH"
@@ -1141,6 +1506,10 @@ def render_preview(arm):
     shutil.copy2(PREVIEW_SWIM, PREVIEW_REPO_SWIM)
     # QA frames
     _shot(Path("/tmp/octo-top.png"), (0.4, -0.6, 22.0), (0.0, 0.0, 0.0), "idle", 8)
+    _shot(Path("/tmp/octo-swim-side.png"), *view_side, "swim", 10)
+    _shot(Path("/tmp/octo-swim-front.png"), (0.0, -16.0, 4.0), (0.0, 0.5, 2.4), "swim", 10)
+    _shot(Path("/tmp/octo-swim-flare.png"), *view_34, "swim", 7)
+    _shot(Path("/tmp/octo-swim-tuck.png"), *view_34, "swim", 21)
     _shot(Path("/tmp/octo-bite.png"), *view_34, "bite", 3)
     _shot(Path("/tmp/octo-scoop.png"), *view_34, "scoop", 5)
     _shot(Path("/tmp/octo-threat.png"), *view_34, "threat", 10)
@@ -1185,10 +1554,10 @@ def inspect_glb(path, expected_span):
         "expected_span": expected_span,
     }
     print("GLB inspect:", json.dumps(report, indent=2))
-    if tris == 0 or tris > 10500:
-        raise SystemExit(f"triangle count {tris} out of range (1–10500)")
-    if path.stat().st_size > 1024 * 1024:
-        print("WARNING: glb is over 1 MB")
+    if tris == 0 or tris > 14000:
+        raise SystemExit(f"triangle count {tris} out of range (1–14000)")
+    if path.stat().st_size > int(1.2 * 1024 * 1024):
+        print("WARNING: glb is over 1.2 MB")
     want = {"idle", "walk", "swim", "swimIdle", "bite", "venomBite", "ink", "scoop", "threat", "celebrate"}
     have = set(anims)
     missing = sorted(want - have)
@@ -1226,7 +1595,7 @@ def main():
     mesh = join_objects("Octopus", parts)
     tris = triangle_count(mesh)
     print(f"joined mesh triangles: {tris}")
-    if tris > 10500:
+    if tris > 14000:
         raise SystemExit(f"too many triangles: {tris}")
     arm = build_armature(bones)
     bind(mesh, arm)
