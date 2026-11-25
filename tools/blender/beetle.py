@@ -1,4 +1,4 @@
-"""Build the Octoventure soft-toon beetle and export public/models/beetle.glb.
+"""Build the Octoventure soft-toon beetle and export src/assets/models/beetle.glb.
 
 Run from the repo (or anywhere) with:
     /opt/blender/blender -b --python tools/blender/beetle.py
@@ -49,7 +49,7 @@ from mathutils import Vector
 # Paths and scale
 # ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parents[2]
-GLB_PATH = ROOT / "public" / "models" / "beetle.glb"
+GLB_PATH = ROOT / "src" / "assets" / "models" / "beetle.glb"
 PREVIEW_REPO = ROOT / "tools" / "blender" / "beetle-preview.png"
 PREVIEW_REPO_SIDE = ROOT / "tools" / "blender" / "beetle-preview-side.png"
 PREVIEW_WORKSPACE = Path("/workspace/beetle-preview.png")

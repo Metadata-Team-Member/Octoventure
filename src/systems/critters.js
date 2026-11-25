@@ -18,8 +18,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
+import { bakeToonSkinned, crossFadeGait } from '../world/toonGlb.js';
 import { tint, merge, at } from '../world/models.js';
 import { separate } from '../util/separate.js';
 import antUrl from '../assets/models/ant.glb?url';
@@ -63,83 +63,12 @@ function skinkGeo() {
 }
 
 /** Largest triangles per bone / material, so the far stand-in keeps legs, belly and eyes. Load time only. */
-function decimateAnt(geo, bones) {
-  const pos = geo.attributes.position, col = geo.attributes.color, nrm = geo.attributes.normal;
-  const idx = geo.index, skin = geo.attributes.skinIndex, wt = geo.attributes.skinWeight, part = geo.attributes.part;
-  const triN = idx.count / 3;
-  const groups = new Map();
-  const area = (a, b, c) => {
-    const ax = pos.getX(a), ay = pos.getY(a), az = pos.getZ(a);
-    const bx = pos.getX(b), by = pos.getY(b), bz = pos.getZ(b);
-    const cx = pos.getX(c), cy = pos.getY(c), cz = pos.getZ(c);
-    const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
-    return Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) * 0.5;
-  };
-  const boneOf = (v) => {
-    let bi = 0, bw = -1;
-    for (let k = 0; k < 4; k++) { const w = wt.getComponent(v, k); if (w > bw) { bw = w; bi = skin.getComponent(v, k); } }
-    return bones[bi] || 'root';
-  };
-  for (let t = 0; t < triN; t++) {
-    const a = idx.getX(t * 3), b = idx.getX(t * 3 + 1), c = idx.getX(t * 3 + 2);
-    const p = part.getX(a);
-    const key = p >= 0.5 ? 'p' + Math.round(p) : boneOf(a);
-    let g = groups.get(key); if (!g) groups.set(key, g = []);
-    g.push({ t, a: area(a, b, c) });
-  }
-  const keep = [];
-  for (const [key, list] of groups) {
-    const budget = ANT_BUDGET[key] ?? 4;
-    list.sort((u, v) => v.a - u.a);
-    const n = Math.min(budget, list.length);
-    for (let i = 0; i < n; i++) if (list[i].a > 0) keep.push(list[i].t);
-  }
-  const outP = new Float32Array(keep.length * 9), outN = new Float32Array(keep.length * 9), outC = new Float32Array(keep.length * 9);
-  let w = 0;
-  const put = (v) => {
-    outP[w] = pos.getX(v); outP[w + 1] = pos.getY(v); outP[w + 2] = pos.getZ(v);
-    outN[w] = nrm.getX(v); outN[w + 1] = nrm.getY(v); outN[w + 2] = nrm.getZ(v);
-    outC[w] = col.getX(v); outC[w + 1] = col.getY(v); outC[w + 2] = col.getZ(v);
-    w += 3;
-  };
-  for (const t of keep) { const o = t * 3; put(idx.getX(o)); put(idx.getX(o + 1)); put(idx.getX(o + 2)); }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(outP, 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(outN, 3));
-  g.setAttribute('color', new THREE.BufferAttribute(outC, 3));
-  g.computeBoundingSphere();
-  return g;
-}
-
 let _antTpl = null, _antTplP = null;
 function antTemplate() {
   if (_antTpl) return Promise.resolve(_antTpl);
   if (!_antTplP) {
     _antTplP = new GLTFLoader().loadAsync(antUrl).then((gltf) => {
-      const meshes = [];
-      gltf.scene.traverse((o) => { if (o.isSkinnedMesh) meshes.push(o); });
-      const geos = meshes.map((m) => {
-        const g = m.geometry.clone();
-        const hex = ANT_TINT[m.material.name] ?? 0xC2522D;
-        const c = new THREE.Color(hex), n = g.attributes.position.count, p = ANT_PART[m.material.name] ?? 0;
-        const col = new Float32Array(n * 3), part = new Float32Array(n);
-        for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; part[i] = p; }
-        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-        g.setAttribute('part', new THREE.BufferAttribute(part, 1));
-        g.deleteAttribute('uv');
-        return g;
-      });
-      const geo = mergeGeometries(geos, false);
-      const bones = meshes[0].skeleton.bones.map((b) => b.name);
-      const farGeo = decimateAnt(geo, bones);
-      geo.deleteAttribute('part');
-      const skinned = new THREE.SkinnedMesh(geo, new THREE.MeshBasicMaterial());
-      skinned.bind(meshes[0].skeleton, meshes[0].bindMatrix);
-      const parent = meshes[0].parent;
-      for (const m of meshes) { parent.remove(m); m.geometry.dispose(); m.material.dispose?.(); }
-      parent.add(skinned);
-      const clips = gltf.animations.filter((a) => a.name === 'walk' || a.name === 'idle');
-      _antTpl = { scene: gltf.scene, geo, farGeo, clips };
+      _antTpl = bakeToonSkinned(gltf, { tint: ANT_TINT, part: ANT_PART, budget: ANT_BUDGET, fallback: 0xC2522D });
       return _antTpl;
     });
   }
@@ -282,20 +211,7 @@ export class Critters {
     this.antReady = true;
   }
 
-  _setGait(slot, moving) {
-    if (slot.moving === moving) return;
-    const next = moving ? slot.walk : slot.idle, prev = moving ? slot.idle : slot.walk;
-    if (slot.moving == null) {
-      prev.stop();
-      next.reset().setEffectiveWeight(1).play();
-      next.time = moving ? slot.phase : (slot.phase * 4) % 2;
-    } else {
-      next.reset().play();
-      next.time = moving ? slot.phase : (slot.phase * 4) % 2;
-      prev.crossFadeTo(next, ANT_FADE, false);
-    }
-    slot.moving = moving;
-  }
+  _setGait(slot, moving) { crossFadeGait(slot, moving, ANT_FADE); }
 
   /** a random ground spot 8..34 m from the player whose biome allows `set` (null if none on this try) */
   spot(o, set, { wet = false, nearWater = false } = {}) {
