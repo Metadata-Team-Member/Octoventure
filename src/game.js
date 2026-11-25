@@ -249,7 +249,7 @@ void main(){
     this.gather = new Gatherer(this.world, this.scene, this.audio);
     this.gather.onPick = (g) => { this.inv.add(g.kind); this.audio.gather(g.x, g.y, g.z); this.levels.did('gather'); this.journal.seeItem(g.kind); };
     this.abilities = new Abilities(this, this.gather);
-    this.critters = new Critters(this.world, this.scene);
+    this.critters = new Critters(this.world, this.scene, this.mobile);
     this.world.scent = []; this.lastScent = null;
     this.runTime = 0; this.deadShown = false; this.threat = 0;
     this.progress.reset(); this.seaMoment = null; this.grottoMoment = null; this.panYaw = 0;

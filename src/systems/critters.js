@@ -8,15 +8,21 @@
 //  night or in the rain. None can be hurt. Each discovered kind is noted in the
 //  field journal.
 //
-//  Performance: one InstancedMesh per kind (8 draw calls, plus thin outline
-//  hulls except for ants), small fixed pools recycled around the player, all
-//  scratch objects preallocated, ground heights for an ant trail sampled once
-//  when it is placed.
+//  Performance: one InstancedMesh per kind (plus thin outline hulls except for
+//  ants), small fixed pools recycled around the player, all scratch objects
+//  preallocated. Ants are the soft-toon glb: one shared skinned mesh for the
+//  ants close enough to see legs move, and one instanced bind-pose stand-in
+//  (same colours, far fewer triangles) for the rest of the line. Mixers run
+//  only for that nearby cap — never the whole trail.
 // =====================================================================
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
 import { tint, merge, at } from '../world/models.js';
 import { separate } from '../util/separate.js';
+import antUrl from '../assets/models/ant.glb?url';
 
 const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank']);
 const ANT_B = new Set(['desert', 'bush', 'suburb', 'farm', 'town', 'dunes', 'rainforest']);
@@ -27,6 +33,18 @@ const HERM_B = new Set(['beach', 'dunes', 'estuary']);
 const BUTT_B = new Set(['bush', 'rainforest', 'wetland', 'farm', 'suburb', 'riverbank', 'dunes']);
 const WREN_B = new Set(['bush', 'farm', 'suburb', 'wetland', 'rainforest', 'riverbank']);
 const NS = 10, NT = 6, PER = 22, NF = 8, NC = 8, NFR = 6, NH = 6, NB = 8, NW = 6, R_FAR = 46;
+const ANT_N = NT * PER;
+const ANT_NEAR = 4;                       // metres: skinned walk / idle. Trails spawn from 8 m, so a standing view does not pay for mixers.
+const ANT_FADE = 0.15;
+const ANT_TINT = { AntBody: 0xC2522D, AntBelly: 0xE8A070, AntEye: 0x1a1a1a, AntHighlight: 0xffffff };
+const ANT_PART = { AntBody: 0, AntBelly: 1, AntEye: 2, AntHighlight: 3 };
+// Far stand-in: keep the biggest triangles of each body part so the silhouette
+// (and the belly / eyes) survive, at about the old procedural triangle budget.
+const ANT_BUDGET = {
+  head: 18, thorax: 10, abdomen: 16, ant_L: 4, ant_R: 4, root: 2,
+  leg_LF: 6, leg_LM: 6, leg_LH: 6, leg_RF: 6, leg_RM: 6, leg_RH: 6,
+  p1: 10, p2: 8, p3: 4,
+};
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _zero = new THREE.Vector3(0, 0, 0);
 
 const sph = (r, s = 6, t = 5) => new THREE.SphereGeometry(r, s, t);
@@ -43,13 +61,89 @@ function skinkGeo() {
     eye(0.018, 0.072, 0.245, 0.013), eye(-0.018, 0.072, 0.245, 0.013),
   ]);
 }
-function antGeo() {
-  return merge([
-    at(tint(sph(1, 5, 4), 0x1a0f0a), 0, 0.012, 0.026, 0, 0, 0, 0.011, 0.01, 0.013),
-    at(tint(sph(1, 5, 4), 0x24140c), 0, 0.012, 0.004, 0, 0, 0, 0.01, 0.009, 0.012),
-    at(tint(sph(1, 5, 4), 0x24140c), 0, 0.012, -0.016, 0, 0, 0, 0.013, 0.011, 0.018),
-    at(tint(sph(1, 4, 3), 0x1a0f0a), 0, 0.02, 0.04, 0, 0, 0.5, 0.016, 0.004, 0.004),
-  ]);
+
+/** Largest triangles per bone / material, so the far stand-in keeps legs, belly and eyes. Load time only. */
+function decimateAnt(geo, bones) {
+  const pos = geo.attributes.position, col = geo.attributes.color, nrm = geo.attributes.normal;
+  const idx = geo.index, skin = geo.attributes.skinIndex, wt = geo.attributes.skinWeight, part = geo.attributes.part;
+  const triN = idx.count / 3;
+  const groups = new Map();
+  const area = (a, b, c) => {
+    const ax = pos.getX(a), ay = pos.getY(a), az = pos.getZ(a);
+    const bx = pos.getX(b), by = pos.getY(b), bz = pos.getZ(b);
+    const cx = pos.getX(c), cy = pos.getY(c), cz = pos.getZ(c);
+    const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
+    return Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) * 0.5;
+  };
+  const boneOf = (v) => {
+    let bi = 0, bw = -1;
+    for (let k = 0; k < 4; k++) { const w = wt.getComponent(v, k); if (w > bw) { bw = w; bi = skin.getComponent(v, k); } }
+    return bones[bi] || 'root';
+  };
+  for (let t = 0; t < triN; t++) {
+    const a = idx.getX(t * 3), b = idx.getX(t * 3 + 1), c = idx.getX(t * 3 + 2);
+    const p = part.getX(a);
+    const key = p >= 0.5 ? 'p' + Math.round(p) : boneOf(a);
+    let g = groups.get(key); if (!g) groups.set(key, g = []);
+    g.push({ t, a: area(a, b, c) });
+  }
+  const keep = [];
+  for (const [key, list] of groups) {
+    const budget = ANT_BUDGET[key] ?? 4;
+    list.sort((u, v) => v.a - u.a);
+    const n = Math.min(budget, list.length);
+    for (let i = 0; i < n; i++) if (list[i].a > 0) keep.push(list[i].t);
+  }
+  const outP = new Float32Array(keep.length * 9), outN = new Float32Array(keep.length * 9), outC = new Float32Array(keep.length * 9);
+  let w = 0;
+  const put = (v) => {
+    outP[w] = pos.getX(v); outP[w + 1] = pos.getY(v); outP[w + 2] = pos.getZ(v);
+    outN[w] = nrm.getX(v); outN[w + 1] = nrm.getY(v); outN[w + 2] = nrm.getZ(v);
+    outC[w] = col.getX(v); outC[w + 1] = col.getY(v); outC[w + 2] = col.getZ(v);
+    w += 3;
+  };
+  for (const t of keep) { const o = t * 3; put(idx.getX(o)); put(idx.getX(o + 1)); put(idx.getX(o + 2)); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(outP, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(outN, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(outC, 3));
+  g.computeBoundingSphere();
+  return g;
+}
+
+let _antTpl = null, _antTplP = null;
+function antTemplate() {
+  if (_antTpl) return Promise.resolve(_antTpl);
+  if (!_antTplP) {
+    _antTplP = new GLTFLoader().loadAsync(antUrl).then((gltf) => {
+      const meshes = [];
+      gltf.scene.traverse((o) => { if (o.isSkinnedMesh) meshes.push(o); });
+      const geos = meshes.map((m) => {
+        const g = m.geometry.clone();
+        const hex = ANT_TINT[m.material.name] ?? 0xC2522D;
+        const c = new THREE.Color(hex), n = g.attributes.position.count, p = ANT_PART[m.material.name] ?? 0;
+        const col = new Float32Array(n * 3), part = new Float32Array(n);
+        for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; part[i] = p; }
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        g.setAttribute('part', new THREE.BufferAttribute(part, 1));
+        g.deleteAttribute('uv');
+        return g;
+      });
+      const geo = mergeGeometries(geos, false);
+      const bones = meshes[0].skeleton.bones.map((b) => b.name);
+      const farGeo = decimateAnt(geo, bones);
+      geo.deleteAttribute('part');
+      const skinned = new THREE.SkinnedMesh(geo, new THREE.MeshBasicMaterial());
+      skinned.bind(meshes[0].skeleton, meshes[0].bindMatrix);
+      const parent = meshes[0].parent;
+      for (const m of meshes) { parent.remove(m); m.geometry.dispose(); m.material.dispose?.(); }
+      parent.add(skinned);
+      const clips = gltf.animations.filter((a) => a.name === 'walk' || a.name === 'idle');
+      _antTpl = { scene: gltf.scene, geo, farGeo, clips };
+      return _antTpl;
+    });
+  }
+  return _antTplP;
 }
 function flyGeo() {
   return merge([
@@ -124,8 +218,8 @@ function pose(mesh, i, x, y, z, yaw, sx = 1, sy = 1, sz = 1, pitch = 0, roll = 0
 }
 
 export class Critters {
-  constructor(world, scene) {
-    this.world = world; this.scene = scene;
+  constructor(world, scene, mobile = false) {
+    this.world = world; this.scene = scene; this.mobile = !!mobile; this.disposed = false;
     this.mat = toonMat({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
     const mk = (geo, n) => {
       const m = new THREE.InstancedMesh(geo, this.mat, n);
@@ -133,7 +227,7 @@ export class Critters {
       for (let i = 0; i < n; i++) hide(m, i);
       scene.add(m); return m;
     };
-    this.skMesh = mk(skinkGeo(), NS); this.antMesh = mk(antGeo(), NT * PER);
+    this.skMesh = mk(skinkGeo(), NS);
     this.flyMesh = mk(flyGeo(), NF); this.crMesh = mk(crabGeo(), NC);
     this.frMesh = mk(frogGeo(), NFR); this.hmMesh = mk(hermitGeo(), NH);
     this.buMesh = mk(butterflyGeo(), NB); this.wrMesh = mk(wrenGeo(), NW);
@@ -148,6 +242,59 @@ export class Critters {
     this.bu = Array.from({ length: NB }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, t: 0, h: 0, land: 0 }));
     this.wr = Array.from({ length: NW }, () => ({ on: false, x: 0, z: 0, y: 0, g: 0, h: 0, hop: 0, fly: 0, t: 0, tx: 0, tz: 0, ty: 0 }));
     this.slot = 0; this.T = 0;
+    this.antPace = 1; this.antReady = false; this.antError = ''; this.antClips = []; this.antDur = {};
+    this.antCap = mobile ? 8 : 16; this.antSlots = []; this._antSim = 0; this._march = 0;
+    this.antTris = 0; this.antFarTris = 0;
+    this._ax = new Float32Array(ANT_N); this._ay = new Float32Array(ANT_N); this._az = new Float32Array(ANT_N);
+    this._ayaw = new Float32Array(ANT_N); this._aon = new Uint8Array(ANT_N); this._anear = new Uint8Array(ANT_N);
+    this._ad2 = new Float32Array(ANT_N); this._pick = new Int16Array(16); this._pickD = new Float32Array(16);
+    this._slotUsed = new Uint8Array(16);
+    const mount = (tpl) => { if (!this.disposed) this._mountAnts(tpl); };
+    if (_antTpl) mount(_antTpl); else antTemplate().then(mount).catch((err) => { this.antError = String(err && err.message || err); });
+  }
+
+  /** One shared skeleton template, cloned per nearby ant. Far ants share one instanced bind pose. */
+  _mountAnts(tpl) {
+    const mat = this.antMat = toonMat({ vertexColors: true });
+    const inst = this.antInst = new THREE.InstancedMesh(tpl.farGeo, mat, ANT_N);
+    inst.frustumCulled = false; inst.castShadow = false; inst.receiveShadow = false; inst.count = 0;
+    this.scene.add(inst);
+    const walkClip = tpl.clips.find((a) => a.name === 'walk');
+    const idleClip = tpl.clips.find((a) => a.name === 'idle');
+    this.antClips = tpl.clips.map((a) => a.name);
+    this.antDur = { walk: walkClip?.duration || 0, idle: idleClip?.duration || 0 };
+    this.antTris = tpl.geo.index ? tpl.geo.index.count / 3 : 0;
+    this.antFarTris = tpl.farGeo.attributes.position.count / 3;
+    for (let i = 0; i < this.antCap; i++) {
+      const root = SkeletonUtils.clone(tpl.scene);
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = mat; o.frustumCulled = false; o.castShadow = false; o.receiveShadow = false;
+        o.userData.noOutline = true;
+      });
+      root.visible = false; root.scale.set(1, 1, 1); root.position.y = -999;
+      this.scene.add(root);
+      const mixer = new THREE.AnimationMixer(root);
+      const walk = mixer.clipAction(walkClip), idle = mixer.clipAction(idleClip);
+      for (const a of [walk, idle]) a.setLoop(THREE.LoopRepeat, Infinity);
+      this.antSlots.push({ root, mixer, walk, idle, id: -1, live: false, moving: null, phase: 0 });
+    }
+    this.antReady = true;
+  }
+
+  _setGait(slot, moving) {
+    if (slot.moving === moving) return;
+    const next = moving ? slot.walk : slot.idle, prev = moving ? slot.idle : slot.walk;
+    if (slot.moving == null) {
+      prev.stop();
+      next.reset().setEffectiveWeight(1).play();
+      next.time = moving ? slot.phase : (slot.phase * 4) % 2;
+    } else {
+      next.reset().play();
+      next.time = moving ? slot.phase : (slot.phase * 4) % 2;
+      prev.crossFadeTo(next, ANT_FADE, false);
+    }
+    slot.moving = moving;
   }
 
   /** a random ground spot 8..34 m from the player whose biome allows `set` (null if none on this try) */
@@ -259,21 +406,83 @@ export class Critters {
     }
     this.skMesh.instanceMatrix.needsUpdate = true;
 
-    // ---- ant trails: nest-to-food march; they pack up in heavy rain
-    const antSp = rain > 0.35 ? 0.12 : 0.06;
+    // ---- ant trails: nest-to-food march; they pack up in heavy rain.
+    // Scale is 1: the glb is already 1.2 cm. +Z is forward. Nearby ants play
+    // walk while the line moves and idle when it is held (antPace 0); the rest
+    // are one instanced bind-pose stand-in and do not run a mixer.
+    const pace = this.antPace > 0 ? this.antPace : 0;
+    const antSp = pace * (rain > 0.35 ? 0.12 : 0.06);
+    const moving = antSp > 1e-6;
+    this._march = (this._march + dt * antSp) % 1;
+    const near2 = ANT_NEAR * ANT_NEAR;
     for (let t = 0; t < NT; t++) {
       const c = this.tr[t], ca = Math.cos(c.a), sa = Math.sin(c.a);
       for (let j = 0; j < PER; j++) {
         const id = t * PER + j;
-        if (!c.on) { hide(this.antMesh, id); continue; }
-        const f = ((j / PER + this.T * antSp + c.ph) % 1), back = j % 2 === 1;
-        const u = back ? 1 - f : f, wob = Math.sin(j * 7.3 + this.T * 3) * 0.05;
+        if (!c.on) { this._aon[id] = 0; continue; }
+        const f = ((j / PER + this._march + c.ph) % 1 + 1) % 1, back = j % 2 === 1;
+        const u = back ? 1 - f : f, wob = moving ? Math.sin(j * 7.3 + this.T * 3) * 0.05 : 0;
         const x = c.x + ca * (u - 0.5) * c.len - sa * wob, z = c.z + sa * (u - 0.5) * c.len + ca * wob;
-        const hi = u * 8, i0 = Math.min(7, Math.floor(hi)), y = c.hs[i0] + (c.hs[i0 + 1] - c.hs[i0]) * (hi - i0);
-        pose(this.antMesh, id, x, y, z, Math.atan2(ca, sa) + (back ? Math.PI : 0), 1.6, 1.6, 1.6);
+        this._aon[id] = 1; this._ax[id] = x; this._ay[id] = w.heightAt(x, z); this._az[id] = z;
+        this._ayaw[id] = Math.atan2(ca, sa) + (back ? Math.PI : 0);
+        const dx = x - o.x, dz = z - o.z; this._ad2[id] = dx * dx + dz * dz;
       }
     }
-    this.antMesh.instanceMatrix.needsUpdate = true;
+    const cap = this.antCap, pick = this._pick, pickD = this._pickD;
+    for (let i = 0; i < cap; i++) { pick[i] = -1; pickD[i] = Infinity; }
+    if (this.antReady) {
+      for (let id = 0; id < ANT_N; id++) {
+        if (!this._aon[id] || this._ad2[id] > near2) continue;
+        let worst = 0;
+        for (let k = 1; k < cap; k++) if (pickD[k] > pickD[worst]) worst = k;
+        if (this._ad2[id] < pickD[worst]) { pickD[worst] = this._ad2[id]; pick[worst] = id; }
+      }
+    }
+    this._anear.fill(0);
+    for (let k = 0; k < cap; k++) if (pick[k] >= 0) this._anear[pick[k]] = 1;
+    const slots = this.antSlots, used = this._slotUsed;
+    used.fill(0);
+    let sim = 0;
+    if (this.antReady) {
+      for (let s = 0; s < slots.length; s++) {
+        const slot = slots[s];
+        if (!slot.live) continue;
+        let keep = -1;
+        for (let k = 0; k < cap; k++) if (pick[k] === slot.id) { keep = k; break; }
+        if (keep < 0) { slot.live = false; slot.id = -1; slot.moving = null; slot.root.visible = false; slot.root.position.y = -999; }
+        else used[keep] = 1;
+      }
+      for (let k = 0; k < cap; k++) {
+        if (pick[k] < 0 || used[k]) continue;
+        let slot = null;
+        for (let s = 0; s < slots.length; s++) if (!slots[s].live) { slot = slots[s]; break; }
+        if (!slot) break;
+        slot.live = true; slot.id = pick[k]; slot.moving = null; slot.phase = (pick[k] * 0.173) % 0.5;
+        used[k] = 1;
+      }
+      for (let s = 0; s < slots.length; s++) {
+        const slot = slots[s];
+        if (!slot.live) continue;
+        const id = slot.id;
+        slot.root.position.set(this._ax[id], this._ay[id], this._az[id]);
+        slot.root.rotation.set(0, this._ayaw[id], 0);
+        slot.root.scale.set(1, 1, 1);
+        slot.root.visible = true;
+        this._setGait(slot, moving);
+        slot.mixer.update(dt);
+        sim++;
+      }
+    }
+    this._antSim = sim;
+    const inst = this.antInst;
+    if (inst) {
+      let n = 0;
+      for (let id = 0; id < ANT_N; id++) {
+        if (!this._aon[id] || this._anear[id]) continue;
+        pose(inst, n++, this._ax[id], this._ay[id], this._az[id], this._ayaw[id], 1, 1, 1);
+      }
+      inst.count = n; inst.instanceMatrix.needsUpdate = true;
+    }
 
     // ---- dragonflies: hover, zip, startle further off
     for (let i = 0; i < NF; i++) {
@@ -419,10 +628,52 @@ export class Critters {
     hit(this.fr, 'frog'); hit(this.hm, 'hermit', (c) => c.hide < 1); hit(this.bu, 'butterfly'); hit(this.wr, 'wren');
     return out;
   }
+  /** model hookup, for tests: clips, who is simulating, and a few ants on the ground facing the trail */
+  antProbe() {
+    const samples = [];
+    const ang = (a, b) => { const d = a - b; return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))); };
+    for (let t = 0; t < NT && samples.length < 8; t++) {
+      const c = this.tr[t];
+      if (!c.on) continue;
+      const ca = Math.cos(c.a), sa = Math.sin(c.a);
+      for (let j = 0; j < PER && samples.length < 8; j += 3) {
+        const id = t * PER + j;
+        if (!this._aon[id]) continue;
+        const back = j % 2 === 1, want = Math.atan2(ca, sa) + (back ? Math.PI : 0);
+        let meshYaw = this._ayaw[id], scale = 1, skinned = false;
+        for (let s = 0; s < this.antSlots.length; s++) {
+          const slot = this.antSlots[s];
+          if (slot.live && slot.id === id) { meshYaw = slot.root.rotation.y; scale = slot.root.scale.x; skinned = true; break; }
+        }
+        samples.push({
+          y: this._ay[id], ground: this.world.heightAt(this._ax[id], this._az[id]),
+          face: ang(meshYaw, want), scale, skinned, near: this._anear[id] === 1,
+        });
+      }
+    }
+    let walk = 0, idle = 0, instScale = 0;
+    for (let s = 0; s < this.antSlots.length; s++) {
+      const slot = this.antSlots[s];
+      if (!slot.live) continue;
+      if (slot.walk.getEffectiveWeight() >= slot.idle.getEffectiveWeight()) walk++; else idle++;
+    }
+    const inst = this.antInst;
+    if (inst && inst.count > 0) { inst.getMatrixAt(0, _m); _m.decompose(_p, _q, _s); instScale = _s.x; }
+    return {
+      ready: this.antReady, error: this.antError, clips: this.antClips.slice(), dur: { ...this.antDur },
+      scale: 1, tris: this.antTris, farTris: this.antFarTris, cap: this.antCap,
+      simulating: this._antSim, instanced: inst ? inst.count : 0, instScale,
+      walk, idle, samples,
+    };
+  }
   dispose() {
-    for (const m of [this.skMesh, this.antMesh, this.flyMesh, this.crMesh, this.frMesh, this.hmMesh, this.buMesh, this.wrMesh]) {
+    this.disposed = true;
+    for (const m of [this.skMesh, this.flyMesh, this.crMesh, this.frMesh, this.hmMesh, this.buMesh, this.wrMesh]) {
       m.geometry.dispose(); this.scene.remove(m);
     }
+    if (this.antInst) this.scene.remove(this.antInst);
+    for (const s of this.antSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); }
+    this.antMat?.dispose();
     this.mat.dispose(); this.lineMat.dispose();
   }
 }
