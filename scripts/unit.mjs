@@ -22,9 +22,10 @@ import { inkDeter, inkUnder, cloudCovers, INK_NEAR, INK_AQUA_NEAR, INK_BLIND, IN
 import { Music, ROOT, MOOD } from '../src/systems/music.js';
 import { SAVE_VERSION, SAVE_KEY, LEGACY_KEYS, validateSave, migrate, readSaveText, encodeCode, decodeCode, loadSave, writeSave, clearSave, MIGRATIONS, exploreCell, unpackCell } from '../src/systems/save.js';
 import * as THREE from 'three';
-import { seat, instanceSpec, geoHeight } from '../src/world/placement.js';
+import { seat, instanceSpec, geoHeight, probesOf } from '../src/world/placement.js';
 import { buildGeoLib } from '../src/world/geoLib.js';
 import { beetleTemplate } from '../src/world/beetleModel.js';
+import { crabTemplate } from '../src/world/crabModel.js';
 import { Predator, humanCanStep, HUMAN_WADE } from '../src/entities/predators.js';
 import { flapInsideLocal, flapOutside, flapAllows, FLAP_STEP, FLAP_COOL } from '../src/systems/places.js';
 
@@ -334,6 +335,40 @@ for (const seed of [1, 42, 2026]) {
   }
   ok(beetles.length > 0 && badScale === 0, `beetles keep SIZE 0.9–1.2 around the real mesh (${beetles.length}, bad scale ${badScale})`);
   ok(worstH < 0.0315 && worstB < 0.04, `beetles sit on the ground (worst hover ${worstH.toFixed(4)} u, bury ${worstB.toFixed(4)} u)`);
+  const ct = crabTemplate();
+  const cnames = ct.clips.map((c) => c.name).sort();
+  ok(cnames.join() === 'idle,snap,walk', `the crab glb has idle, walk and snap (${cnames.join('+')})`);
+  const cdur = Object.fromEntries(ct.clips.map((c) => [c.name, c.duration]));
+  ok(Math.abs(cdur.idle - 2) < 0.05 && Math.abs(cdur.walk - 0.5) < 0.05 && Math.abs(cdur.snap - 0.4) < 0.05, `crab idle is 2 s, walk 0.5 s, snap about 0.4 s (${cdur.idle}, ${cdur.walk}, ${cdur.snap})`);
+  ct.geo.computeBoundingBox();
+  const cb = ct.geo.boundingBox, cwide = cb.max.x - cb.min.x, ctall = cb.max.y - cb.min.y;
+  ok(cwide > 0.26 && cwide < 0.31 && ctall > 0.09 && ctall < 0.13 && cb.min.y > -0.002 && cb.min.y < 0.004, `the crab is the real-size glb, feet on the origin (leg span ${cwide.toFixed(4)} u, tall ${ctall.toFixed(4)}, y0 ${cb.min.y.toFixed(4)})`);
+  const cFull = ct.geo.index ? ct.geo.index.count / 3 : ct.geo.attributes.position.count / 3;
+  const cFar = ct.farGeo.attributes.position.count / 3;
+  ok(cFull > 2400 && cFull < 2800 && cFar > 40 && cFar < 220, `full crab is the glb (${cFull} tris) and the stand-in is cheap (${cFar} tris)`);
+  const cgeo = buildGeoLib().gather.crab;
+  cgeo.computeBoundingBox();
+  ok(Math.abs((cgeo.boundingBox.max.x - cgeo.boundingBox.min.x) - cwide) < 0.02 && cgeo.boundingBox.min.y > -0.002 && cgeo.boundingBox.min.y < 0.008, 'the gather stand-in keeps the crab width and the feet');
+  const crabs = by('crab');
+  let cHover = 0, cBury = 0, cBad = 0;
+  const feet = probesOf(cgeo);
+  for (const g of crabs) {
+    const m = new THREE.Matrix4();
+    seat(w, cgeo, instanceSpec('gather', 'crab', g, geoHeight(cgeo)), m);
+    const e = m.elements, sx = Math.hypot(e[0], e[1], e[2]);
+    if (Math.abs(sx - g.s) > 1e-3 || g.s < 0.9 || g.s > 1.15) cBad++;
+    let hover = -1e9, bury = -1e9;
+    for (const p of feet.pts) {
+      v.set(p[0], p[1], p[2]).applyMatrix4(m);
+      const gap = v.y - w.heightAt(v.x, v.z);
+      if (gap > hover) hover = gap;
+      if (-gap > bury) bury = -gap;
+    }
+    if (hover > cHover) cHover = hover;
+    if (bury > cBury) cBury = bury;
+  }
+  ok(crabs.length > 0 && cBad === 0, `crabs keep SIZE 0.9–1.15 around the real mesh (${crabs.length}, bad scale ${cBad})`);
+  ok(cHover < 0.0315 && cBury < 0.08, `crab feet sit on the ground (worst hover ${cHover.toFixed(4)} u, bury ${cBury.toFixed(4)} u)`);
   // far regions: items with their own prefix, deterministic per tile
   const C = new WorldData(2026), r1 = C.regions.generate(6, 1), C2 = new WorldData(2026), r2 = C2.regions.generate(6, 1);
   ok(r1.gather.length > 5 && r1.gather.length === r2.gather.length && r1.gather.every((g, i) => g.id === r2.gather[i].id && g.x === r2.gather[i].x), `far tiles hold gatherables too (${r1.gather.length}), reproducible`);

@@ -151,6 +151,45 @@ await sleep(500);
   ok(b.pict, 'the satchel pictogram is the red-orange shell');
 }
 
+// ================================================================ the shore crab model (still a gatherable critter)
+{
+  const c = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus;
+    const list = G.gatherItems.filter((q) => q.kind === 'crab' && !q.got && g.world.biomeAt(q.x, q.z) === 'beach');
+    const it = list[0];
+    G.teleport(it.x - 6.6, it.z); o.speed = 0; g.advance(0.55);
+    it.mode = 0; it.t = 4; g.advance(0.45);
+    const idle = g.gather.crabProbe(o);
+    const idleOne = idle.samples.find((s) => s.id === it.id);
+    G.teleport(it.cx - 2.7, it.cz); g.advance(0.45);
+    const x0 = it.cx, z0 = it.cz; g.advance(0.28);
+    const step = g.gather.crabProbe(o);
+    const stepped = step.samples.find((s) => s.id === it.id);
+    const vx = it.cx - x0, vz = it.cz - z0, sp = Math.hypot(vx, vz) || 1e-6;
+    const side = stepped ? (stepped.lx * vx + stepped.lz * vz) / sp : 0;
+    const snapsBefore = step.snaps;
+    G.teleport(it.cx - 2.15, it.cz); g.advance(0.35);
+    const pinch = g.gather.crabProbe(o);
+    const pinched = pinch.samples.find((s) => s.id === it.id);
+    const before = G.inv.count('crab');
+    G.teleport(it.cx, it.cz); g.advance(0.12);
+    const mid = { got: it.got, anims: g.gather.anims.length, scoop: g.octopus.scoops.some((s) => s.on), early: G.inv.count('crab'), tucking: g.gather.crabProbe(o).tucking, snaps: g.gather.crabProbe(o).snaps };
+    g.advance(0.55);
+    return { idle, idleOne, step, stepped, side, moved: Math.hypot(vx, vz), snapsBefore, pinch, pinched, before, mid, after: G.inv.count('crab') };
+  });
+  ok(c.idle.ready && !c.idle.error && c.idle.clips.includes('idle') && c.idle.clips.includes('walk') && c.idle.clips.includes('snap'), `the crab model loaded (${c.idle.clips.join('+') || c.idle.error})`);
+  ok(Math.abs(c.idle.dur.idle - 2) < 0.05 && Math.abs(c.idle.dur.walk - 0.5) < 0.05 && Math.abs(c.idle.dur.snap - 0.4) < 0.05, `idle is 2 s, walk 0.5 s, snap about 0.4 s (${c.idle.dur.idle}, ${c.idle.dur.walk}, ${c.idle.dur.snap})`);
+  ok(c.idle.tris > 2400 && c.idle.farTris > 40 && c.idle.farTris < 220, `crabs use the glb (${c.idle.tris} tris) and a cheap stand-in (${c.idle.farTris})`);
+  ok(c.idle.snapOnce, 'snap plays once, it does not loop');
+  ok(c.idleOne && c.idleOne.skinned && !c.idleOne.moving && c.idleOne.mode === 0 && !c.idleOne.meshOn && c.idleOne.skinOn, `a still crab plays idle on the model, not the stand-in as well (${c.idle.idle} idle, ${c.idle.simulating} mixers)`);
+  ok(c.idleOne && Math.abs(c.idleOne.scale - c.idleOne.s) < 1e-3 && c.idleOne.s >= 0.9 && c.idleOne.s <= 1.15, `nearby scale is the gather size (${c.idleOne?.scale?.toFixed?.(3)} x ${c.idleOne?.s?.toFixed?.(3)})`);
+  ok(c.idleOne && Math.abs(c.idleOne.y - c.idleOne.ground) < 0.08, `the crab sits on heightAt (${(c.idleOne?.y - c.idleOne?.ground).toFixed?.(3)})`);
+  ok(c.idle.doubled === 0 && c.idle.simulating <= c.idle.cap, `skinned crabs replace the stand-in (${c.idle.doubled} doubled, cap ${c.idle.cap})`);
+  ok(c.stepped && c.stepped.moving && c.moved > 0.4 && c.side > 0.7 && !c.step.samples.some((s) => s.id === c.stepped.id && s.meshOn && s.skinOn), `the crab scuttles sideways on walk, claws across the line of travel (moved ${c.moved.toFixed(2)}, +X along travel ${c.side.toFixed(2)})`);
+  ok(c.pinched && (c.pinched.snapping || c.pinch.snaps > c.snapsBefore) && c.pinch.snaps - c.snapsBefore < 3, `one snap when the octopus gets close (${c.snapsBefore} -> ${c.pinch.snaps})`);
+  ok(c.before >= 0 && c.mid.got && c.mid.early === c.before && c.mid.anims >= 1 && c.mid.scoop && c.mid.tucking >= 1 && c.mid.snaps > c.pinch.snaps && c.after === c.before + 1, `scooping it snaps once and tucks one crab into the satchel (${c.before} -> ${c.after})`);
+}
+
 // ================================================================ recipes
 {
   const r = await E(() => {

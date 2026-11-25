@@ -1,4 +1,4 @@
-"""Build the Octoventure soft-toon shore crab and export public/models/crab.glb.
+"""Build the Octoventure soft-toon shore crab and export src/assets/models/crab.glb.
 
 Run from the repo (or anywhere) with:
     /opt/blender/blender -b --python tools/blender/crab.py
@@ -26,9 +26,9 @@ the ground, between the feet.
 Walk direction
 --------------
 Crabs scuttle sideways. The 'walk' clip is an in-place sideways gait
-along local +X (the crab's right). The hookup should keep the body
-facing +Z (claws forward) and move the object perpendicular to that
-heading (the existing gather crab already adds +PI/2 to its yaw).
+along local +X (the crab's right). Keep the body facing +Z (claws
+forward). rotation.y = atan2(vx, vz) - PI/2 points local +X along the
+travel; +PI/2 sends the crab backwards along its walk.
 
 Animations
 ----------
@@ -54,7 +54,7 @@ from mathutils import Vector
 # Paths and scale
 # ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parents[2]
-GLB_PATH = ROOT / "public" / "models" / "crab.glb"
+GLB_PATH = ROOT / "src" / "assets" / "models" / "crab.glb"
 PREVIEW_REPO = ROOT / "tools" / "blender" / "crab-preview.png"
 PREVIEW_REPO_SIDE = ROOT / "tools" / "blender" / "crab-preview-side.png"
 PREVIEW_WORKSPACE = Path("/workspace/crab-preview.png")

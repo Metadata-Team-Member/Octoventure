@@ -1,12 +1,13 @@
 // =====================================================================
 //  Gatherable models (t236u): small hand-built shapes in natural colours, baked as vertex colours (non-indexed, so they merge
-//  and seat exactly like every other object: see placement.js). 1 u ~ 33 cm, so a pebble is ~4 cm, a crab ~8 cm.
+//  and seat exactly like every other object: see placement.js). 1 u ~ 32 cm, so a pebble is ~4 cm; the shore crab is the glb.
 //  Critters (crab, shrimp) also come as separate animated parts (see systems/gather.js); the merged rest pose here is what the
 //  placement audit seats.
 // =====================================================================
 import * as THREE from 'three';
 import { tint, merge, at, rockGeometry } from './models.js';
 import { beetleStandIn } from './beetleModel.js';
+import { crabStandIn } from './crabModel.js';
 
 const C = (h) => new THREE.Color(h);
 const sph = (r, ws = 8, hs = 6) => new THREE.SphereGeometry(r, ws, hs);
@@ -120,19 +121,9 @@ export const jar = () => {                      // lying on its side (axis along
   return merge([body, base, neck, label]);
 };
 
-// ---------------------------------------------------------------- critters: separate parts so they can be animated
-export const CRAB = {
-  body: () => at(paint(sph(1, 10, 6), (x, y, z) => mixC(0xb5472f, 0xe08a55, y * 0.6 + 0.3 + Math.abs(Math.sin(x * 12)) * 0.08)), 0, 0, 0, 0, 0, 0, 0.14, 0.07, 0.1),
-  eye: () => merge([at(tint(sph(0.012, 5, 4), 0xc65a3a), 0, 0.02, 0, 0, 0, 0, 0.7, 1.6, 0.7), at(tint(sph(0.016, 5, 4), 0x151010), 0, 0.05, 0)]),
-  claw: () => merge([at(tint(sph(0.02, 5, 4), 0xc65a3a), 0, 0, 0.04, Math.PI / 2, 0, 0, 0.7, 0.7, 2.2), at(paint(sph(1, 6, 4), (x, y) => mixC(0xcf5c3a, 0xf0a070, y * 0.5 + 0.4)), 0, 0, 0.12, 0, 0, 0, 0.042, 0.026, 0.055)]),
-  leg: () => merge([at(tint(sph(0.02, 5, 4), 0xa63e2a), 0.05, 0, 0, 0, 0, Math.PI / 2 - 0.4, 0.45, 0.45, 2.2), at(tint(sph(0.016, 5, 4), 0x8f3424), 0.12, -0.02, 0, 0, 0, 0.5, 0.4, 0.4, 2)]),
-};
-export const crab = () => merge([
-  CRAB.body().translate(0, 0.075, 0),
-  CRAB.eye().translate(-0.04, 0.095, 0.07), CRAB.eye().translate(0.04, 0.095, 0.07),
-  at(CRAB.claw(), -0.1, 0.075, 0.05, 0, 0.5, 0), at(CRAB.claw(), 0.1, 0.075, 0.05, 0, -0.5, 0),
-  ...[-1, 1].flatMap((s) => [0, 1, 2].map((i) => at(CRAB.leg(), s * 0.07, 0.075, -0.045 + i * 0.045, 0, s < 0 ? Math.PI : 0, 0))),
-]);
+// ---------------------------------------------------------------- critters: the crab is the glb stand-in (clips play up close); shrimp stays a rest pose
+/** Shore crab from the glb, already in world units. Far crabs draw this bind-pose stand-in; nearby ones play the clips. */
+export const crab = () => crabStandIn();
 export const SHRIMP = {
   seg: (r, len, c0) => at(paint(sph(1, 7, 5), (x, y) => mixC(c0, 0xffd8c8, y * 0.5 + 0.3)), 0, 0, 0, 0, 0, 0, r, r * 0.9, len),
   tail: () => at(tint(new THREE.ConeGeometry(0.05, 0.08, 4), 0xf09a82), 0, 0, -0.04, -Math.PI / 2, 0, 0, 1, 1, 0.5),
