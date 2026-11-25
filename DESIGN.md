@@ -166,6 +166,11 @@ Four new harmless kinds, each with a journal entry:
 
 None can be hurt or killed. Pools stay small and recycle around the player.
 
+## Ant model
+The trail is the soft-toon ant from `src/assets/models/ant.glb` (built by `tools/blender/ant.py`), not the old three-sphere instance. The file is imported as a module so the single-file build inlines it; a `public/` URL would break `file://` and the Pages deploy. `GLTFLoader` parses it once. Each nearby ant is a `SkeletonUtils.clone` of that scene, so it has its own skeleton, and the four glTF materials are baked into vertex colours on one shared `toonMat` (rust `#C2522D`, peach-tan belly `#E8A070`, dark eyes, white catchlight) instead of the glb's matte/gloss PBR. The mesh is already 1.2 cm = 0.0378 u, so the object scale is 1 (not the old instance scale of 1.6). +Z is forward and the origin sits on the ground between the feet; the line is seated with `heightAt`.
+
+`walk` (0.5 s loop) plays while the line marches and `idle` (2 s loop) when the march is held still, with a 0.15 s cross-fade. Only ants within 4 m run an `AnimationMixer`, and only up to 16 of them (8 on a phone). Everyone else on the trail is one instanced bind-pose stand-in that keeps a few dozen triangles of each body part, so a full line stays about as cheap as the old procedural ants (one draw). Ants still march nest-to-food, pack up when the rain is past 0.7, and fill the journal entry `ant`. No outline — they are still too small. Saves stay at v9.
+
 ## Secrets of night and rain
 
 A few finds that are not gatherables (they do not use the gather stream, so nothing else in the world moves). Each 400 m tile, including the original map's sixteen tiles and every far tile, rolls its own hash. Most tiles have none. On the one world each kind shows up a handful of times and no more.
