@@ -1,29 +1,56 @@
 // =====================================================================
 //  Octopus - the player. Model, movement, drying, camouflage.
+//  The body is the blue-ringed glb (real size, world scale 1). this.sz stays
+//  0.42 for movement, camera and collision; the mesh is counter-scaled inside
+//  the group so the real-scale test still sees group.scale === sz.
 // =====================================================================
 import * as THREE from 'three';
-import { toonMat, outlineMat, outline } from '../world/toon.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { toonMat, outlineMat } from '../world/toon.js';
 import { CONFIG, TERRAIN, diff } from '../config.js';
 import { clamp, damp, dampAngle, lerp } from '../util/rng.js';
 import { FX } from '../systems/items.js';
+import { installOctopusFromUrl, octopusTemplate, OCTO_HEX } from '../world/octopusModel.js';
+import octopusUrl from '../assets/models/octopus.glb?url';
+
+await installOctopusFromUrl(octopusUrl);
+
 const BIRD_CAUSES = new Set(['gull', 'eagle', 'magpie', 'kookaburra']);
 const INK_TINT = new THREE.Color(0x3a3350), VENOM_TINT = new THREE.Color(0xffd23f), LETHAL_TINT = new THREE.Color(0xa45bff);
 // scratch objects for animate() (no per-frame allocation)
 const _ground = new THREE.Color(), _camoT = new THREE.Color(), _camoD = new THREE.Color(), _grey = new THREE.Color();
-const _mS = new THREE.Matrix4(), _mR = new THREE.Matrix4(), _qI = new THREE.Quaternion();
-const RING_L1 = new THREE.Matrix4().compose(new THREE.Vector3(0, 0.97, 0), new THREE.Quaternion(), new THREE.Vector3(0.78, 0.78, 0.78));
-const RING_L2 = RING_L1.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.01, 0));
-const _qN = new THREE.Quaternion(), _qY = new THREE.Quaternion(), _qInv = new THREE.Quaternion(), _UP = new THREE.Vector3(0, 1, 0), _nV = new THREE.Vector3(), _scoopV = new THREE.Vector3();
+const _qN = new THREE.Quaternion(), _qY = new THREE.Quaternion(), _UP = new THREE.Vector3(0, 1, 0), _nV = new THREE.Vector3(), _tipV = new THREE.Vector3();
 
-const TENT = 8, SEG = 12;
-// Australian blue-ringed octopus (Hapalochlaena): small, ochre-yellow/brown body with electric-blue rings.
-const SKIN = new THREE.Color(0xd9a63f);
-const RING_BLUE = new THREE.Color(0x0a52ff);
+const ARMS = 8;
+const SKIN = new THREE.Color(OCTO_HEX.body);
+const BELLY = new THREE.Color(OCTO_HEX.belly);
+const RING_BLUE = new THREE.Color(OCTO_HEX.rings);
+const RING_EDGE = new THREE.Color(OCTO_HEX.ringEdge);
 const PALE = new THREE.Color(0xeaf6ff);
 const PALE_EDGE = new THREE.Color(0xb9c6d2);
 const RING_FLASH = new THREE.Color(0x1a8cff);
 const DEAD = new THREE.Color(0x8c8480);
+const LOCO = new Set(['idle', 'walk', 'swim', 'swimIdle']);
+const ONCE = new Set(['bite', 'venomBite', 'ink', 'scoop', 'celebrate', 'threat']);
+const SCOOP_DUR = 0.5;
+const FADE = 0.2;
+
+/** inverted-hull outline that skins with the mesh (a plain Mesh child stays in the bind pose) */
+function skinnedHull(mesh, mat) {
+  const h = new THREE.SkinnedMesh(mesh.geometry, mat);
+  h.bindMode = mesh.bindMode;
+  h.bind(mesh.skeleton, mesh.bindMatrix);
+  h.position.copy(mesh.position);
+  h.quaternion.copy(mesh.quaternion);
+  h.scale.copy(mesh.scale);
+  h.frustumCulled = false;
+  h.castShadow = false;
+  h.receiveShadow = false;
+  h.userData.isOutline = true;
+  h.renderOrder = (mesh.renderOrder || 0) + 1;
+  mesh.parent.add(h);
+  return h;
+}
 
 export class Octopus {
   constructor(world, scene) {
@@ -32,149 +59,119 @@ export class Octopus {
     this.sz = CONFIG.octopus.size ?? 1;           // real-scale perspective: the octopus is small, the world is big
     this.group.scale.setScalar(this.sz);
     scene.add(this.group);
-    this.mat = toonMat({ color: SKIN.clone(), roughness: 0.35, metalness: 0.0, vertexColors: true });
-    // iridescent blue rings (emissive so they can glow / flash) with a black outline
-    this.ringBlue = toonMat({ color: RING_BLUE.clone(), emissive: RING_BLUE.clone(), emissiveIntensity: 0.5, roughness: 0.12, metalness: 0.35, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    this.ringBlack = toonMat({ color: 0x07070a, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const tpl = octopusTemplate();
+    this.mat = tpl.mats.body;
+    this.bellyMat = tpl.mats.belly;
+    this.ringBlue = tpl.mats.rings;
+    this.ringBlack = tpl.mats.ringEdge;
+    this.ringBlue.emissive = RING_BLUE.clone();
+    this.ringBlue.emissiveIntensity = 0.35;
+    this.ringBlack.emissive = RING_EDGE.clone();
+    this.ringBlack.emissiveIntensity = 0.2;
     this.alarm = 0;          // 0..1, set by the game when a predator has noticed us (rings flash)
     this.flashT = 0;
-    this.build();
+    this.build(tpl);
     this.reset(world);
   }
 
-  build() {
-    const mat = this.mat;
+  build(tpl) {
     this.body = new THREE.Group();
     this.group.add(this.body);
-    const mantle = new THREE.Mesh(new THREE.SphereGeometry(0.62, 18, 14), mat);
-    mantle.scale.set(0.95, 1.2, 1.0); mantle.position.set(0, 0.95, -0.2); mantle.rotation.x = -0.35;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.55, 18, 14), mat);
-    head.scale.set(1.15, 0.9, 1.1); head.position.set(0, 0.62, 0.12);
-    this.mantle = mantle; this.head = head;
-    this.body.add(mantle, head);
-    const white = toonMat({ color: 0xfff8e8, roughness: 0.3 });
-    const black = toonMat({ color: 0x15100e, roughness: 0.2 });
-    this.eyes = [];
-    for (const s of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), white);
-      eye.position.set(s * 0.36, 0.78, 0.52);
-      const pupil = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.05, 0.05), black);
-      pupil.position.set(0, 0, 0.13);
-      eye.add(pupil);
-      this.body.add(eye);
-      this.eyes.push({ eye, pupil });
+    // group stays at sz (0.42) for the real-scale test. The glb is already 20 cm,
+    // so a child undoes that scale and the world visual scale is 1. animate()
+    // rewrites body.scale every frame for hide / death — the counter-scale must
+    // not live there or it gets wiped.
+    this.meshRoot = new THREE.Group();
+    this.meshRoot.scale.setScalar(1 / this.sz);
+    this.body.add(this.meshRoot);
+    const model = SkeletonUtils.clone(tpl.scene);
+    this.meshRoot.add(model);
+    this.mixer = new THREE.AnimationMixer(model);
+    this.actions = {};
+    for (const clip of tpl.clips) {
+      const a = this.mixer.clipAction(clip);
+      if (LOCO.has(clip.name)) a.setLoop(THREE.LoopRepeat, Infinity);
+      else if (ONCE.has(clip.name)) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+      this.actions[clip.name] = a;
     }
-    this.tentacles = [];
-    this.scoops = [
-      { on: false, arm: 0, t: 0, dur: 0.36, x: 0, y: 0, z: 0 },
-      { on: false, arm: 4, t: 0, dur: 0.36, x: 0, y: 0, z: 0 },
-    ];
-    this.mottle(mantle.geometry, 1.3); this.mottle(head.geometry, 4.1);
-    const sg = new THREE.SphereGeometry(1, 10, 8);
-    this.mottle(sg, 2.2);
-    // t248u optimisation: the 96 tentacle segments are ONE instanced mesh (was 96 meshes = 96 draw calls + 96 shadow draws)
-    this.tentInst = new THREE.InstancedMesh(sg, mat, TENT * SEG);
-    this.tentInst.castShadow = true; this.tentInst.frustumCulled = false;
-    this.group.add(this.tentInst);
-    this.pollenT = 0; this.pollenCol = new THREE.Color(0xffe066); this._tipOn = false;
-    this.tipCol = new THREE.InstancedBufferAttribute(new Float32Array(TENT * SEG * 3).fill(1), 3);
-    this.tentInst.instanceColor = this.tipCol;
-    for (let i = 0; i < TENT; i++) {
-      const segs = [];
-      for (let j = 0; j < SEG; j++) {
-        const r = lerp(0.24, 0.05, Math.pow(j / (SEG - 1), 0.8));
-        segs.push({ position: new THREE.Vector3(), scale: new THREE.Vector3(r, r * 0.85, r) });
-      }
-      this.tentacles.push({ segs, a: (i / TENT) * Math.PI * 2 + 0.2, phase: i * 0.9 });
-    }
-    for (const o of [mantle, head]) o.castShadow = true;
-    this.buildRings(mantle, head);
-    // thin dark outline (inverted hull) on the body, eyes and arms only; it fades out with camouflage
+    this.loco = null;
+    this.once = null;
+    this.clip = 'idle';
+    this._threatPlayed = false;
+    this.mixer.addEventListener('finished', (e) => this._onClipFinished(e));
+    const skinned = [];
+    model.traverse((o) => { if (o.isSkinnedMesh) skinned.push(o); });
+    for (const m of skinned) if (m.material === this.mat) m.castShadow = !!CONFIG.graphics.shadows;
     this.outlineMat = outlineMat(0x2a1a14);
-    this.outlines = [...outline(mantle, this.outlineMat), ...outline(head, this.outlineMat), ...this.eyes.flatMap((e) => { e.pupil.userData.noOutline = true; return outline(e.eye, this.outlineMat); }), ...outline(this.tentInst, this.outlineMat)];
+    this.outlines = skinned.map((m) => skinnedHull(m, this.outlineMat));
+    this.arm0Tip = model.getObjectByName('arm0_tip');
+    this.armA = Array.from({ length: ARMS }, (_, i) => (i / ARMS) * Math.PI * 2);
+    this.scoops = [
+      { on: false, arm: 0, t: 0, dur: SCOOP_DUR, x: 0, y: 0, z: 0 },
+      { on: false, arm: 4, t: 0, dur: SCOOP_DUR, x: 0, y: 0, z: 0 },
+    ];
+    const pollenGeo = new THREE.SphereGeometry(0.008, 5, 4);
+    this.pollenMat = toonMat({ color: 0xffe066 });
+    this.pollenDots = [];
+    for (let i = 0; i < ARMS; i++) {
+      const bone = model.getObjectByName(`arm${i}_tip`);
+      if (!bone) continue;
+      const dot = new THREE.Mesh(pollenGeo, this.pollenMat);
+      dot.visible = false; dot.castShadow = false; dot.userData.noOutline = true; dot.frustumCulled = false;
+      bone.add(dot); this.pollenDots.push(dot);
+    }
+    this.pollenT = 0; this.pollenCol = new THREE.Color(0xffe066); this._tipOn = false;
     if (!CONFIG.graphics.shadows) {      // phones / ?shadows=0: a soft blob shadow under the octopus instead of the shadow map
-      this.blob = new THREE.Mesh(new THREE.CircleGeometry(1.35, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
-      this.blob.position.y = 0.03; this.blob.renderOrder = 3; this.group.add(this.blob);
+      this.blob = new THREE.Mesh(new THREE.CircleGeometry(1.05, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+      this.blob.position.y = 0.04; this.blob.renderOrder = 3; this.group.add(this.blob);
     }
-    this.updateTentacles();
-  }
-  /** write the arm segments (and the rings riding on them) into their instanced meshes */
-  updateTentacles() {
-    let k = 0, r = 0;
-    for (let i = 0; i < TENT; i++) {
-      const segs = this.tentacles[i].segs;
-      for (let j = 0; j < SEG; j++) {
-        const m = segs[j];
-        _mS.compose(m.position, _qI, m.scale); this.tentInst.setMatrixAt(k++, _mS);
-        if (j % 2 === 1 && j < SEG - 1) {
-          this.armRingBlack.setMatrixAt(r, _mR.multiplyMatrices(_mS, RING_L1));
-          this.armRingBlue.setMatrixAt(r, _mR.multiplyMatrices(_mS, RING_L2)); r++;
-        }
-      }
-    }
-    this.tentInst.instanceMatrix.needsUpdate = true; this.armRingBlack.instanceMatrix.needsUpdate = true; this.armRingBlue.instanceMatrix.needsUpdate = true;
-    if (this.pollenT > 0) {
-      const c = this.pollenCol; let k = 0;
-      for (let i = 0; i < TENT; i++) for (let j = 0; j < SEG; j++) {
-        const tip = j >= SEG - 3;
-        this.tipCol.setXYZ(k++, tip ? c.r : 1, tip ? c.g : 1, tip ? c.b : 1);
-      }
-      this.tipCol.needsUpdate = true; this._tipOn = true;
-    } else if (this._tipOn) {
-      for (let i = 0; i < TENT * SEG; i++) this.tipCol.setXYZ(i, 1, 1, 1);
-      this.tipCol.needsUpdate = true; this._tipOn = false;
-    }
+    this.playLoco('idle');
+    this.mixer.update(0);
   }
 
-  /** mottled ochre/brown skin pattern as vertex colours (greyscale multiplier on the skin colour) */
-  mottle(geo, seed) {
-    const p = geo.attributes.position, c = new Float32Array(p.count * 3);
-    for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-      const n = 0.5 + 0.5 * Math.sin(x * 9 + seed) * Math.sin(y * 8 + z * 6 + seed * 2) + 0.25 * Math.sin(z * 17 + x * 11);
-      const v = 0.74 + 0.26 * Math.min(1, Math.max(0, n));
-      c[i * 3] = v; c[i * 3 + 1] = v; c[i * 3 + 2] = v;
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  /** front-arm tip in the glb's own space (world scale 1), so a walk does not count as a scoop */
+  tipSample() {
+    const b = this.arm0Tip; if (!b) return { x: 0, y: 0, z: 0 };
+    this.group.updateMatrixWorld(true);
+    _tipV.setFromMatrixPosition(b.matrixWorld);
+    this.meshRoot.worldToLocal(_tipV);
+    return { x: _tipV.x, y: _tipV.y, z: _tipV.z };
   }
 
-  buildRings(mantle, head) {
-    const edge = new THREE.RingGeometry(0.7, 1.0, 20); edge.rotateX(-Math.PI / 2);
-    const blue = new THREE.RingGeometry(0.38, 0.78, 20); blue.rotateX(-Math.PI / 2);
-    this.ringGeos = [edge, blue];
-    const up = new THREE.Vector3(0, 1, 0);
-    // t248u optimisation: all body rings are baked into two merged meshes (black edges, blue centres) instead of ~50 meshes
-    const blacks = [], blues = [], _g = new THREE.Matrix4(), _q = new THREE.Quaternion(), _sc = new THREE.Vector3();
-    const addRing = (parent, pos, normal, size) => {
-      _g.compose(pos, _q.setFromUnitVectors(up, normal), _sc.setScalar(size));
-      blacks.push(edge.clone().applyMatrix4(_g));
-      blues.push(blue.clone().translate(0, 0.004 / Math.max(size, 0.02), 0).applyMatrix4(_g));
-    };
-    // spots on an ellipsoid (mantle / head): golden-spiral layout
-    const onEllipsoid = (mesh, count, yMin, yMax, size, skip) => {
-      mesh.updateMatrix();
-      const m = mesh.matrix, q = mesh.quaternion, sc = mesh.scale, r = mesh.geometry.parameters.radius;
-      for (let i = 0; i < count; i++) {
-        const y = yMin + (yMax - yMin) * (i + 0.5) / count, ang = i * 2.39996;
-        const rr = Math.sqrt(1 - y * y);
-        const u = new THREE.Vector3(rr * Math.cos(ang), y, rr * Math.sin(ang));
-        if (skip && skip(u)) continue;
-        const pos = u.clone().multiplyScalar(r).applyMatrix4(m);
-        const n = new THREE.Vector3(u.x / (sc.x * sc.x), u.y / (sc.y * sc.y), u.z / (sc.z * sc.z)).normalize().applyQuaternion(q);
-        pos.addScaledVector(n, 0.012);
-        addRing(this.body, pos, n, size);
-      }
-    };
-    onEllipsoid(mantle, 20, -0.05, 0.98, 0.095, (u) => u.z > 0.55 && u.y < 0.5);
-    // a few on the sides of the head, below / behind the eyes
-    onEllipsoid(head, 12, -0.1, 0.55, 0.075, (u) => u.z > 0.15 || Math.abs(u.x) < 0.35);
-    const bodyBlack = new THREE.Mesh(mergeGeometries(blacks), this.ringBlack), bodyBlue = new THREE.Mesh(mergeGeometries(blues), this.ringBlue);
-    for (const g of [...blacks, ...blues]) g.dispose();
-    this.body.add(bodyBlack, bodyBlue);
-    // rings along the arms: two instanced meshes that ride on the arm segments (see updateTentacles)
-    const n = TENT * Math.floor((SEG - 1) / 2);
-    this.armRingBlack = new THREE.InstancedMesh(edge, this.ringBlack, n); this.armRingBlue = new THREE.InstancedMesh(blue, this.ringBlue, n);
-    for (const m of [this.armRingBlack, this.armRingBlue]) { m.frustumCulled = false; this.group.add(m); }
+  playLoco(name) {
+    if (this.once || !this.actions[name] || this.loco === name) { this.clip = this.once || this.loco || name; return; }
+    const next = this.actions[name], prev = this.loco ? this.actions[this.loco] : null;
+    next.enabled = true; next.reset().fadeIn(FADE).play();
+    if (prev && prev !== next) prev.fadeOut(FADE);
+    this.loco = name; this.clip = name;
+  }
+
+  /** one-shot, then the locomotion clip returns. Restarting the same one does not stack fades. */
+  playOnce(name) {
+    const next = this.actions[name]; if (!next) return;
+    if (this.once === name) { next.reset().play(); this.clip = name; return; }
+    const prev = this.once ? this.actions[this.once] : (this.loco ? this.actions[this.loco] : null);
+    next.enabled = true; next.reset(); next.setLoop(THREE.LoopOnce, 1); next.clampWhenFinished = true;
+    next.fadeIn(0.12).play();
+    if (prev && prev !== next) prev.fadeOut(0.12);
+    this.once = name; this.clip = name;
+  }
+
+  _onClipFinished(e) {
+    if (!this.once || e.action !== this.actions[this.once]) return;
+    const prev = e.action;
+    this.once = null;
+    const name = this.pickLoco();
+    const next = this.actions[name];
+    if (next) { next.enabled = true; next.reset().fadeIn(FADE).play(); }
+    prev.fadeOut(FADE);
+    this.loco = name; this.clip = name;
+  }
+
+  pickLoco() {
+    if (!this.alive) return 'idle';
+    if (this.swim > 0.3) return this.moving ? 'swim' : 'swimIdle';
+    return this.moving ? 'walk' : 'idle';
   }
 
   reset(world) {
@@ -243,8 +240,8 @@ export class Octopus {
   }
 
   /**
-   * One nearby arm reaches for a pickup, curls, and draws it under the body (~0.36 s).
-   * Two scoops can overlap. Reuses the existing arm segments; nothing is allocated per frame.
+   * One nearby arm reaches for a pickup (~0.5 s, the scoop clip; arm0 is the front arm in the glb).
+   * Two scoops can overlap. The walk is not frozen.
    */
   scoopToward(x, y, z) {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;
@@ -253,8 +250,8 @@ export class Octopus {
     const ang = Math.atan2(dx * c - dz * s, dx * s + dz * c);
     const a0 = this.scoops[0], a1 = this.scoops[1];
     let best = 0, bd = 99, free = -1, fd = 99;
-    for (let i = 0; i < TENT; i++) {
-      const da = Math.atan2(Math.sin(this.tentacles[i].a - ang), Math.cos(this.tentacles[i].a - ang));
+    for (let i = 0; i < ARMS; i++) {
+      const da = Math.atan2(Math.sin(this.armA[i] - ang), Math.cos(this.armA[i] - ang));
       const ad = da < 0 ? -da : da;
       if (ad < bd) { bd = ad; best = i; }
       const busy = (a0.on && a0.arm === i) || (a1.on && a1.arm === i);
@@ -267,8 +264,9 @@ export class Octopus {
     else if (!a0.on) slot = a0;
     else if (!a1.on) slot = a1;
     else slot = a0.t >= a1.t ? a0 : a1;
-    slot.on = true; slot.arm = arm; slot.t = 0; slot.dur = 0.36;
+    slot.on = true; slot.arm = arm; slot.t = 0; slot.dur = SCOOP_DUR;
     slot.x = x; slot.y = Number.isFinite(y) ? y : this.y; slot.z = z;
+    this.playOnce('scoop');
   }
 
   /** input: {mx, mz (world-space move vector, length<=1), sprint, camo} */
@@ -499,11 +497,8 @@ export class Octopus {
   animate(dt) {
     const world = this.world;
     this.walkPhase += dt * (this.speed / this.sz * 1.1 + (this.alive ? 1.2 : 0));
-    const t = this.walkPhase;
-    const move = clamp(this.speed / (7 * this.sz), 0, 1.4);
     const dry = 1 - clamp(this.health / CONFIG.octopus.maxHealth, 0, 1);
     const camo = Math.max(this.camoBlend, 0.5 * this.mimicF);
-    const tuck = Math.max(this.shieldClosed, this.jarF);
     const died = this.alive ? 0 : clamp(this.deadT / 1.2, 0, 1);
 
     // colour: skin -> dry & pale -> grey when dead; camo blends toward the ground colour
@@ -517,6 +512,12 @@ export class Octopus {
     col.lerp(camoTarget, camo * 0.96);
     if (this.inkCharges > 0) col.lerp(INK_TINT, 0.18 * Math.min(1, this.inkCharges / 2));   // a full ink sac shows through the skin
     this.mat.roughness = lerp(0.3, 0.85, Math.max(dry * 0.8, camo));
+    // the cream underside takes the same tint, from its own authored colour
+    const belly = this.bellyMat.color;
+    belly.copy(BELLY).lerp(this.greyOf(BELLY, _grey), dry * 0.95).lerp(DEAD, died);
+    belly.lerp(camoTarget, camo * 0.96);
+    if (this.inkCharges > 0) belly.lerp(INK_TINT, 0.18 * Math.min(1, this.inkCharges / 2));
+    this.bellyMat.roughness = this.mat.roughness;
 
     // ---- blue rings: calm glow -> flashing warning display when threatened -> hidden when camouflaged ----
     this.flashT += dt * (6 + this.alarm * 10);
@@ -531,7 +532,6 @@ export class Octopus {
     // when camouflaged the rings fade into the ground colour
     ringColor.lerp(camoTarget, camo * 0.9);
     this.ringBlue.emissive.lerp(camoTarget, camo * 0.9);
-    this.ringBlack.color.set(0x07070a).lerp(_camoD.copy(camoTarget).multiplyScalar(0.7), camo * 0.9);
     // camouflage energy cue: while hidden the (dark) rings get lighter and lighter as the camo runs out
     const warn = camo * Math.pow(1 - clamp(this.energy / CONFIG.camo.maxEnergy, 0, 1), 1.15);
     ringColor.lerp(PALE, warn);
@@ -547,91 +547,60 @@ export class Octopus {
     if (this.venomReady) { ringColor.lerp(VENOM_TINT, 0.6 * (0.7 + 0.3 * Math.sin(this.flashT * 1.6))); this.ringBlue.emissive.lerp(VENOM_TINT, 0.6); }
     this.ringBlue.emissiveIntensity += this.feastF * (0.75 + 0.25 * Math.sin(this.flashT * 1.3)) * vis;
     this.ringBlue.emissiveIntensity += (readyPulse + this.readyFlash * 0.8 + this.biteFlash * 1.2 + this.glowBoost * 1.4) * (1 - died);
-    this.ringBlack.color.lerp(PALE_EDGE, warn);
     this.ringBlue.color.multiplyScalar(0.45).lerp(DEAD, died * 0.8);
     this.mat.transparent = false;
+    // the navy rim flashes with the rings and fades when camouflaged; the centres, eyes, beak, suckers and catchlights stay put
+    this.ringBlack.color.copy(RING_EDGE).lerp(_camoD.copy(camoTarget).multiplyScalar(0.55), camo * 0.9).lerp(PALE_EDGE, warn * 0.65);
+    this.ringBlack.emissive.copy(this.ringBlue.emissive);
+    this.ringBlack.emissiveIntensity = this.ringBlue.emissiveIntensity;
 
-    // body pose
-    const squash = 1 - dry * 0.18 - died * 0.45 - camo * 0.22 + Math.sin(t * 1.2) * 0.02 * (1 - died);
-    this.body.scale.set(1 + camo * 0.12 + died * 0.2, squash, 1 + camo * 0.12 + died * 0.2);
-    this.body.position.y = 0.0 - died * 0.05 + Math.abs(Math.sin(t * 2.2)) * 0.04 * move;
-    this.body.rotation.z = Math.sin(t * 1.1) * 0.03 * move;
-    // t250u bite lunge: the mantle darts forward and dips (harder for the venomous bite), then settles back
+    // the clips own the squash and the lunge. body.scale is only the tuck into a shell, and a slump when dead.
     this.nipT = Math.max(0, this.nipT - dt * 4);
-    const lunge = Math.sin(this.nipT * Math.PI) * (1 + this.nipHard);
-    this.body.position.z = lunge * 0.12; this.body.rotation.x = lunge * 0.22;
-    for (const e of this.eyes) {
-      e.eye.scale.setScalar(this.alive ? (camo > 0.5 ? 0.75 : 1) : 0.6);
-      e.pupil.scale.y = this.alive ? 1 : 0.2;
+    const hb = this.hideBlend;
+    const shrink = 1 - 0.35 * hb;
+    this.body.scale.set(shrink, shrink * (1 - died * 0.4), shrink);
+    this.body.position.set(0, -0.04 * hb, 0);
+    this.body.rotation.set(0, 0, 0);
+
+    // the predator threat display: one pose, then back to whatever the octopus was doing
+    if (alarm > 0.6 && !this._threatPlayed && !this.once) { this._threatPlayed = true; this.playOnce('threat'); }
+    if (alarm < 0.15) this._threatPlayed = false;
+    this.playLoco(this.pickLoco());
+    if (!this.once && this.loco === 'walk') {
+      const pace = CONFIG.octopus.walkSpeed * this.sz;
+      this.actions.walk.timeScale = clamp(this.speed / Math.max(0.05, pace), 0.4, 1.8);
+    } else if (!this.once && this.loco === 'swim') {
+      const pace = CONFIG.octopus.walkSpeed * CONFIG.octopus.waterSpeedMult * CONFIG.abilities.swimSpeedMult * this.sz;
+      this.actions.swim.timeScale = clamp(this.speed / Math.max(0.05, pace), 0.45, 1.7);
     }
 
-    // tilt to terrain before the arms reach, so a scoop aims in this frame's space
     world.normalAt(this.x, this.z, this.tmpN);
     if (this.swim > 0.3 || this.carried) { this.tmpN.x = 0; this.tmpN.y = 1; this.tmpN.z = 0; }
     const n = this.tmpN;
-    this.group.position.set(this.x, this.y + 0.02, this.z);
+    this.group.position.set(this.x, this.y, this.z);
     const q = _qN.setFromUnitVectors(_UP, _nV.set(n.x, n.y, n.z));
     const yaw = _qY.setFromAxisAngle(_UP, this.heading);
     this.group.quaternion.copy(q.multiply(yaw));
 
-    // tentacles (walk pose, then a scoop blended on top — movement is not frozen)
     const s0 = this.scoops[0], s1 = this.scoops[1];
     if (s0.on) { s0.t += dt; if (s0.t >= s0.dur) s0.on = false; }
     if (s1.on) { s1.t += dt; if (s1.t >= s1.dur) s1.on = false; }
-    for (let i = 0; i < TENT; i++) {
-      const T = this.tentacles[i];
-      let sc = null;
-      if (s0.on && s0.arm === i) sc = s0;
-      else if (s1.on && s1.arm === i) sc = s1;
-      let lx = 0, lz = 0, dy = 0, pull = 0, hold = 0, curl = 0, inv = 1;
-      if (sc) {
-        const u = sc.t / sc.dur;
-        // world point -> group local (the quaternion already has the ground tilt). Scale is separate.
-        _scoopV.set(sc.x - this.x, sc.y - this.y, sc.z - this.z).applyQuaternion(_qInv.copy(this.group.quaternion).invert());
-        const invS = 1 / (this.sz || 1);
-        lx = _scoopV.x * invS; lz = _scoopV.z * invS; dy = _scoopV.y * invS;
-        // reach and curl first (~0.22 s), then draw it under the body. Movement is never stopped.
-        pull = u < 0.62 ? 0 : u > 0.92 ? 1 : (u - 0.62) / 0.30;
-        hold = u < 0.10 ? u / 0.10 : u > 0.92 ? Math.max(0, 1 - (u - 0.92) / 0.08) : 1;
-        curl = Math.sin(Math.min(1, u / 0.55) * Math.PI) * 0.22 * hold;
-        inv = Math.hypot(lx, lz) || 1;
-      }
-      for (let j = 0; j < SEG; j++) {
-        const s = j / (SEG - 1);
-        const m = T.segs[j];
-        let reach = (0.36 + s * (1.12 - died * 0.6 - camo * 0.22)) * (1 - 0.5 * tuck);
-        let ang = T.a + Math.sin(t * 2.0 + T.phase - s * 3) * 0.16 * (0.3 + move) + (1 - died) * 0 + died * s * 0.5;
-        const stride = Math.sin(t * 2.4 + T.phase + i * 0.3 - s * 1.5);
-        let lift = move * 0.34 * Math.max(0, stride) * Math.sin(Math.PI * Math.min(1, s * 1.3));
-        const curlIdle = (this.alive ? 0.1 : 0.0) + (1 - move) * 0.12 * Math.sin(t * 0.8 + T.phase) * s;
-        let y = 0.17 - s * 0.1 + lift + curlIdle * 0.5 + (camo > 0.1 ? 0 : 0);
-        // tips curl up when idle, flatten out when camouflaged (looks like a pile of kelp)
-        y += (1 - move) * s * s * 0.12 * (1 - camo) * (1 - died);
-        y = Math.max(0.07 + (1 - s) * 0.06, y);
-        const fwd = Math.cos(ang) * reach, side2 = Math.sin(ang) * reach;
-        m.position.set(side2, y, fwd);
-        if (sc && hold > 0) {
-          const w = hold * s * s;
-          const tx = lx * (1 - pull) * (0.2 + 0.8 * s);
-          const tz = (lz * (1 - pull) + pull * 0.2) * (0.2 + 0.8 * s);
-          const ty = Math.max(0.08, (dy + 0.12) * (1 - pull) * s + pull * 0.08);
-          const bow = Math.sin(s * Math.PI);
-          m.position.x += (tx + (-lz / inv) * curl * bow - m.position.x) * w;
-          m.position.y += (ty - m.position.y) * w;
-          m.position.z += (tz + (lx / inv) * curl * bow - m.position.z) * w;
-        }
-      }
+    if (this.pollenT > 0) {
+      this.pollenT = Math.max(0, this.pollenT - dt);
+      this.pollenMat.color.copy(this.pollenCol);
+      const on = this.pollenT > 0;
+      for (const d of this.pollenDots) d.visible = on;
+      this._tipOn = on;
+    } else if (this._tipOn) {
+      for (const d of this.pollenDots) d.visible = false;
+      this._tipOn = false;
     }
-    if (this.pollenT > 0) this.pollenT = Math.max(0, this.pollenT - dt);
-    this.updateTentacles();
+    this.mixer.update(dt);
     // outlines fade with camouflage (an outline would give the hiding octopus away)
     const showLine = camo < 0.45 && this.hideBlend < 0.5;
     for (const h of this.outlines) h.visible = showLine;
 
-    // tucked away: shrink down into the shell / tin / under the rock; invisible inside a pipe
-    const hb = this.hideBlend;
+    // invisible inside a pipe; the shrink above tucks the whole body into a shell
     this.group.visible = !this.tunnel;
-    this.body.scale.multiplyScalar(1 - 0.35 * hb);
-    this.body.position.y -= 0.12 * hb;
   }
 }

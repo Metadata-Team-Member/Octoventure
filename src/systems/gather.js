@@ -213,7 +213,7 @@ export class Gatherer {
     }
     // ---- pickup animations: tuck under the body and shrink, then the satchel takes it (once)
     for (let i = this.anims.length - 1; i >= 0; i--) {
-      const a = this.anims[i]; a.t += dt / 0.36;
+      const a = this.anims[i]; a.t += dt / 0.5;
       const e = Math.min(1, a.t), ee = e * e * (3 - 2 * e), tx = this.target?.x ?? a.p.x, tz = this.target?.z ?? a.p.z, ty = (this.target?.y ?? a.p.y) + 0.06;
       const lift = Math.sin(e * Math.PI) * 0.1 * (1 - e);
       const px = a.p.x + (tx - a.p.x) * ee, pz = a.p.z + (tz - a.p.z) * ee, py = a.p.y + (ty - a.p.y) * ee + lift;
