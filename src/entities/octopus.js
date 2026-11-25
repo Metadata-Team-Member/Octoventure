@@ -481,6 +481,7 @@ export class Octopus {
     const depth = world.seaLevel - floor;
     const sea = this.alive && world.isSea(this.x, this.z) && depth > 0.9;
     this.swim = damp(this.swim, sea ? 1 : 0, 6, dt);
+    if (!sea && this.swim < 0.01) this.swim = 0;   // the ease never reaches 0 by itself, and `!o.swim` gates squelch, flowers and scent
     let target = floor;
     if (sea) {
       const dive = clamp(((input.pitch ?? 0.42) - 0.4) / 0.6, 0, 1);

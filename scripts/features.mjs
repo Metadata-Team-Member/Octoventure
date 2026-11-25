@@ -683,8 +683,10 @@ const uiBefore = await E(() => document.body.innerText.trim());
     // squelch: walk wet for 20 s and count step sounds
     let n = 0; const orig = g.audio.step; g.audio.step = () => { n++; };
     G.clearPredators(); g.input.keys.clear(); g.input.pressed.clear(); o.alive = true; if (g.state !== 'playing') g.state = 'playing'; o.carried = null; o.tunnel = null;
-    const dsp = w.findBiomeSpot('desert'); G.teleport(dsp.x, dsp.z); G.advance(0.2); g.input.yaw = Math.PI / 2;   // open, dry, flat red sand (no tide to reach it)
-    G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; o.health = 100; o.energy = 100; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig;
+    let dsp = null;   // a desert spot with 70 m of flat, open, dry sand to the west (not into the big rock or the oasis)
+    for (let k = 0; k < 900 && !dsp; k++) { const c = { x: 160 + (k % 30) * 17, z: -300 - Math.floor(k / 30) * 6 }; let okk = w.biomeAt(c.x, c.z) === 'desert'; for (let d = 0; okk && d <= 70; d += 2) { const x = c.x - d, h = w.heightAt(x, c.z); okk = h > 0.5 && Math.abs(h - w.heightAt(c.x, c.z)) < 2 && !w.waterAt?.(x, c.z) && w.biomeAt(x, c.z) === 'desert'; const q = w.resolve(x, c.z, 0.3); okk = okk && Math.hypot(q.x - x, q.z - c.z) < 0.01; } if (okk && !w.decor.rocks.some((rk) => Math.abs(rk.z - c.z) < 2 + (rk.size || 1) && rk.x < c.x + 3 && rk.x > c.x - 75)) dsp = c; } G.teleport(dsp.x, dsp.z); G.advance(0.2); g.input.yaw = Math.PI / 2;   // open, dry, flat red sand (no tide to reach it)
+    G.freezeTime(true); G.setTime(0.3); G.setWeather('clear'); g.env.heat = 0;   // a cool morning, so the sand does not dry it between frames
+    G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; g.env.heat = 0; o.health = 100; o.energy = 100; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig; G.freezeTime(false);
     out.steps = n; out.walk = `${Math.abs(o.x - dsp.x).toFixed(0)} m`; return out;
   });
   ok(r.peekNear && r.peekFar, 'a hidden baby wriggles into view only when the octopus is near');
