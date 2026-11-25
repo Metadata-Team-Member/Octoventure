@@ -234,7 +234,7 @@ void main(){
     // where this game begins: a saved position, or a fresh random start (the daily start is the same for everybody that day)
     if (save?.octo && !save.fresh) this.world.setSpawn(save.octo.x, save.octo.z);
     else this.world.pickSpawn(this.daily ? mulberry32(dailySeed()) : mulberry32((Math.random() * 4294967296) >>> 0));
-    this.view = new WorldView(this.world, this.scene, { shadows: this.shadows });
+    this.view = new WorldView(this.world, this.scene, { shadows: this.shadows, mobile: this.mobile });
     if (!this.octopus) this.octopus = new Octopus(this.world, this.scene); else this.octopus.reset(this.world);
     this.env = new Environment(this.world);
     this.atmo.attachGlow(this.octopus.group);

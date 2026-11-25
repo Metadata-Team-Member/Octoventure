@@ -311,3 +311,27 @@ Try: `?home=1` beside the first flap, `?maze=1` at the mouth of the maze, `?poi=
 
 **A scoop.** Touching a shell, a gatherable or pollen sends the nearest free arm out to it (`Octopus.scoopToward`). The arm curls and draws the thing under the body over about 0.36 s, blended onto the walk so you do not stop. A second pickup can use another arm. The gatherable mesh shrinks as it tucks under, and the satchel, the sound and the journal happen once, when that tuck finishes. Shells still toughen at once (the fade is unchanged). No new meshes, and the arm pose reuses the segments it already has.
 
+
+## Banded world: from the sea to the wasteland - SPOILERS
+The one world is now laid out in bands from south (+z, the start) to north, and it gets harder going north. `src/world/bands.js` holds the bands, the edges and the predator plan; `WorldData.banded` is on for every new world.
+
+| Band | z (south edge to north edge) | Biomes | Danger |
+|---|---|---|---|
+| Sea | 900 to 466 | sea, islets, reef city round the big shell | 0 |
+| Shore | 466 to 330 | beach, rock pools, jetty, headland, estuary and mangroves, dunes | 0.55 |
+| Town | 330 to -40 | brick suburb with terracotta roofs, Hills Hoists and letterboxes, town, farm with windmill and sheep, a small stone ruin | 0.85 |
+| Bush | -40 to -270 | eucalypt bush, banksia, grass trees, wetland with reeds and lily pads, rainforest corner | 1.15 |
+| Outback | -270 to -480 | mud flats with a boardwalk (west), red desert with the big red rock, termite mounds and an oasis (east) | 1.5 |
+| Wasteland | -480 to -900 | factory with smoking stacks, storm-drain outfall, purple and mustard sludge pools (never green) | 1.95 |
+
+The playable square is x -690 to 690 and z -690 (north) to 735 (sea edge). Mountains ring the west, east and north: low terrain foothills plus one instanced mesh of low-poly snow-capped peaks (about 140 peaks, 22k triangles, one draw, fog-free so they always read as the horizon). The edges hold through `clampToBounds` in `resolve` (no wall, no UI). Out at sea a soft return current past the reef turns the octopus back gently; five shark fins patrol just beyond it. A river runs from the ranges to the estuary. Bands blend over a short strip.
+
+**Start.** A fresh game starts in the shallows beside the big shell (the future Octo house), heading north towards the beach. The old sea-arrival moment is now a homecoming: it plays when the octopus returns to the sea after it has been inland (band 2 or further).
+
+**Predators.** `planLife` places the land animals per band at a density that rises northward (about 0.45, 0.63, 0.91, 1.21 and 1.59 per hectare for shore to wasteland), with tougher kinds further north, and `AGGRO` widens how far they notice the octopus (0.85 on the shore up to 1.32 in the wasteland). None live at sea. Still at most two strike at once, and animals never overlap (the separation now relaxes over up to four passes).
+
+**Save v10.** `MIGRATIONS[9]`: a v9 save keeps the satchel, effects, levels, badges, journal, shell and baby tallies; den decor and anything carried go back into the satchel; the old position, dens, explored map and taken-item list are cleared (the old map no longer exists), and the octopus starts fresh by the shell. A damaged position is rejected. A saved position outside the bands is clamped back inside.
+
+**Performance (`?mobile=1`, seed 2026, `scripts/perf.mjs`, average of two back-to-back runs against main on the same machine).** Across the nine shared biome spots the mean is 203 draw calls (main 212), 622k triangles (main 751k) and 99.5 ms a frame under software GL (main 98.1 ms, within noise). Mud flats and wasteland are the cheapest places (about 110 calls, 230k triangles). To get there: every shell now streams through the pool within ~120 m instead of all being drawn; pooled gatherables draw only up to their highest used slot; the yard places (gnomes, sheds, garden, playground) are grouped in 80 m cells skipped past the fog; on a phone small clutter props and water discs are skipped past 150 m. Per spot the beach (more clutter on a narrow strip) and the farm still draw more calls than main's spots of the same name.
+
+**Tests.** `scripts/bands.mjs` (in `npm test`): band order south to north, each band's middle is its own biomes, the start is in the sea within 30 m of the shell, the edges hold, the ranges rise past them, v9 to v10 keeps what was earned, the new landmarks sit on the ground, sludge is only purple or yellow, and predator density and alertness rise northward.

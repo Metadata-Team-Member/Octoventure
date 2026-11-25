@@ -682,7 +682,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     out.peekFar = g.collect.peek.count === Math.min(24, within);       // only the babies close by get a live slot
     // squelch: walk wet for 20 s and count step sounds
     let n = 0; const orig = g.audio.step; g.audio.step = () => { n++; };
-    G.teleport(-110, 425); G.advance(0.2); g.input.yaw = Math.PI / 2; G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig;
+    const dsp = w.findBiomeSpot('desert'); G.teleport(dsp.x, dsp.z); G.advance(0.2); g.input.yaw = Math.PI / 2;   // open, dry, flat red sand (no tide to reach it) G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; o.health = 100; o.energy = 100; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig;
     out.steps = n; return out;
   });
   ok(r.peekNear && r.peekFar, 'a hidden baby wriggles into view only when the octopus is near');

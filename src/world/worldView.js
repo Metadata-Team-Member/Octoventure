@@ -48,7 +48,7 @@ const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Eule
 /** like instanced(), but every instance is seated on the terrain by placement.js (base on the ground, tilted/sunk as the category needs) */
 function instancedSeat(world, geo, mat, list, cat, sub, color) {
   const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, list.length));
-  mesh.count = list.length;
+  mesh.count = list.length; mesh.name = sub;
   const gh = geoHeight(geo);
   list.forEach((o, i) => {
     seat(world, geo, instanceSpec(cat, sub, o, gh), _m);
@@ -73,10 +73,15 @@ const coralColor = (o, c) => c.setHSL((0.92 + o.hue * 0.2) % 1, 0.62, 0.56);
 /** chunks whose centre is further than this draw their trees with the low-detail geometry */
 const LOD_DIST = 150;
 const FAR = { grass: 135, flower: 110, reed: 190, beach: 120, seagrass: 120, reef: 200, drop: 160 };
+// on a phone, small yard / shore clutter is only a pixel or two past ~150 m: those per-chunk draws are skipped there
+const SMALL_PROPS = new Set(['post', 'plank', 'tin', 'letterbox', 'bin', 'bowl', 'birdbath', 'crabpot', 'towel', 'umbrella', 'shellhide', 'slab',
+  'coralhead', 'lamp', 'haybale', 'trough', 'sheep', 'drain', 'cairn', 'hollowlog', 'culvert', 'log', 'fencehole', 'pipe', 'hoist']);
+const MOBILE_PROP_FAR = 150;
 
 export class WorldView {
   constructor(world, scene, opts = {}) {
     this.world = world;
+    this.mobile = !!opts.mobile;
     this.scene = scene;
     this.root = new THREE.Group();
     scene.add(this.root);
@@ -252,7 +257,7 @@ export class WorldView {
     if (b.prop) for (const kind in b.prop) {
       const hue = HUE_KINDS.has(kind);
       const m = instancedSeat(this.world, this._propGeo(kind), this.vcMat, b.prop[kind], 'prop', kind, (o, c) => (hue ? hueColor(o, c) : c.setScalar(o.tint)));
-      m.castShadow = sh && this.shadowKinds.has(kind); m.receiveShadow = sh && (kind.startsWith('house') || kind === 'barn'); add(m);
+      m.castShadow = sh && this.shadowKinds.has(kind); m.receiveShadow = sh && (kind.startsWith('house') || kind === 'barn'); add(m, this.mobile && SMALL_PROPS.has(kind) ? MOBILE_PROP_FAR : 0);
     }
     if (b.water) {
       const colors = { puddle: 0x4aa8dc, pond: 0x2f8fc8, tidepool: 0x57c2d6, stream: 0x5ab6e6, drip: 0x58b0e0, trough: 0x5aa6c8, dam: 0x3d86a8, estuary: 0x4fa3c0, birdbath: 0x6cc0ea, bowl: 0x6cc0ea, aircon: 0x58b0e0, hose: 0x58b0e0, swamp: 0x3f7f78, creek: 0x4ea6d6 };
@@ -270,7 +275,7 @@ export class WorldView {
         m.setMatrixAt(i, _m); m.setColorAt(i, _c.set(colors[o.kind] ?? 0x4aa8dc));
       });
       m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; m.computeBoundingSphere();
-      m.renderOrder = 2; add(m);
+      m.renderOrder = 2; add(m, this.mobile ? MOBILE_PROP_FAR : 0);
       const pads = [];
       for (const o of list) {
         if (o.kind !== 'pond' || !o.carve) continue;
