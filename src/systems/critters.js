@@ -10,10 +10,10 @@
 //
 //  Performance: one InstancedMesh per kind (plus thin outline hulls except for
 //  ants), small fixed pools recycled around the player, all scratch objects
-//  preallocated. Ants are the soft-toon glb: one shared skinned mesh for the
-//  ants close enough to see legs move, and one instanced bind-pose stand-in
-//  (same colours, far fewer triangles) for the rest of the line. Mixers run
-//  only for that nearby cap — never the whole trail.
+//  preallocated. Ants and frogs are the soft-toon glbs: one shared skinned mesh
+//  for the ones close enough to see move, and one instanced bind-pose stand-in
+//  (same colours, far fewer triangles) for the rest. Mixers run only for that
+//  nearby cap — never the whole pool.
 // =====================================================================
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -23,6 +23,7 @@ import { bakeToonSkinned, crossFadeGait } from '../world/toonGlb.js';
 import { tint, merge, at } from '../world/models.js';
 import { separate } from '../util/separate.js';
 import antUrl from '../assets/models/ant.glb?url';
+import frogUrl from '../assets/models/frog.glb?url';
 
 const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank', 'wasteland']);
 const ANT_B = new Set(['desert', 'bush', 'suburb', 'farm', 'town', 'dunes', 'rainforest']);
@@ -45,6 +46,26 @@ const ANT_BUDGET = {
   leg_LF: 6, leg_LM: 6, leg_LH: 6, leg_RF: 6, leg_RM: 6, leg_RH: 6,
   p1: 10, p2: 8, p3: 4,
 };
+const FROG_NEAR = 14;                     // metres: skinned idle / hop / croak / tongue
+const FROG_HOP = 0.58;                    // air time, matched to the hop clip (was 1/2.6 ~ 0.38 s)
+const FROG_CROAK_R = 22;                 // nearest frog within this of the camera takes the croak
+const FROG_TINT = {
+  back: 0xA8EC3C, flank: 0xE8C83A, blotch: 0x2A3214, belly: 0xF4E8C8, eyeRing: 0xE8B43A,
+  eye: 0x141416, highlight: 0xffffff, mouth: 0x3A281C, pad: 0xF0C8B0, throat: 0xF6D8C0,
+  tongue: 0xE87A7A, leg: 0xC8D43A,
+};
+const FROG_PART = {
+  back: 0, flank: 0, blotch: 0, belly: 0, throat: 0, leg: 0, pad: 0, mouth: 0,
+  eyeRing: 1, eye: 2, highlight: 3, tongue: 4,
+};
+const FROG_BUDGET = {
+  root: 2, spine: 20, head: 16, throat: 6, tongue: 3,
+  eye_L: 2, eye_R: 2,
+  fl_thigh: 4, fl_shin: 3, fl_foot: 4, fr_thigh: 4, fr_shin: 3, fr_foot: 4,
+  bl_thigh: 6, bl_shin: 4, bl_foot: 4, br_thigh: 6, br_shin: 4, br_foot: 4,
+  p1: 8, p2: 12, p3: 6, p4: 4,
+};
+const FROG_CLIPS = ['idle', 'hop', 'croak', 'tongue'];
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _zero = new THREE.Vector3(0, 0, 0), _c = new THREE.Color();
 
 const sph = (r, s = 6, t = 5) => new THREE.SphereGeometry(r, s, t);
@@ -74,6 +95,20 @@ function antTemplate() {
   }
   return _antTplP;
 }
+let _frogTpl = null, _frogTplP = null;
+function frogTemplate() {
+  if (_frogTpl) return Promise.resolve(_frogTpl);
+  if (!_frogTplP) {
+    _frogTplP = new GLTFLoader().loadAsync(frogUrl).then((gltf) => {
+      _frogTpl = bakeToonSkinned(gltf, {
+        tint: FROG_TINT, part: FROG_PART, budget: FROG_BUDGET, fallback: 0xA8EC3C,
+        keepLow: true, clipNames: FROG_CLIPS,
+      });
+      return _frogTpl;
+    });
+  }
+  return _frogTplP;
+}
 function flyGeo() {
   return merge([
     at(tint(new THREE.CylinderGeometry(0.012, 0.007, 0.28, 5), 0x2a7fb8), 0, 0, 0, Math.PI / 2, 0, 0),
@@ -95,18 +130,6 @@ function crabGeo() {
     at(tint(sph(0.04, 5, 4), 0xf0e2c0), -0.07, 0.04, 0.07, 0, 0.4, 0, 1.1, 0.7, 1.2),
     at(tint(sph(0.03, 5, 4), 0xf0e2c0), 0.06, 0.04, 0.07, 0, -0.4, 0, 1.05, 0.65, 1.1),
     ...legs,
-  ]);
-}
-function frogGeo() {
-  return merge([
-    at(tint(sph(1, 7, 5), 0x5a8f3a), 0, 0.045, 0, 0, 0, 0, 0.08, 0.05, 0.1),
-    at(tint(sph(0.04, 6, 5), 0x6aa048), -0.032, 0.095, 0.055),
-    at(tint(sph(0.04, 6, 5), 0x6aa048), 0.032, 0.095, 0.055),
-    eye(-0.032, 0.108, 0.066, 0.015), eye(0.032, 0.108, 0.066, 0.015),
-    at(tint(new THREE.BoxGeometry(0.055, 0.022, 0.09), 0x4e7a32), -0.055, 0.02, -0.05),
-    at(tint(new THREE.BoxGeometry(0.055, 0.022, 0.09), 0x4e7a32), 0.055, 0.02, -0.05),
-    at(tint(new THREE.BoxGeometry(0.04, 0.016, 0.05), 0x4e7a32), -0.045, 0.02, 0.06),
-    at(tint(new THREE.BoxGeometry(0.04, 0.016, 0.05), 0x4e7a32), 0.045, 0.02, 0.06),
   ]);
 }
 function hermitGeo() {
@@ -158,15 +181,15 @@ export class Critters {
     };
     this.skMesh = mk(skinkGeo(), NS);
     this.flyMesh = mk(flyGeo(), NF); this.crMesh = mk(crabGeo(), NC);
-    this.frMesh = mk(frogGeo(), NFR); this.hmMesh = mk(hermitGeo(), NH);
+    this.hmMesh = mk(hermitGeo(), NH);
     this.buMesh = mk(butterflyGeo(), NB); this.wrMesh = mk(wrenGeo(), NW);
     this.lineMat = this.mobile ? null : outlineMat(0x231a12);
-    this.hulls = this.lineMat ? [this.skMesh, this.flyMesh, this.crMesh, this.frMesh, this.hmMesh, this.buMesh, this.wrMesh].flatMap((m) => outline(m, this.lineMat)) : [];
+    this.hulls = this.lineMat ? [this.skMesh, this.flyMesh, this.crMesh, this.hmMesh, this.buMesh, this.wrMesh].flatMap((m) => outline(m, this.lineMat)) : [];
     this.sk = Array.from({ length: NS }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, run: 0, walk: 0, bask: 0, t: Math.random() * 5, cur: 0 }));
     this.tr = Array.from({ length: NT }, () => ({ on: false, x: 0, z: 0, a: 0, len: 3, hs: new Float32Array(9), ph: Math.random() }));
     this.fl = Array.from({ length: NF }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, g: 0, t: 0, h: 0 }));
     this.cr = Array.from({ length: NC }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, dir: 1, t: 0, run: 0, dig: 0, cur: 0 }));
-    this.fr = Array.from({ length: NFR }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, hop: 0, air: 0, t: Math.random() * 3, wet: 0 }));
+    this.fr = Array.from({ length: NFR }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, hop: 0, air: 0, t: Math.random() * 3, wet: 0, croak: 0, flick: 0, launched: 0 }));
     this.hm = Array.from({ length: NH }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, dir: 1, t: 0, run: 0, hide: 0 }));
     this.bu = Array.from({ length: NB }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, t: 0, h: 0, land: 0 }));
     this.wr = Array.from({ length: NW }, () => ({ on: false, x: 0, z: 0, y: 0, g: 0, h: 0, hop: 0, fly: 0, t: 0, tx: 0, tz: 0, ty: 0 }));
@@ -174,12 +197,18 @@ export class Critters {
     this.antPace = 1; this.antReady = false; this.antError = ''; this.antClips = []; this.antDur = {};
     this.antCap = mobile ? 8 : 16; this.antSlots = []; this._antSim = 0; this._march = 0;
     this.antTris = 0; this.antFarTris = 0;
+    this.frogReady = false; this.frogError = ''; this.frogClips = []; this.frogDur = {};
+    this.frogCap = mobile ? 4 : 6; this.frogSlots = []; this._frogSim = 0;
+    this.frogTris = 0; this.frogFarTris = 0; this.frogMinY = 0; this.frMesh = null; this.frogHull = null;
+    this._fpick = new Int16Array(6); this._fpickD = new Float32Array(6); this._fnear = new Uint8Array(NFR); this._fslotUsed = new Uint8Array(6);
     this._ax = new Float32Array(ANT_N); this._ay = new Float32Array(ANT_N); this._az = new Float32Array(ANT_N);
     this._ayaw = new Float32Array(ANT_N); this._aon = new Uint8Array(ANT_N); this._anear = new Uint8Array(ANT_N);
     this._ad2 = new Float32Array(ANT_N); this._pick = new Int16Array(16); this._pickD = new Float32Array(16);
     this._slotUsed = new Uint8Array(16);
     const mount = (tpl) => { if (!this.disposed) this._mountAnts(tpl); };
     if (_antTpl) mount(_antTpl); else antTemplate().then(mount).catch((err) => { this.antError = String(err && err.message || err); });
+    const mountFrog = (tpl) => { if (!this.disposed) this._mountFrogs(tpl); };
+    if (_frogTpl) mountFrog(_frogTpl); else frogTemplate().then(mountFrog).catch((err) => { this.frogError = String(err && err.message || err); });
   }
 
   /** One shared skeleton template, cloned per nearby ant. Far ants share one instanced bind pose. */
@@ -212,6 +241,104 @@ export class Critters {
   }
 
   _setGait(slot, moving) { crossFadeGait(slot, moving, ANT_FADE); }
+
+  /** inverted-hull outline that skins. A plain Mesh child would stay in the bind pose. */
+  _skinnedHull(mesh, mat) {
+    const h = new THREE.SkinnedMesh(mesh.geometry, mat);
+    h.bindMode = mesh.bindMode;
+    h.bind(mesh.skeleton, mesh.bindMatrix);
+    h.frustumCulled = false; h.castShadow = false; h.receiveShadow = false;
+    h.userData.isOutline = true; h.renderOrder = (mesh.renderOrder || 0) + 1;
+    mesh.parent.add(h);
+    return h;
+  }
+
+  /** One shared skeleton, cloned per nearby frog. Far frogs share one instanced bind pose. */
+  _mountFrogs(tpl) {
+    const mat = this.frogMat = toonMat({ vertexColors: true });
+    const inst = this.frMesh = new THREE.InstancedMesh(tpl.farGeo, mat, NFR);
+    inst.frustumCulled = false; inst.castShadow = false; inst.receiveShadow = false; inst.count = 0;
+    this.scene.add(inst);
+    if (this.lineMat) {
+      this.frogHull = outline(inst, this.lineMat)[0] || null;
+      if (this.frogHull) this.frogHull.count = 0;
+    }
+    const byName = {};
+    for (const c of tpl.clips) byName[c.name] = c;
+    this.frogClips = FROG_CLIPS.filter((n) => byName[n]);
+    this.frogDur = {};
+    for (const n of this.frogClips) this.frogDur[n] = byName[n].duration;
+    this.frogTris = tpl.geo.index ? tpl.geo.index.count / 3 : tpl.geo.attributes.position.count / 3;
+    this.frogFarTris = tpl.farGeo.attributes.position.count / 3;
+    tpl.geo.computeBoundingBox();
+    this.frogMinY = tpl.geo.boundingBox.min.y;
+    const hopScale = (byName.hop?.duration || FROG_HOP) / FROG_HOP;
+    this.frogLine = this.mobile ? null : outlineMat(0x2a3214);
+    for (let i = 0; i < this.frogCap; i++) {
+      const root = SkeletonUtils.clone(tpl.scene);
+      let skinned = null;
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = mat; o.frustumCulled = false; o.castShadow = false; o.receiveShadow = false;
+        if (o.isSkinnedMesh) skinned = o;
+      });
+      root.visible = false; root.scale.set(1, 1, 1); root.position.y = -999;
+      this.scene.add(root);
+      const hull = skinned && this.frogLine ? this._skinnedHull(skinned, this.frogLine) : null;
+      const mixer = new THREE.AnimationMixer(root);
+      const actions = {};
+      for (const n of this.frogClips) {
+        const a = mixer.clipAction(byName[n]);
+        if (n === 'idle') a.setLoop(THREE.LoopRepeat, Infinity);
+        else { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+        actions[n] = a;
+      }
+      const slot = { root, mixer, actions, hull, id: -1, live: false, clip: null, hopScale };
+      mixer.addEventListener('finished', (e) => {
+        const name = e.action?.getClip?.()?.name;
+        if (name !== 'croak' && name !== 'tongue') return;
+        if (slot.clip !== name) return;
+        slot.clip = null;
+        const c = slot.id >= 0 ? this.fr[slot.id] : null;
+        if (c && name === 'croak') c.croak = 0;
+        if (c && name === 'tongue') c.flick = 0;
+      });
+      this.frogSlots.push(slot);
+    }
+    this.frogReady = true;
+  }
+
+  _playFrog(slot, name, restart) {
+    if (!restart && slot.clip === name) return;
+    const next = slot.actions[name];
+    if (!next) return;
+    const prev = slot.clip && slot.clip !== name ? slot.actions[slot.clip] : null;
+    next.timeScale = name === 'hop' ? slot.hopScale : 1;
+    if (!prev) {
+      for (const k of this.frogClips) if (k !== name) slot.actions[k].stop();
+      next.reset().setEffectiveWeight(1).play();
+    } else {
+      next.reset().play();
+      prev.crossFadeTo(next, restart ? 0.08 : 0.16, false);
+    }
+    slot.clip = name;
+  }
+
+  /** the croak beat in audio.js: the nearest on-screen frog puffs its throat. A hop still wins until it lands. */
+  croakNear(pos) {
+    if (!pos) return false;
+    let best = null, bd = FROG_CROAK_R * FROG_CROAK_R;
+    for (let i = 0; i < NFR; i++) {
+      const c = this.fr[i];
+      if (!c.on) continue;
+      const d = (c.x - pos.x) ** 2 + (c.z - pos.z) ** 2;
+      if (d < bd) { bd = d; best = c; }
+    }
+    if (!best) return false;
+    best.croak = 1;
+    best.flick = 0;
+    return true;
+  }
 
   /** a random ground spot 8..34 m from the player whose biome allows `set` (null if none on this try) */
   spot(o, set, { wet = false, nearWater = false } = {}) {
@@ -266,7 +393,7 @@ export class Critters {
       const c = this.fr[k - NS - NT - NF - NC]; if (!far(c)) return;
       const s = this.spot(o, FROG_B, { nearWater: Math.random() < 0.7 }) || this.spot(o, FROG_B, { wet: true }) || this.spot(o, FROG_B);
       c.on = false; if (!s) return;
-      c.on = true; c.x = s[0]; c.z = s[1]; c.y = w.heightAt(c.x, c.z); c.h = Math.random() * 6.28; c.hop = 0; c.air = 0; c.t = Math.random() * 2; c.wet = w.waterAt?.(c.x, c.z) ? 1 : 0;
+      c.on = true; c.x = s[0]; c.z = s[1]; c.y = w.heightAt(c.x, c.z); c.h = Math.random() * 6.28; c.hop = 0; c.air = 0; c.t = Math.random() * 2; c.wet = w.waterAt?.(c.x, c.z) ? 1 : 0; c.croak = 0; c.flick = 0; c.launched = 0;
     } else if (k < NS + NT + NF + NC + NFR + NH) {
       const c = this.hm[k - NS - NT - NF - NC - NFR]; if (!far(c) && c.hide < 1) return;
       if (!place(c, HERM_B)) return;
@@ -454,30 +581,111 @@ export class Critters {
     this.crMesh.instanceMatrix.needsUpdate = true;
     if (this.crMesh.instanceColor) this.crMesh.instanceColor.needsUpdate = true;
 
-    // ---- frogs: sit at the water's edge, hop, plop in when startled (more lively in the rain and at dusk)
+    // ---- frogs: sit at the water's edge, hop along +Z, plop in when startled.
+    // The glb is already ~6 cm. Scale stays 1. The hop arc is code (no root motion);
+    // air lasts the hop clip. Croak comes from the audio beat; tongue is an idle flick.
     const frogEager = (rain > 0.25 || night > 0.45) ? 1.6 : 1;
+    const hopRate = 1 / FROG_HOP;
     for (let i = 0; i < NFR; i++) {
       const c = this.fr[i];
-      if (!c.on) { hide(this.frMesh, i); continue; }
+      if (!c.on) continue;
       const s = scare(c, 5.5);
       if (c.air <= 0) {
-        if (s.close) { c.hop = 1; c.h = s.heading; }          // leap away, often into water
-        else { c.t -= dt * frogEager; if (c.t <= 0) { c.t = 1.2 + Math.random() * 3; if (Math.random() < 0.55) { c.hop = 1; c.h += (Math.random() - 0.5) * 1.2; } } }
+        if (s.close) { c.hop = 1; c.h = s.heading; c.flick = 0; }
+        else {
+          c.t -= dt * frogEager;
+          if (c.t <= 0) {
+            c.t = 1.2 + Math.random() * 3;
+            if (Math.random() < 0.55) { c.hop = 1; c.h += (Math.random() - 0.5) * 1.2; }
+            else if (!c.croak && Math.random() < 0.45) c.flick = 1;
+          }
+        }
       }
-      if (c.hop && c.air <= 0) { c.air = 1; c.hop = 0; }
+      if (c.hop && c.air <= 0) { c.air = 1; c.hop = 0; c.launched = 1; }
       if (c.air > 0) {
-        c.air -= dt * 2.6;
+        c.air -= dt * hopRate;
         const u = 1 - Math.max(0, c.air), lift = Math.sin(u * Math.PI) * 0.28;
-        const nx = c.x + Math.sin(c.h) * 1.3 * dt * 2.6, nz = c.z + Math.cos(c.h) * 1.3 * dt * 2.6;
+        const nx = c.x + Math.sin(c.h) * 1.3 * dt * hopRate, nz = c.z + Math.cos(c.h) * 1.3 * dt * hopRate;
         if (!w._blocked?.(nx, nz, 0.15)) { c.x = nx; c.z = nz; }
         c.y = w.heightAt(c.x, c.z) + lift;
         c.wet = w.waterAt?.(c.x, c.z) ? 1 : 0;
-        if (c.air <= 0) c.y = w.heightAt(c.x, c.z);
+        if (c.air <= 0) { c.air = 0; c.y = w.heightAt(c.x, c.z); }
       } else c.y = w.heightAt(c.x, c.z);
-      const squat = c.air > 0 ? 1.15 : 0.92;
-      pose(this.frMesh, i, c.x, c.y + (c.wet ? -0.02 : 0), c.z, c.h, 1, squat, 1);
     }
-    this.frMesh.instanceMatrix.needsUpdate = true;
+    const frogNear = FROG_NEAR * FROG_NEAR, frogCap = this.frogCap;
+    const fpick = this._fpick, fpickD = this._fpickD;
+    for (let k = 0; k < frogCap; k++) { fpick[k] = -1; fpickD[k] = Infinity; }
+    if (this.frogReady) {
+      for (let i = 0; i < NFR; i++) {
+        const c = this.fr[i];
+        if (!c.on) continue;
+        const dx = c.x - o.x, dz = c.z - o.z, d2 = dx * dx + dz * dz;
+        if (d2 > frogNear) continue;
+        let worst = 0;
+        for (let k = 1; k < frogCap; k++) if (fpickD[k] > fpickD[worst]) worst = k;
+        if (d2 < fpickD[worst]) { fpickD[worst] = d2; fpick[worst] = i; }
+      }
+    }
+    this._fnear.fill(0);
+    for (let k = 0; k < frogCap; k++) if (fpick[k] >= 0) this._fnear[fpick[k]] = 1;
+    const fslots = this.frogSlots, fused = this._fslotUsed;
+    fused.fill(0);
+    let fsim = 0;
+    if (this.frogReady) {
+      for (let s = 0; s < fslots.length; s++) {
+        const slot = fslots[s];
+        if (!slot.live) continue;
+        let keep = -1;
+        for (let k = 0; k < frogCap; k++) if (fpick[k] === slot.id) { keep = k; break; }
+        if (keep < 0) {
+          slot.live = false; slot.id = -1; slot.clip = null; slot.mixer.stopAllAction();
+          slot.root.visible = false; slot.root.position.y = -999;
+        } else fused[keep] = 1;
+      }
+      for (let k = 0; k < frogCap; k++) {
+        if (fpick[k] < 0 || fused[k]) continue;
+        let slot = null;
+        for (let s = 0; s < fslots.length; s++) if (!fslots[s].live) { slot = fslots[s]; break; }
+        if (!slot) break;
+        slot.live = true; slot.id = fpick[k]; slot.clip = null; fused[k] = 1;
+      }
+      for (let s = 0; s < fslots.length; s++) {
+        const slot = fslots[s];
+        if (!slot.live) continue;
+        const c = this.fr[slot.id];
+        const sink = c.wet && c.air <= 0 ? -0.02 : 0;
+        slot.root.position.set(c.x, c.y + sink, c.z);
+        slot.root.rotation.set(0, c.h, 0);
+        slot.root.scale.set(1, 1, 1);
+        slot.root.visible = true;
+        let want = 'idle';
+        if (c.air > 0) want = 'hop';
+        else if (c.croak) want = 'croak';
+        else if (c.flick) want = 'tongue';
+        const restart = want === 'hop' && c.launched;
+        if (restart) c.launched = 0;
+        this._playFrog(slot, want, restart);
+        slot.mixer.update(dt);
+        if (want === 'hop' && slot.actions.hop) {
+          const u = 1 - Math.max(0, Math.min(1, c.air));
+          slot.actions.hop.time = u * slot.actions.hop.getClip().duration;
+        }
+        fsim++;
+      }
+    }
+    this._frogSim = fsim;
+    const mesh = this.frMesh;
+    if (mesh) {
+      let n = 0;
+      for (let i = 0; i < NFR; i++) {
+        if (!this.fr[i].on || this._fnear[i]) continue;
+        const c = this.fr[i];
+        const sink = c.wet && c.air <= 0 ? -0.02 : 0;
+        pose(mesh, n++, c.x, c.y + sink, c.z, c.h, 1, 1, 1);
+      }
+      mesh.count = n; mesh.instanceMatrix.needsUpdate = true;
+      if (this.frogHull) this.frogHull.count = n;
+    }
 
     // ---- hermit crabs: sidle with a borrowed shell, tuck in when startled
     for (let i = 0; i < NH; i++) {
@@ -602,14 +810,53 @@ export class Critters {
       walk, idle, samples,
     };
   }
+  /** model hookup, for tests: clips, who is simulating, and whether a hop is in the air */
+  frogProbe() {
+    const samples = [];
+    for (let i = 0; i < NFR; i++) {
+      const c = this.fr[i];
+      if (!c.on) continue;
+      let clip = null, scale = 1, skinned = false, meshY = c.y + (c.wet && c.air <= 0 ? -0.02 : 0);
+      for (let s = 0; s < this.frogSlots.length; s++) {
+        const slot = this.frogSlots[s];
+        if (slot.live && slot.id === i) {
+          skinned = true; clip = slot.clip; scale = slot.root.scale.x; meshY = slot.root.position.y;
+          break;
+        }
+      }
+      samples.push({
+        i, x: c.x, z: c.z, y: c.y, meshY, ground: this.world.heightAt(c.x, c.z),
+        air: c.air, wet: c.wet, croak: c.croak || 0, flick: c.flick || 0,
+        heading: c.h, clip, scale, skinned,
+      });
+    }
+    let idle = 0, hop = 0, croak = 0, tongue = 0;
+    for (let s = 0; s < this.frogSlots.length; s++) {
+      const slot = this.frogSlots[s];
+      if (!slot.live) continue;
+      if (slot.clip === 'hop') hop++;
+      else if (slot.clip === 'croak') croak++;
+      else if (slot.clip === 'tongue') tongue++;
+      else idle++;
+    }
+    return {
+      ready: this.frogReady, error: this.frogError, clips: this.frogClips.slice(), dur: { ...this.frogDur },
+      scale: 1, tris: this.frogTris, farTris: this.frogFarTris, minY: this.frogMinY, cap: this.frogCap,
+      simulating: this._frogSim, instanced: this.frMesh ? this.frMesh.count : 0,
+      idle, hop, croak, tongue, samples,
+    };
+  }
   dispose() {
     this.disposed = true;
-    for (const m of [this.skMesh, this.flyMesh, this.crMesh, this.frMesh, this.hmMesh, this.buMesh, this.wrMesh]) {
+    for (const m of [this.skMesh, this.flyMesh, this.crMesh, this.hmMesh, this.buMesh, this.wrMesh]) {
       m.geometry.dispose(); this.scene.remove(m);
     }
     if (this.antInst) this.scene.remove(this.antInst);
     for (const s of this.antSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); }
     this.antMat?.dispose();
+    if (this.frMesh) this.scene.remove(this.frMesh);
+    for (const s of this.frogSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); }
+    this.frogMat?.dispose(); this.frogLine?.dispose();
     this.mat.dispose(); this.lineMat?.dispose();
   }
 }

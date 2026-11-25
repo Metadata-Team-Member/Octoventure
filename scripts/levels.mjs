@@ -147,6 +147,46 @@ await sleep(400);
   ok(a.journal, 'ants count in the field journal');
   ok(a.packed === 0, `ants pack up in heavy rain (${a.packed} trails left)`);
 }
+// ---- the frog model (idle on the ground, hop while airborne, croak from the beat)
+{
+  await page.waitForFunction(() => window.__game.game.critters.frogReady || window.__game.game.critters.frogError, { timeout: 20000 });
+  const f = await E(() => {
+    const G = window.__game, g = G.game, C = g.critters, o = g.octopus;
+    G.clearPredators(); G.setWeather('clear'); g.env.rain = 0; g.env.apply(); G.setTime(0.45);
+    G.teleportToBiome('wetland');
+    for (let i = 0; i < 80 && C.counts().frogs < 1; i++) G.advance(0.1);
+    const frog = C.fr.find((c) => c.on);
+    if (frog) G.teleport(frog.x + 8, frog.z);
+    for (const c of C.fr) { c.t = 30; c.hop = 0; c.air = 0; c.croak = 0; c.flick = 0; c.launched = 0; }
+    G.advance(0.4);
+    const sit = C.frogProbe();
+    const s0 = sit.samples.find((s) => s.skinned && s.air <= 0) || sit.samples.find((s) => s.air <= 0);
+    const target = s0 ? C.fr[s0.i] : C.fr.find((c) => c.on);
+    if (target) { target.hop = 1; target.air = 0; target.t = 30; }
+    G.advance(0.22);
+    const mid = C.frogProbe();
+    const hopping = mid.samples.find((s) => s.air > 0.2);
+    if (target) { target.air = 0; target.hop = 0; target.launched = 0; target.y = g.world.heightAt(target.x, target.z); }
+    for (const c of C.fr) { c.t = 40; c.hop = 0; if (c.air > 0) { c.air = 0; c.y = g.world.heightAt(c.x, c.z); } c.croak = 0; c.flick = 0; }
+    G.advance(0.25);
+    const beat = g.audio.croakBeat;
+    g.audio.croakBeat = beat + 1;
+    G.advance(0.35);
+    const sung = C.frogProbe();
+    const sitSamples = sit.samples.filter((s) => s.air <= 0);
+    const hover = sitSamples.reduce((m, s) => Math.max(m, Math.abs(s.meshY - (s.ground + (s.wet ? -0.02 : 0)))), 0);
+    const journal = g.journal.has('frog');
+    return { sit, mid, sung, hover, journal, hopping: hopping ? { air: hopping.air, clip: hopping.clip, skinned: hopping.skinned, scale: hopping.scale } : null, n: C.counts().frogs };
+  });
+  ok(f.sit.ready && !f.sit.error && ['idle', 'hop', 'croak', 'tongue'].every((n) => f.sit.clips.includes(n)), `the frog model loaded (${f.sit.clips.join('+') || f.sit.error})`);
+  ok(Math.abs(f.sit.dur.idle - 2.5) < 0.05 && Math.abs(f.sit.dur.hop - 0.583) < 0.02 && Math.abs(f.sit.dur.croak - 0.79) < 0.03 && Math.abs(f.sit.dur.tongue - 0.29) < 0.03, `idle 2.5s, hop 0.58s, croak 0.79s, tongue 0.29s (${f.sit.dur.idle}, ${f.sit.dur.hop}, ${f.sit.dur.croak}, ${f.sit.dur.tongue})`);
+  ok(f.sit.tris > 2000 && f.sit.farTris > 40 && f.sit.farTris < 400, `the frog uses the glb (${f.sit.tris} tris) and a cheap stand-in (${f.sit.farTris})`);
+  ok(f.sit.minY > -0.01 && f.sit.minY < 0.01, `the frog origin is on the ground (min y ${f.sit.minY.toFixed(4)})`);
+  ok(f.n > 0 && f.sit.samples.length > 0 && f.hover < 0.03, `frogs sit on heightAt (${f.n}, worst ${f.hover.toFixed(4)} u)`);
+  ok(f.hopping && f.hopping.skinned && f.hopping.clip === 'hop' && f.hopping.scale === 1, `hop plays while airborne (${f.hopping ? f.hopping.clip + ' air ' + f.hopping.air.toFixed(2) : 'none'})`);
+  ok(f.sung.croak > 0, `the croak beat plays croak on a frog (${f.sung.croak})`);
+  ok(f.journal, 'frogs still fill the field journal');
+}
 ok(problems.length === 0, `no page errors${problems.length ? ': ' + problems.join(' | ') : ''}`);
 await browser.close();
 console.log(failed ? `\n${failed} FAILED` : '\nall levels / badges / day-night / weather checks passed');

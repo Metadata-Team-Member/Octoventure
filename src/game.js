@@ -81,6 +81,7 @@ export class Game {
     this.hud = new Hud();
     this.input = new Input(canvas);
     this.audio = new GameAudio();
+    this._croakHeard = 0;
     this.music = new Music();
     this.hemi = new THREE.HemisphereLight(0xcfe8ff, 0x8d8466, 1.35);
     this.sun = new THREE.DirectionalLight(0xfff1d6, 2.6);
@@ -517,6 +518,10 @@ void main(){
       coast, ambient: this.atmo.ambient, cam: this.camera, health: o.health, moving: o.moving, swim: o.swim, night: world.night,
       car: this.carInfo ? { dist: this.carInfo.dist, x: this.carInfo.x, y: world.heightAt(this.carInfo.x, this.carInfo.z) + 1, z: this.carInfo.z, horn: this.carInfo.horn, speed: this.carInfo.speed } : null,
     });
+    if (this.audio.croakBeat !== this._croakHeard) {
+      this._croakHeard = this.audio.croakBeat;
+      if (!this.places?.indoor) this.critters?.croakNear(this.camera.position);
+    }
     this.music.update(dt, this);
     if (this.params.get('debug') === '1') {
       this.hud.setDebug(`fps ${this.fps.toFixed(0)}  state ${this.state}\npos ${o.x.toFixed(0)},${o.z.toFixed(0)}  h ${o.y.toFixed(1)}\nseed ${world.seed}  sea-dir ${(world.angle * 57.3).toFixed(0)}°  to-sea ${(-world.distToSea(o.x, o.z)).toFixed(0)}m\nterrain ${o.terrain}  water ${o.waterKind}\npredators ${this.predators.list.length}`);
