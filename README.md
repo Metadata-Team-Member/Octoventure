@@ -75,7 +75,7 @@ Mouse-look uses Pointer Lock; Esc releases it and pauses (nothing dries or moves
 
 ## How to play (a self-discovery game)
 There is **no HUD, timer, tutorial, markers or hint text**. Everything is read from the world and the octopus itself.
-* You are **20 cm long** and the world is drawn to match: grass towers over you, puddles are ponds, a person is about 8x your size, a dog 3-4x, gulls and magpies 2-3x, cars are moving buildings. Big animals shake the ground when they walk close, and bird shadows sweep over you. Grass and props that block the camera dither away.
+* You are **20 cm long** and the world is drawn to match: grass towers over you, puddles are ponds, a person is about 14x your length, a dog about 8x, gulls and magpies a few times that, cars are moving buildings. Big animals shake the ground when they walk close, and bird shadows sweep over you. Grass and props that block the camera dither away.
 * The octopus **dries out** (about 6.5 min from full on ordinary ground, faster on some surfaces and at midday or in heatwaves). Its **colour fades toward grey as it dries**. Find water: puddles, ponds, streams, tide pools, drips, taps, sprinklers, bird baths, pet bowls, bin lids after rain, dew at dawn, rain, the sea. Wading is faster than walking.
 * **Predators** (gull, cat, dog, fox, crab, eagle, person, magpie, kookaburra, and a few more) each behave differently; you read them by body language - heads turning toward you, freezing, crouching, wings up, calls - and by your **blue rings flashing** when you have been noticed.
 * **Camouflage:** your body takes the ground colour and the rings fade; while camouflaged predators cannot hurt you and wander off. It costs energy (rings go paler as it runs out) and freezes you. **Cars ignore camouflage** - they are not looking - so listen: engine noise swells as one approaches and it will honk if it is bearing down on you.
@@ -129,7 +129,7 @@ The page exposes `window.__game` (`setHealth`, `teleportToOcean`, `spawnPredator
 ## Known limitations / ideas for next iteration
 * Prototype art: all models are primitives; animation is simple.
 * Terrain is a 2.5 m grid, so narrow creek channels are only roughly resolved.
-* The world is not full real scale: people and animals are compressed (a person is ~8x, not ~9x) and buildings are lower than real, so nothing leaves the screen and layouts keep working.
+* The world is not full real scale: the animal models stayed the sizes they had beside the old procedural octopus, so a person reads about 14x this 20 cm model rather than a true ~8-9x, and buildings are lower than real, so nothing leaves the screen and layouts keep working.
 * Balance numbers are first guesses and need playtesting - tweak `src/config.js`.
 * Graphics: a soft toon look. Phones automatically drop the shadow map (soft blob shadows instead) and cap the resolution; add `?shadows=1` to force shadows or `?mobile=1` to try the phone settings on a desktop.
 * Not tested on real GPUs / phones. The save lives in one browser's local storage (clearing site data erases it; use Copy code to keep a copy).
