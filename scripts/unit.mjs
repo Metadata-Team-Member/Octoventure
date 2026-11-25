@@ -15,15 +15,16 @@ import { Inventory, RECIPES, RAW, MADE, ALL_ITEMS, FX, USABLE, LORE, loreOf, POL
 import { GATHER_COUNT, GATHER_KINDS, HABITAT, BIOME_MATERIALS } from '../src/world/gather.js';
 import { mulberry32, frameDt, angleDiff } from '../src/util/rng.js';
 import { separate, minGap } from '../src/util/separate.js';
-import { ICON_IDS } from '../src/ui/icons.js';
+import { ICON_IDS, icon } from '../src/ui/icons.js';
 import { Levels, BADGES, xpForLevel, levelOf, perks, XP } from '../src/systems/levels.js';
 import { Journal, ENTRIES, TABS, RARE, ENTRY_IDS } from '../src/systems/journal.js';
 import { inkDeter, inkUnder, cloudCovers, INK_NEAR, INK_AQUA_NEAR, INK_BLIND, INK_AQUA_BLIND, INK_BIRD_RANGE, AQUA, FLYERS } from '../src/systems/ink.js';
 import { Music, ROOT, MOOD } from '../src/systems/music.js';
 import { SAVE_VERSION, SAVE_KEY, LEGACY_KEYS, validateSave, migrate, readSaveText, encodeCode, decodeCode, loadSave, writeSave, clearSave, MIGRATIONS, exploreCell, unpackCell } from '../src/systems/save.js';
 import * as THREE from 'three';
-import { seat, instanceSpec } from '../src/world/placement.js';
+import { seat, instanceSpec, geoHeight } from '../src/world/placement.js';
 import { buildGeoLib } from '../src/world/geoLib.js';
+import { beetleTemplate } from '../src/world/beetleModel.js';
 import { Predator, humanCanStep, HUMAN_WADE } from '../src/entities/predators.js';
 import { flapInsideLocal, flapOutside, flapAllows, FLAP_STEP, FLAP_COOL } from '../src/systems/places.js';
 
@@ -296,6 +297,43 @@ for (const seed of [1, 42, 2026]) {
   ok(by('crab').every((g) => !w.waterAt(g.x, g.z)), 'crabs are not in water');
   ok(by('cap').every((g) => { const b = w.biomeAt(g.x, g.z); return ['suburb', 'town', 'beach', 'dunes', 'estuary', 'coast', 'headland'].some((n) => String(b).toLowerCase().includes(n)) || w.tAt(g.x, g.z) > 0.7; }), 'bottle caps are in built-up areas or on the shore');
   ok(w.gather.every((g) => Number.isFinite(g.x + g.z + g.y + g.rot + g.s) && g.s > 0.5 && g.s < 2), 'every item has finite numbers and a sane size');
+  const pict = icon('beetle');
+  ok(pict.includes('#FF5A2A') && pict.includes('#2A221C') && pict.includes('#F3E6C8') && !pict.includes('2f7a63') && !pict.includes('9fe0c8'), 'the beetle pictogram is a red-orange shell with dark spots, not the old green one');
+  const bt = beetleTemplate();
+  const names = bt.clips.map((c) => c.name).sort();
+  ok(names.join() === 'idle,walk', `the beetle glb has idle and walk (${names.join('+')})`);
+  const dur = Object.fromEntries(bt.clips.map((c) => [c.name, c.duration]));
+  ok(Math.abs(dur.idle - 2) < 0.05 && Math.abs(dur.walk - 0.5) < 0.05, `idle is 2 s and walk is 0.5 s (${dur.idle}, ${dur.walk})`);
+  bt.geo.computeBoundingBox();
+  const bb = bt.geo.boundingBox, len = bb.max.z - bb.min.z, tall = bb.max.y - bb.min.y;
+  ok(len > 0.035 && len < 0.06 && tall < 0.03 && bb.min.y > -0.001 && bb.min.y < 0.002, `the beetle mesh is about 1.4 cm, origin on the ground (len ${len.toFixed(4)} u, y0 ${bb.min.y.toFixed(4)})`);
+  const fullTris = bt.geo.index ? bt.geo.index.count / 3 : bt.geo.attributes.position.count / 3;
+  const farTris = bt.farGeo.attributes.position.count / 3;
+  ok(fullTris > 2000 && fullTris < 2400 && farTris > 40 && farTris < 220, `full beetle is the glb (${fullTris} tris) and the stand-in is cheap (${farTris} tris)`);
+  const bgeo = buildGeoLib().gather.beetle;
+  bgeo.computeBoundingBox();
+  ok(Math.abs((bgeo.boundingBox.max.z - bgeo.boundingBox.min.z) - len) < 0.01, 'the gather stand-in is that same mesh');
+  const beetles = by('beetle');
+  let worstH = 0, worstB = 0, badScale = 0;
+  const v = new THREE.Vector3();
+  for (const g of beetles) {
+    const m = new THREE.Matrix4();
+    seat(w, bgeo, instanceSpec('gather', 'beetle', g, geoHeight(bgeo)), m);
+    const e = m.elements, sx = Math.hypot(e[0], e[1], e[2]);
+    if (Math.abs(sx - g.s) > 1e-3 || g.s < 0.9 || g.s > 1.2) badScale++;
+    const pos = bgeo.attributes.position;
+    let hover = -1e9, bury = -1e9;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m);
+      const gap = v.y - w.heightAt(v.x, v.z);
+      if (gap > hover) hover = gap;
+      if (-gap > bury) bury = -gap;
+    }
+    if (hover > worstH) worstH = hover;
+    if (bury > worstB) worstB = bury;
+  }
+  ok(beetles.length > 0 && badScale === 0, `beetles keep SIZE 0.9–1.2 around the real mesh (${beetles.length}, bad scale ${badScale})`);
+  ok(worstH < 0.0315 && worstB < 0.04, `beetles sit on the ground (worst hover ${worstH.toFixed(4)} u, bury ${worstB.toFixed(4)} u)`);
   // far regions: items with their own prefix, deterministic per tile
   const C = new WorldData(2026), r1 = C.regions.generate(6, 1), C2 = new WorldData(2026), r2 = C2.regions.generate(6, 1);
   ok(r1.gather.length > 5 && r1.gather.length === r2.gather.length && r1.gather.every((g, i) => g.id === r2.gather[i].id && g.x === r2.gather[i].x), `far tiles hold gatherables too (${r1.gather.length}), reproducible`);

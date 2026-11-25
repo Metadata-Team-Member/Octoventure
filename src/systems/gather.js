@@ -7,18 +7,28 @@
 //   - taking something is silent apart from a soft pluck and a little animation: it lifts and shrinks into the octopus. No pop-ups.
 // =====================================================================
 import * as THREE from 'three';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { toonMat } from '../world/toon.js';
 import { buildGatherGeos } from '../world/gatherModels.js';
 import { seat, instanceSpec, geoHeight } from '../world/placement.js';
+import { installBeetleFromUrl, beetleTemplate } from '../world/beetleModel.js';
+import { crossFadeGait } from '../world/toonGlb.js';
+import beetleUrl from '../assets/models/beetle.glb?url';
+
+await installBeetleFromUrl(beetleUrl);
 
 const _m = new THREE.Matrix4(), _a = new THREE.Matrix4(), _b = new THREE.Matrix4(), _zero = new THREE.Matrix4().makeScale(0, 0, 0);
+const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _fwd = new THREE.Vector3();
 const POOL = 90, CELL = 20;
 const CRITTER = { crab: 26, shrimp: 22 };
+const BEETLE_NEAR = 4;          // metres: skinned idle / the short scuttle. Farther beetles stay the instanced stand-in.
+const BEETLE_SCUTTLE = 1.15;    // inside the touch radius the legs walk; a couple of centimetres, then it settles
+const BEETLE_FADE = 0.15;
 const TAU = Math.PI * 2;
 const hash = (id) => { let h = 2166136261; for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; };
 
 export class Gatherer {
-  constructor(world, scene, audio) {
+  constructor(world, scene, audio, mobile = false) {
     this.world = world; this.scene = scene; this.audio = audio;
     this.root = new THREE.Group(); scene.add(this.root);
     this.geos = buildGatherGeos();
@@ -31,6 +41,7 @@ export class Gatherer {
       for (let j = 0; j < POOL; j++) m.setMatrixAt(j, _zero);
       m.instanceMatrix.needsUpdate = true; m.visible = false; m.count = 0; this.meshes[k] = m; this.free[k] = Array.from({ length: POOL }, (_, j) => POOL - 1 - j);
     }
+    this._mountBeetles(mobile);
     // critter pools
     this.pool = { crab: [], shrimp: [] };
     for (const k in CRITTER) for (let i = 0; i < CRITTER[k]; i++) { const m = new THREE.Mesh(this.geos[k], this.mat); m.visible = false; m.frustumCulled = false; this.root.add(m); this.pool[k].push(m); }
@@ -78,6 +89,7 @@ export class Gatherer {
   /** draw only up to the highest slot in use (empty slots still cost their vertices) */
   fit(kind) { let top = 0; for (const a of this.active) if (a.kind === kind && a.slot >= top) top = a.slot + 1; this.meshes[kind].count = top; }
   release(g) {
+    if (g.kind === 'beetle') this._hideBeetle(g);
     if (g.slot < 0) return;
     if (CRITTER[g.kind]) {
       const i = this.live.indexOf(g); if (i >= 0) this.live.splice(i, 1);
@@ -169,6 +181,7 @@ export class Gatherer {
     if (this.scanT <= 0) { this.scanT = 0.4; this.scan(o); }
     for (const g of this.live) if (g.face === undefined) g.face = g.hd;
     this.updateCritters(dt, o);
+    this.updateBeetles(dt, o);
     // ---- touch
     if (o.alive && !o.tunnel && !o.carried) {
       const R = 0.35 + 1.3 * (o.sz ?? 0.42), R2 = R * R, reach = o.inWater ? 3 : 2;
@@ -222,8 +235,146 @@ export class Gatherer {
     }
     o.scoopToward?.(at.x, at.y, at.z);
   }
+  /** Nearby ladybirds clone the skinned glb (idle, and a short walk when the octopus is close). The instanced stand-in covers the rest. */
+  _mountBeetles(mobile) {
+    const tpl = beetleTemplate();
+    const walkClip = tpl.clips.find((a) => a.name === 'walk');
+    const idleClip = tpl.clips.find((a) => a.name === 'idle');
+    this.beetleReady = !!(walkClip && idleClip);
+    this.beetleError = this.beetleReady ? '' : 'missing clips';
+    this.beetleClips = tpl.clips.map((a) => a.name);
+    this.beetleDur = { walk: walkClip?.duration || 0, idle: idleClip?.duration || 0 };
+    this.beetleTris = tpl.geo.index ? tpl.geo.index.count / 3 : tpl.geo.attributes.position.count / 3;
+    this.beetleFarTris = tpl.farGeo.attributes.position.count / 3;
+    this.beetleCap = mobile ? 4 : 8;
+    this.beetleSlots = [];
+    this._beetleSim = 0;
+    if (!this.beetleReady) return;
+    for (let i = 0; i < this.beetleCap; i++) {
+      const root = SkeletonUtils.clone(tpl.scene);
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = this.mat; o.frustumCulled = false; o.castShadow = false; o.receiveShadow = false;
+        o.userData.noOutline = true;
+      });
+      root.visible = false; root.position.y = -999; root.matrixAutoUpdate = true;
+      this.root.add(root);
+      const mixer = new THREE.AnimationMixer(root);
+      const walk = mixer.clipAction(walkClip), idle = mixer.clipAction(idleClip);
+      for (const a of [walk, idle]) a.setLoop(THREE.LoopRepeat, Infinity);
+      this.beetleSlots.push({ root, mixer, walk, idle, id: -1, item: null, live: false, moving: null, phase: 0, scuttle: 0, cool: 0 });
+    }
+  }
+  _hideBeetle(g) {
+    const slot = this.beetleSlots?.find((s) => s.live && (s.item === g || s.id === g.id));
+    if (!slot) { g._skin = 0; return; }
+    slot.live = false; slot.item = null; slot.id = -1; slot.moving = null; slot.scuttle = 0;
+    slot.root.visible = false; slot.root.position.y = -999;
+    g._skin = 0;
+  }
+  _shiftBeetle(g, dist) {
+    _fwd.set(0, 0, dist).applyQuaternion(_q);
+    const nx = _p.x + _fwd.x, nz = _p.z + _fwd.z;
+    const w = this.world;
+    if (w.waterAt(nx, nz) || w._blocked?.(nx, nz, 0.04)) return false;
+    for (const h of this.active) {
+      if (h === g || h.got) continue;
+      if (Math.hypot(h.x - nx, h.z - nz) < 0.12) return false;
+    }
+    const ground0 = w.heightAt(g.x, g.z), ground1 = w.heightAt(nx, nz);
+    _p.x = nx; _p.z = nz; _p.y += ground1 - ground0;
+    return true;
+  }
+  updateBeetles(dt, o) {
+    if (!this.beetleReady) return;
+    const mesh = this.meshes.beetle;
+    const near2 = BEETLE_NEAR * BEETLE_NEAR, sc2 = BEETLE_SCUTTLE * BEETLE_SCUTTLE;
+    const near = [];
+    for (const g of this.active) {
+      if (g.kind !== 'beetle' || g.got || g.slot < 0) continue;
+      const dx = g.x - o.x, dz = g.z - o.z;
+      g._d2 = dx * dx + dz * dz;
+      if (g._d2 <= near2) near.push(g);
+    }
+    near.sort((a, b) => a._d2 - b._d2);
+    const chosen = near.slice(0, this.beetleCap);
+    const pick = new Set(chosen);
+    let dirty = false;
+    for (const slot of this.beetleSlots) {
+      if (!slot.live) continue;
+      const g = slot.item;
+      if (!g || g.got || g.slot < 0 || !pick.has(g)) {
+        slot.live = false; slot.item = null; slot.id = -1; slot.moving = null; slot.scuttle = 0;
+        slot.root.visible = false; slot.root.position.y = -999;
+        if (g && g._skin && !g.got && g.slot >= 0) {
+          mesh.setMatrixAt(g.slot, this.seatMatrix(g, _m));
+          g._skin = 0; dirty = true;
+        }
+      }
+    }
+    for (const g of chosen) {
+      let slot = this.beetleSlots.find((s) => s.live && s.item === g);
+      if (!slot) {
+        slot = this.beetleSlots.find((s) => !s.live);
+        if (!slot) continue;
+        slot.live = true; slot.item = g; slot.id = g.id; slot.moving = null;
+        slot.scuttle = 0; slot.cool = 0.35; slot.phase = hash(g.id) * 0.5;
+      }
+      if (slot.cool > 0) slot.cool -= dt;
+      const close = g._d2 < sc2 && o.alive;
+      if (close && slot.cool <= 0 && slot.scuttle <= 0) { slot.scuttle = 0.42; slot.cool = 2.6; }
+      const walking = slot.scuttle > 0;
+      const u = walking ? 1 - Math.max(0, slot.scuttle) / 0.42 : 0;
+      if (walking) slot.scuttle -= dt;
+      this.seatMatrix(g, _m).decompose(_p, _q, _s);
+      if (walking) {
+        const amp = Math.sin(Math.min(1, u) * Math.PI) * 0.08;
+        if (!this._shiftBeetle(g, amp)) this._shiftBeetle(g, -amp * 0.5);
+      }
+      slot.root.position.copy(_p); slot.root.quaternion.copy(_q); slot.root.scale.copy(_s); slot.root.visible = true;
+      crossFadeGait(slot, walking, BEETLE_FADE);
+      slot.mixer.update(dt);
+      if (!g._skin) { mesh.setMatrixAt(g.slot, _zero); g._skin = 1; dirty = true; }
+    }
+    if (dirty) mesh.instanceMatrix.needsUpdate = true;
+    this._beetleSim = this.beetleSlots.reduce((n, s) => n + (s.live ? 1 : 0), 0);
+  }
+  /** For tests: clips, who is simulating, and whether a beetle sits on heightAt at its gather scale. */
+  beetleProbe(o) {
+    let idle = 0, walk = 0;
+    for (const s of this.beetleSlots || []) {
+      if (!s.live) continue;
+      if (s.moving) walk++; else idle++;
+    }
+    let active = 0, far = 0;
+    const samples = [];
+    for (const g of this.active) {
+      if (g.kind !== 'beetle' || g.got) continue;
+      active++;
+      const slot = this.beetleSlots.find((s) => s.live && s.item === g);
+      if (slot) slot.root.updateWorldMatrix(true, false);
+      const skinned = !!slot;
+      const d = o ? Math.hypot(g.x - o.x, g.z - o.z) : 99;
+      if (!skinned) far++;
+      if (d <= 6 && samples.length < 8 && g.slot >= 0) {
+        if (skinned) _m.compose(slot.root.position, slot.root.quaternion, slot.root.scale);
+        else this.meshes.beetle.getMatrixAt(g.slot, _m);
+        _m.decompose(_p, _q, _s);
+        samples.push({
+          scale: _s.x, s: g.s, y: _p.y, ground: this.world.heightAt(g.x, g.z),
+          skinned, moving: !!(slot && slot.moving), d,
+        });
+      }
+    }
+    return {
+      ready: !!this.beetleReady, error: this.beetleError || '', clips: (this.beetleClips || []).slice(),
+      dur: { ...(this.beetleDur || {}) }, tris: this.beetleTris || 0, farTris: this.beetleFarTris || 0,
+      cap: this.beetleCap || 0, simulating: this._beetleSim || 0, idle, walk, active, far, samples,
+    };
+  }
   dispose() {
     for (let i = 0; i < this.anims.length; i++) { const a = this.anims[i]; if (!a.gave) { a.gave = true; this.onPick?.(a.item); } }
+    for (const s of this.beetleSlots || []) s.mixer?.stopAllAction();
     this.scene.remove(this.root); for (const k in this.geos) this.geos[k].dispose(); this.mat.dispose(); this.jarMat.dispose(); for (const k in this.meshes) this.meshes[k].dispose();
   }
 }

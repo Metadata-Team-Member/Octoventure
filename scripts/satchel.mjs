@@ -110,6 +110,47 @@ await sleep(500);
   ok(c.shrimpLive && c.inPool, `a shrimp lives in its pool and stays in it (moved ${c.shrimpMoved.toFixed(1)} u)`);
 }
 
+// ================================================================ the ladybird model (still a gatherable)
+{
+  const b = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus;
+    const list = G.gatherItems.filter((q) => q.kind === 'beetle' && !q.got);
+    let it = null;
+    for (const q of list) {
+      const crowded = G.gatherItems.some((h) => h !== q && !h.got && Math.hypot(h.x - q.x, h.z - q.z) < 1.2);
+      if (!crowded) { it = q; break; }
+    }
+    if (!it) it = list[0];
+    G.teleport(it.x - 2.5, it.z); o.speed = 0; G.advance(0.7);
+    const idle = g.gather.beetleProbe(o);
+    G.teleport(it.x - 1.0, it.z); G.advance(0.2);
+    const step = g.gather.beetleProbe(o);
+    const stepGot = it.got;
+    const before = G.inv.count('beetle');
+    G.teleport(it.x, it.z); G.advance(0.12);
+    const mid = { got: it.got, anims: g.gather.anims.length, scoop: g.octopus.scoops.some((s) => s.on), early: G.inv.count('beetle') };
+    G.advance(0.5);
+    g.openSatchel();
+    const html = document.getElementById('satchel').innerHTML;
+    g.closeSatchel(); g.setPaused(false);
+    return {
+      n: list.length, idle, step, stepGot, before, mid, after: G.inv.count('beetle'),
+      pict: html.includes('#FF5A2A') || html.includes('#ff5a2a'),
+    };
+  });
+  const idleNear = b.idle.samples.filter((s) => s.d < 4 && s.d > 1.5);
+  ok(b.idle.ready && !b.idle.error && b.idle.clips.includes('idle') && b.idle.clips.includes('walk'), `the beetle model loaded (${b.idle.clips.join('+') || b.idle.error})`);
+  ok(Math.abs(b.idle.dur.idle - 2) < 0.05 && Math.abs(b.idle.dur.walk - 0.5) < 0.05, `idle is 2 s and walk is 0.5 s (${b.idle.dur.idle}, ${b.idle.dur.walk})`);
+  ok(b.idle.tris > 2000 && b.idle.farTris > 40 && b.idle.farTris < 220, `beetles use the glb (${b.idle.tris} tris) and a cheap stand-in (${b.idle.farTris})`);
+  ok(b.idle.simulating >= 1 && b.idle.simulating <= b.idle.cap && idleNear.some((s) => s.skinned && !s.moving), `only a nearby beetle plays idle (${b.idle.simulating} mixers, cap ${b.idle.cap}, ${b.idle.idle} idle, ${b.idle.walk} walk, ${b.idle.far} static)`);
+  ok(idleNear.length > 0 && idleNear.every((s) => Math.abs(s.scale - s.s) < 1e-3 && s.s >= 0.9 && s.s <= 1.2), `nearby scale is the gather size (${idleNear[0]?.scale?.toFixed?.(3)} x ${idleNear[0]?.s?.toFixed?.(3)})`);
+  ok(idleNear.every((s) => Math.abs(s.y - s.ground) < 0.08), `the beetle sits on heightAt (${idleNear.map((s) => (s.y - s.ground).toFixed(3)).join(', ')})`);
+  const stepped = b.step.samples.filter((s) => s.d < 1.4 && s.d > 0.5);
+  ok(stepped.some((s) => s.moving) && !b.stepGot, `a close beetle scuttles on walk before it is picked up (${b.step.walk} walk)`);
+  ok(b.before === 0 && b.mid.got && b.mid.early === 0 && b.mid.anims >= 1 && b.mid.scoop && b.after === 1, `touching it tucks one beetle into the satchel (${b.before} -> ${b.after}, scoop ${b.mid.scoop})`);
+  ok(b.pict, 'the satchel pictogram is the red-orange shell');
+}
+
 // ================================================================ recipes
 {
   const r = await E(() => {
