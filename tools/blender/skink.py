@@ -634,28 +634,145 @@ def paint_bands(obj, mats, y0, y1, n_dark, belly_nz=-0.70, belly_z_max=0.95 * 0.
         poly.material_index = band_i if pos < half else body_i
 
 
-def paint_eye_stripes(obj, mats, head_c, head_s):
-    """A short dark streak immediately behind each eye."""
+def snap_to_mesh(obj, point, inset=0.0):
+    """Closest point on obj, then step inward along the surface normal."""
+    ok, loc, n, _idx = obj.closest_point_on_mesh(Vector(point))
+    if not ok:
+        return Vector(point), Vector((0.0, 0.0, 1.0))
+    n = Vector(n)
+    if n.length < 1e-9:
+        n = Vector((0.0, 0.0, 1.0))
+    n.normalize()
+    return Vector(loc) - n * inset, n
+
+
+def smooth_band_edges(obj, mats, passes=3):
+    """Fill small bites and remove isolated spikes on band/body boundaries."""
     band_i = ensure_slot(obj, mats["band"])
-    eye_y = head_c.y + head_s.y * (-0.28)
-    y0 = eye_y - 0.05 * CM
-    y1 = eye_y + 1.55 * CM
-    z_min = head_c.z + 0.10 * CM
-    z_max = head_c.z + head_s.z * 0.72
-    x_min = head_s.x * 0.52
-    for poly in obj.data.polygons:
-        c = poly.center
-        n = poly.normal
-        if c.y < y0 or c.y > y1:
+    body_i = ensure_slot(obj, mats["body"])
+    mesh = obj.data
+    from collections import defaultdict
+    edge_faces = defaultdict(list)
+    for poly in mesh.polygons:
+        for ek in poly.edge_keys:
+            edge_faces[ek].append(poly.index)
+    adj = defaultdict(set)
+    for faces in edge_faces.values():
+        for i in faces:
+            for j in faces:
+                if i != j:
+                    adj[i].add(j)
+    keep = {band_i, body_i}
+    for _ in range(passes):
+        current = [p.material_index for p in mesh.polygons]
+        updated = current[:]
+        for poly in mesh.polygons:
+            if poly.material_index not in keep:
+                continue
+            neigh = [current[j] for j in adj[poly.index]]
+            if not neigh:
+                continue
+            band_n = sum(1 for i in neigh if i == band_i)
+            body_n = sum(1 for i in neigh if i == body_i)
+            if poly.material_index == band_i and (band_n == 0 or (band_n <= 1 and body_n >= 2)):
+                updated[poly.index] = body_i
+            elif poly.material_index == body_i and band_n >= 3 and body_n <= 1:
+                updated[poly.index] = band_i
+        for i, idx in enumerate(updated):
+            mesh.polygons[i].material_index = idx
+
+
+def clear_pale_gap_specks(obj, mats, y0, y1, n_dark):
+    """Drop leftover dark faces, and ears of a band that poke into a pale gap."""
+    band_i = ensure_slot(obj, mats["band"])
+    body_i = ensure_slot(obj, mats["body"])
+    span = y1 - y0
+    if span <= 1e-9 or n_dark < 1:
+        return
+    period = span / float(n_dark)
+    half = period * 0.5
+    mesh = obj.data
+    for poly in mesh.polygons:
+        if poly.material_index != band_i:
             continue
-        if c.z < z_min or c.z > z_max:
-            continue
-        if abs(c.x) < x_min:
-            continue
-        # Side-facing only, so it does not spill onto the crown or cheek.
-        if abs(n.x) < 0.22:
-            continue
-        poly.material_index = band_i
+        pale = dark = 0
+        for vi in poly.vertices:
+            y = mesh.vertices[vi].co.y
+            if y < y0 or y > y1:
+                pale += 1
+                continue
+            pos = (y - y0) % period
+            if pos < half:
+                dark += 1
+            else:
+                pale += 1
+        if pale > dark:
+            poly.material_index = body_i
+
+
+def add_eye_stripe(body, name, head_c, head_s, side, mats, group):
+    """A soft tapered stripe from the back of the eye toward the neck, flush on the head."""
+    dirs = [
+        (side * 0.91,  0.02, 0.17),
+        (side * 0.88,  0.20, 0.15),
+        (side * 0.80,  0.44, 0.12),
+        (side * 0.68,  0.64, 0.09),
+        (side * 0.52,  0.84, 0.06),
+    ]
+    pts, norms = [], []
+    for d in dirs:
+        guess = on_ellipsoid(head_c, head_s, d, 1.08)
+        loc, n = snap_to_mesh(body, guess, inset=0.004 * CM)
+        pts.append(loc)
+        norms.append(n)
+    widths = [0.28 * CM, 0.22 * CM, 0.15 * CM, 0.09 * CM, 0.03 * CM]
+    thickness = 0.018 * CM
+    verts_co = []
+    faces = []
+    rings = []
+    world_up = Vector((0.0, 0.0, 1.0))
+    for i, (p, n, w) in enumerate(zip(pts, norms, widths)):
+        if i < len(pts) - 1:
+            tan = pts[i + 1] - pts[i]
+        else:
+            tan = pts[i] - pts[i - 1]
+        if tan.length < 1e-9:
+            tan = Vector((0.0, 1.0, 0.0))
+        tan.normalize()
+        # Width stays dorsal-ventral so the stripe does not twist when seen in profile.
+        side_v = world_up - tan * world_up.dot(tan)
+        if side_v.length < 1e-9:
+            side_v = n.cross(tan)
+        side_v.normalize()
+        # Keep the ribbon in the tangent plane, slightly proud of the surface.
+        base = p + n * (0.010 * CM)
+        top = n * thickness
+        rings.append((
+            base + side_v * w + top,
+            base - side_v * w + top,
+            base - side_v * w,
+            base + side_v * w,
+        ))
+    for ring in rings:
+        verts_co.extend(ring)
+    for i in range(len(rings) - 1):
+        a = i * 4
+        b = (i + 1) * 4
+        for j in range(4):
+            j2 = (j + 1) % 4
+            faces.append((a + j, a + j2, b + j2, b + j))
+    faces.append((0, 1, 2, 3))
+    last = (len(rings) - 1) * 4
+    faces.append((last + 3, last + 2, last + 1, last + 0))
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts_co, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    shade_smooth(obj)
+    set_material(obj, mats["band"])
+    assign_group(obj, group)
+    return obj
 
 
 def wedge_head(obj, y_tip, y_back, x_tip=0.78, x_back=1.10, z_top=None, flatten=0.78):
@@ -714,7 +831,7 @@ def add_leg(parts, mats, tag, joints, radii, parent_bone, names, n_toes=4):
         spreads, reaches = (-0.85, 0.0, 0.85), (0.90, 1.12, 0.90)
     else:
         spreads, reaches = (-1.15, -0.38, 0.38, 1.15), (0.88, 1.10, 1.10, 0.88)
-    pad_r = 0.16 * CM
+    pad_r = 0.19 * CM
     for i, (sp, reach) in enumerate(zip(spreads, reaches)):
         tip = Vector((
             origin.x + side.x * sp * pad_r * 1.6 + fwd_flat.x * reach * toe_len,
@@ -811,23 +928,34 @@ def build_meshes(mats):
     # body + 5 on the tail, equal dark/pale width, wrapping the flanks.
     paint_bands(body, mats, y0=-5.4 * CM, y1=17.8 * CM, n_dark=14,
                 belly_nz=-0.72, belly_z_max=0.95 * CM)
-    paint_eye_stripes(body, mats, head_c, head_s)
+    smooth_band_edges(body, mats, passes=3)
+    clear_pale_gap_specks(body, mats, y0=-5.4 * CM, y1=17.8 * CM, n_dark=14)
     parts.append(body)
 
-    # Gentle smile on the snout.
+    # Gentle smile on the snout, snapped to the wedged surface so the
+    # corners cannot stick out as whiskers.
     smile_dirs = [
-        (-0.42, -0.80, -0.30),
-        (-0.22, -0.92, -0.42),
-        (0.00, -0.97, -0.50),
-        (0.22, -0.92, -0.42),
-        (0.42, -0.80, -0.30),
+        (-0.22, -0.76, -0.50),
+        (-0.11, -0.84, -0.58),
+        ( 0.00, -0.86, -0.64),
+        ( 0.11, -0.84, -0.58),
+        ( 0.22, -0.76, -0.50),
     ]
-    smile_pts = [on_ellipsoid(snout_c, snout_s, d, 1.01) for d in smile_dirs]
+    smile_pts = []
+    for d in smile_dirs:
+        guess = on_ellipsoid(snout_c, snout_s, d, 1.06)
+        loc, n = snap_to_mesh(body, guess, inset=0.010 * CM)
+        smile_pts.append(loc)
     smile = add_tapered_tube(
         "smile", smile_pts,
-        [0.034 * CM, 0.040 * CM, 0.044 * CM, 0.040 * CM, 0.034 * CM],
-        verts=5, extra_rings=0, cap=True,
+        [0.030 * CM, 0.040 * CM, 0.046 * CM, 0.040 * CM, 0.030 * CM],
+        verts=6, extra_rings=0, cap=True,
     )
+    for v in smile.data.vertices:
+        loc, n = snap_to_mesh(body, v.co, inset=0.006 * CM)
+        v.co = loc + n * (0.008 * CM)
+    smile.data.update()
+    shade_smooth(smile)
     set_material(smile, mats["band"])
     assign_group(smile, "head")
     parts.append(smile)
@@ -903,27 +1031,42 @@ def build_meshes(mats):
     assign_group(tip_cap, "tongueTip")
     parts.append(tip_cap)
 
-    # Smaller eyes set on the sides of the head, not bulging on stalks.
+    # Bigger, friendly eyes set into a soft lid on the sides of the head.
     eye_bones = {}
+    eye_r = 0.64 * CM
     for side, name in ((1, "eye_L"), (-1, "eye_R")):
-        loc = on_ellipsoid(head_c, head_s, (side * 0.90, -0.28, 0.18), 0.99)
-        eye_r = 0.34 * CM
-        look = Vector((side * 0.85, -0.45, 0.06)).normalized()
-        eyeball = add_uv_sphere(name, eye_r, 12, 8, loc)
+        guess = on_ellipsoid(head_c, head_s, (side * 0.90, -0.28, 0.22), 1.10)
+        surface, look = snap_to_mesh(body, guess, inset=0.0)
+        # Sit the globe in the socket so it peeks out, rather than perching on top.
+        loc = surface - look * (eye_r * 0.08)
+        lid = add_surface_disc(
+            name + "_lid", surface, look,
+            eye_r * 1.10, thickness=0.22, segments=10, rings=3, inset=0.16,
+        )
+        set_material(lid, mats["body"])
+        assign_group(lid, name)
+        parts.append(lid)
+        eyeball = add_uv_sphere(name, eye_r, 14, 10, loc)
         set_material(eyeball, mats["eye"])
         assign_group(eyeball, name)
         parts.append(eyeball)
-        hl_dir = (look + Vector((0.0, 0.0, 0.50))).normalized()
-        hl = add_uv_sphere(name + "_hl", 0.09 * CM, 6, 3, loc + hl_dir * (eye_r * 0.88))
+        hl_dir = (look + Vector((0.0, 0.0, 0.55))).normalized()
+        hl = add_uv_sphere(
+            name + "_hl", 0.16 * CM, 8, 5,
+            loc + hl_dir * (eye_r * 0.86),
+        )
         set_material(hl, mats["highlight"])
         assign_group(hl, name)
         parts.append(hl)
-        eye_bones[name] = (loc, loc + look * (0.18 * CM))
+        eye_bones[name] = (loc, loc + look * (0.22 * CM))
+        parts.append(add_eye_stripe(
+            body, name + "_stripe", head_c, head_s, side, mats, "head",
+        ))
 
     # Short, sturdy, sprawling legs. Front feet plant ahead of the chest,
     # not tucked underneath.
-    front_r = (0.78 * CM, 0.62 * CM, 0.42 * CM, 0.28 * CM)
-    back_r = (0.90 * CM, 0.70 * CM, 0.46 * CM, 0.30 * CM)
+    front_r = (1.02 * CM, 0.84 * CM, 0.56 * CM, 0.36 * CM)
+    back_r = (1.08 * CM, 0.88 * CM, 0.58 * CM, 0.38 * CM)
     for side, tag in ((1, "fl"), (-1, "fr")):
         s = float(side)
         joints = [
@@ -1395,7 +1538,7 @@ def main():
         "band": make_mat("band", BAND, roughness=0.70, metallic=0.0),
         "belly": make_mat("belly", BELLY, roughness=0.72, metallic=0.0),
         "tongue": set_coat(make_mat("tongue", TONGUE, roughness=0.35, metallic=0.0), 0.18, 0.22),
-        "eye": make_mat("eye", EYE, roughness=0.16, metallic=0.0),
+        "eye": set_coat(make_mat("eye", EYE, roughness=0.12, metallic=0.0), 0.35, 0.12),
         "highlight": make_mat("highlight", HIGHLIGHT, roughness=0.22, metallic=0.0, emission=0.35),
         "mouth": make_mat("mouth", MOUTH, roughness=0.60, metallic=0.0),
         "leg": set_coat(make_mat("leg", LEG, roughness=0.55, metallic=0.0), 0.10, 0.35),
