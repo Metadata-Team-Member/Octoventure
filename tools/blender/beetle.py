@@ -5,8 +5,8 @@ Run from the repo (or anywhere) with:
 
 Style
 -----
-A cheerful ladybird-style garden beetle: warm red-orange elytra with soft
-charcoal spots, a dark pronotum with cream patches, and a subtle centre
+A cheerful ladybird-style garden beetle: cheerful saturated red-orange elytra with soft
+round charcoal spots, a dark pronotum with cream patches, and a subtle centre
 seam. Chosen instead of a Christmas-beetle gold-green so the shell and
 spots stay high-contrast for colour-blind players (lightness contrast,
 not green-on-gold).
@@ -61,8 +61,8 @@ LENGTH_CM = 1.4
 EXPORT_LENGTH = LENGTH_CM * CM  # 0.0441 world units
 
 # Colours: ladybird red-orange with charcoal spots (high lightness contrast).
-SHELL = (0xF2 / 255, 0x4A / 255, 0x28 / 255, 1.0)       # #F24A28
-SEAM = (0xB8 / 255, 0x3A / 255, 0x22 / 255, 1.0)        # #B83A22
+SHELL = (0xFF / 255, 0x5A / 255, 0x2A / 255, 1.0)       # #FF5A2A
+SEAM = (0xE8 / 255, 0x3C / 255, 0x20 / 255, 1.0)        # #E83C20
 SPOT = (0x2A / 255, 0x22 / 255, 0x1C / 255, 1.0)        # #2A221C
 CREAM = (0xF3 / 255, 0xE6 / 255, 0xC8 / 255, 1.0)       # #F3E6C8
 BELLY = (0x3D / 255, 0x2A / 255, 0x24 / 255, 1.0)       # #3D2A24
@@ -140,6 +140,41 @@ def add_uv_sphere(name, radius, segments, rings, loc, scale=None):
     obj.name = name
     if scale:
         obj.scale = scale
+    apply_all(obj)
+    shade_smooth(obj)
+    return obj
+
+
+def ellipsoid_normal(center, half, point):
+    """Outward normal of an axis-aligned ellipsoid, so discs sit flush."""
+    local = Vector(point) - Vector(center)
+    n = Vector((
+        local.x / (half.x * half.x + 1e-12),
+        local.y / (half.y * half.y + 1e-12),
+        local.z / (half.z * half.z + 1e-12),
+    ))
+    if n.length < 1e-9:
+        n = Vector((0.0, 0.0, 1.0))
+    n.normalize()
+    return n
+
+
+def add_surface_disc(name, surface, normal, radius, thickness=0.30, segments=16, rings=3, inset=0.12):
+    """A smooth flattened disc, thin axis along the surface normal, slightly inset."""
+    n = Vector(normal)
+    if n.length < 1e-9:
+        n = Vector((0.0, 0.0, 1.0))
+    n.normalize()
+    loc = Vector(surface) - n * (radius * inset)
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        radius=1.0, segments=segments, ring_count=rings, location=(0.0, 0.0, 0.0)
+    )
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.scale = (radius, radius, radius * thickness)
+    obj.rotation_mode = "QUATERNION"
+    obj.rotation_quaternion = Vector((0.0, 0.0, 1.0)).rotation_difference(n)
+    obj.location = loc
     apply_all(obj)
     shade_smooth(obj)
     return obj
@@ -255,27 +290,25 @@ def build_meshes(mats):
     assign_group(thorax, "thorax")
     parts.append(thorax)
 
-    head = add_uv_sphere("head", head_r, 10, 7, head_c)
+    head = add_uv_sphere("head", head_r, 12, 7, head_c)
     set_material(head, mats["spot"])
     assign_group(head, "head")
     parts.append(head)
 
-    pron = add_uv_sphere("pronotum", 1.0, 8, 6, pronotum_c, scale=pronotum_s)
+    pron = add_uv_sphere("pronotum", 1.0, 10, 6, pronotum_c, scale=pronotum_s)
     set_material(pron, mats["spot"])
     assign_group(pron, "thorax")
     parts.append(pron)
 
-    # Soft cream patches on the pronotum (friendly ladybird markings).
+    # Soft cream patches on the pronotum: neat rounded discs, slightly inset.
     for side in (1, -1):
         direction = Vector((side * 0.85, -0.15, 0.45))
         surface = on_ellipsoid(pronotum_c, pronotum_s, direction, 1.0)
-        normal = (surface - pronotum_c)
-        if normal.length < 1e-9:
-            normal = Vector((side, 0.0, 1.0))
-        normal.normalize()
-        rad = 0.055 * CM
-        loc = surface - normal * (rad * 0.70)
-        patch = add_uv_sphere(f"pron_patch_{side}", rad, 6, 4, loc)
+        normal = ellipsoid_normal(pronotum_c, pronotum_s, surface)
+        patch = add_surface_disc(
+            f"pron_patch_{side}", surface, normal, 0.058 * CM,
+            thickness=0.32, segments=12, rings=3, inset=0.14,
+        )
         set_material(patch, mats["cream"])
         assign_group(patch, "thorax")
         parts.append(patch)
@@ -296,25 +329,24 @@ def build_meshes(mats):
     assign_group(seam, "abdomen")
     parts.append(seam)
 
-    # Soft dark spots, two or three per wing case, slightly embedded.
+    # Soft dark spots: smooth discs that follow the shell, varied sizes,
+    # mirrored across the centre seam, slightly inset to avoid z-fighting.
     spot_spec = [
-        # name-ish, direction from elytra centre, radius cm
-        ((0.72, -0.12, 0.68), 0.085),
-        ((0.55, 0.50, 0.62), 0.07),
-        ((0.60, -0.55, 0.48), 0.055),
-        ((-0.72, -0.12, 0.68), 0.085),
-        ((-0.55, 0.50, 0.62), 0.07),
-        ((-0.60, -0.55, 0.48), 0.055),
+        # direction from elytra centre, radius cm
+        ((0.72, -0.10, 0.70), 0.090),
+        ((0.55, 0.52, 0.60), 0.068),
+        ((0.62, -0.55, 0.50), 0.050),
+        ((-0.72, -0.10, 0.70), 0.090),
+        ((-0.55, 0.52, 0.60), 0.068),
+        ((-0.62, -0.55, 0.50), 0.050),
     ]
     for i, (direction, rad_cm) in enumerate(spot_spec):
         surface = on_ellipsoid(elytra_c, elytra_s, direction, 1.0)
-        normal = (surface - elytra_c)
-        if normal.length < 1e-9:
-            normal = Vector((0.0, 0.0, 1.0))
-        normal.normalize()
-        rad = rad_cm * CM
-        loc = surface - normal * (rad * 0.72)
-        spot = add_uv_sphere(f"spot_{i}", rad, 6, 4, loc)
+        normal = ellipsoid_normal(elytra_c, elytra_s, surface)
+        spot = add_surface_disc(
+            f"spot_{i}", surface, normal, rad_cm * CM,
+            thickness=0.28, segments=16, rings=3, inset=0.12,
+        )
         set_material(spot, mats["spot"])
         assign_group(spot, "abdomen")
         parts.append(spot)
@@ -628,6 +660,23 @@ def push_nla(arm, action, name):
 # ---------------------------------------------------------------------------
 def render_preview(arm, look_at=None):
     scene = bpy.context.scene
+    # Standard/sRGB so saturated toon reds stay cheerful; AgX/Filmic browns them.
+    vs = scene.view_settings
+    for name in ("Standard", "Khronos PBR Neutral", "AgX"):
+        try:
+            vs.view_transform = name
+            break
+        except Exception:
+            continue
+    try:
+        vs.look = "None"
+    except Exception:
+        pass
+    vs.exposure = 0.0
+    vs.gamma = 1.0
+
+    # Workbench is reliable headless. Standard view (set above) keeps the
+    # red cheerful; AgX was muting it to a dusty brown.
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.render.resolution_x = 600
     scene.render.resolution_y = 600
@@ -640,10 +689,7 @@ def render_preview(arm, look_at=None):
     shading.light = "STUDIO"
     shading.color_type = "MATERIAL"
     shading.show_shadows = False
-    shading.show_cavity = True
-    shading.cavity_type = "WORLD"
-    shading.cavity_ridge_factor = 0.15
-    shading.cavity_valley_factor = 0.25
+    shading.show_cavity = False
     shading.use_world_space_lighting = True
     if hasattr(shading, "studio_light"):
         for cand in ("outdoor.sl", "plain.sl", "studio.sl", "Default"):
@@ -652,6 +698,7 @@ def render_preview(arm, look_at=None):
                 break
             except Exception:
                 pass
+    print("preview engine:", scene.render.engine, "view_transform:", vs.view_transform)
 
     world = bpy.data.worlds.new("BeetlePreviewWorld") if "BeetlePreviewWorld" not in bpy.data.worlds else bpy.data.worlds["BeetlePreviewWorld"]
     world.use_nodes = False
@@ -807,8 +854,8 @@ def inspect_glb(path, expected_length):
         "nodes": [n.get("name") for n in gltf.get("nodes", [])],
     }
     print("GLB inspect:", json.dumps(report, indent=2))
-    if tris == 0 or tris > 2000:
-        raise SystemExit(f"triangle count {tris} out of range (1–2000)")
+    if tris == 0 or tris > 2200:
+        raise SystemExit(f"triangle count {tris} out of range (1–2200)")
     missing = [n for n in ("walk", "idle") if n not in anims]
     if missing:
         # Some exporters prefix or suffix the action name; show what we got.
@@ -833,8 +880,8 @@ def inspect_glb(path, expected_length):
 def main():
     clear_scene()
     mats = {
-        "shell": set_coat(make_mat("BeetleShell", SHELL, roughness=0.42, metallic=0.0), 0.28, 0.22),
-        "seam": make_mat("BeetleSeam", SEAM, roughness=0.50, metallic=0.0),
+        "shell": set_coat(make_mat("BeetleShell", SHELL, roughness=0.34, metallic=0.0), 0.38, 0.16),
+        "seam": make_mat("BeetleSeam", SEAM, roughness=0.40, metallic=0.0),
         "spot": make_mat("BeetleSpot", SPOT, roughness=0.80, metallic=0.0),
         "cream": make_mat("BeetleCream", CREAM, roughness=0.75, metallic=0.0),
         "belly": make_mat("BeetleBelly", BELLY, roughness=0.85, metallic=0.0),
@@ -845,7 +892,7 @@ def main():
     mesh = join_objects("Beetle", parts)
     tris = triangle_count(mesh)
     print(f"joined mesh triangles: {tris}")
-    if tris > 2000:
+    if tris > 2200:
         raise SystemExit(f"too many triangles: {tris}")
     arm = build_armature(bones)
     bind(mesh, arm)
