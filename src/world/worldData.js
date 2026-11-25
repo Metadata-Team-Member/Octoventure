@@ -8,7 +8,7 @@ import { Regions } from './regions.js';
 import { CONFIG } from '../config.js';
 import { makeNoise } from '../util/noise.js';
 import { mulberry32, clamp, lerp, smoothstep } from '../util/rng.js';
-import { BiomeField, B, BIOMES, COAST_KINDS } from './biomes.js';
+import { BiomeField, B, BIOMES, COAST_KINDS, bandZw } from './biomes.js';
 import { placeAreas } from './areas.js';
 import { scatterGather } from './gather.js';
 import { SHORE_Z, SPAN, EDGE, WALL, bandOfZ, ISLETS, ROCK } from './bands.js';
@@ -120,9 +120,20 @@ export class WorldData {
   /** progress with an irregular coastline / biome borders. */
   tAt(x, z) {
     const n = this.n;
-    const w = n.fbm(x * 0.0055 + 311, z * 0.0055 - 77, 3) * 0.06 + n.fbm(x * 0.0016 + 9, z * 0.0016 - 3, 2) * 0.05;
-    const j = n.noise2(x * 0.045, z * 0.045) * 0.012;
-    return this.progress(x, z) + w + j;
+    const w = n.fbm(x * 0.0055 + 311, z * 0.0055 - 77, 3) * 0.04 + n.fbm(x * 0.0016 + 9, z * 0.0016 - 3, 2) * 0.03;
+    const j = n.noise2(x * 0.04, z * 0.04) * 0.008;
+    return this.progress(x, z) + w + j + this.shoreShift(x) / SPAN;
+  }
+  /**
+   * metres the waterline moves inland (north, +) or out to sea (south, −).
+   * A headland on the west, a sandy bay in the middle, a cove to the east — not one straight beach.
+   */
+  shoreShift(x) {
+    const ss = smoothstep;
+    const head = ss(-560, -400, x) * (1 - ss(-340, -200, x));
+    const bay = ss(-210, -70, x) * (1 - ss(50, 190, x));
+    const cove = ss(170, 270, x) * (1 - ss(390, 510, x));
+    return -46 * head + 38 * bay + 26 * cove + 14 * Math.sin(x * 0.009 + 0.45);
   }
   /** meters from the shoreline along the sea direction (negative = on land) */
   distToSea(x, z) { return (this.tAt(x, z) - 1.0) * (this.cCoast - this.cStart); }
@@ -141,7 +152,7 @@ export class WorldData {
   /** the band (bands.js index: 0 sea .. 5 wasteland) at x,z, using the same wandering borders as the biomes */
   bandAt(x, z) {
     if (this.tAt(x, z) > 1.0) return 0;
-    const n = this.n, zw = z + n.fbm(x * 0.006 + 101, z * 0.006 - 57, 2) * 26 + n.fbm(x * 0.02 - 8, z * 0.02 + 3, 2) * 6;
+    const zw = bandZw(this.n, x, z);
     if (this.tAt(x, z) > 0.81) return 1;
     return Math.max(2, bandOfZ(zw));
   }
@@ -192,14 +203,14 @@ export class WorldData {
       const pts = [];
       for (let i = 0; i <= steps; i++) {
         const s = i / steps, env = Math.pow(Math.sin(Math.PI * Math.min(1, s * 0.98 + 0.01)), 0.6);
-        const m = amp * (Math.sin(s * f1 + p1) * 0.6 + Math.sin(s * f2 + p2) * 0.3) * env;
+        const m = amp * (Math.sin(s * f1 + p1) * 0.65 + Math.sin(s * f2 + p2) * 0.35) * env;
         pts.push({ x: lerp(S.x, T.x, s) + this.perp.x * m, z: lerp(S.z, T.z, s) + this.perp.z * m, s });
       }
       return pts;
     };
     // the river rises at the foot of the northern ranges and winds south through every band to the estuary
     const S = { x: 40 + rnd.range(-30, 30), z: EDGE.north + 40 };
-    const main = mk(S, E, 55);
+    const main = mk(S, E, 68);
     // a tributary from the bush wetland that joins the main river out in the farmland
     const j = main[Math.floor(main.length * 0.62)];
     rnd();
@@ -237,7 +248,7 @@ export class WorldData {
     // (the fine ground ripple is ironed out along the creek bed, so the water surface never hangs over a bump)
     let h = lerp(2.3, 1.1, low) + amp * (n.fbm(x * 0.011, z * 0.011, 4) + 1) * 0.95 + 0.22 * n.noise2(x * 0.13, z * 0.13) * (1 - low * 0.6) * (cd < 14 ? 0.25 + 0.75 * ss(3, 14, cd) : 1);
     // creek valley: the banks slope gently down to the water
-    if (cd < 22) h -= 0.55 * (1 - ss(3, 22, cd)) * (1 - low);
+    if (cd < 30) h -= 0.5 * (1 - ss(5, 30, cd)) * (1 - low);
     // ---- the shore: each stretch of coast has its own profile ------------------------------
     const coast = ss(0.76, 0.82, tw);
     if (coast > 0) {
@@ -422,7 +433,16 @@ export class WorldData {
     for (const l of this.lots || EMPTY) if (Math.abs(x - l.x) < l.hw + margin && Math.abs(z - l.z) < l.hd + margin) return true;
     return false;
   }
-  /** ground type (key of TERRAIN) before puddle rims */
+  /** rounded paddocks: warped low-frequency blobs, a thin gravel ribbon on some edges, no square grid */
+  farmKind(x, z) {
+    const n = this.n;
+    const wx = n.fbm(x * 0.016 + 3, z * 0.016 - 8, 2) * 34;
+    const wz = n.fbm(x * 0.016 - 11, z * 0.016 + 5, 2) * 34;
+    const a = n.fbm((x + wx) * 0.0065 + 2, (z + wz) * 0.0065 - 4, 3);
+    const b = n.fbm((x + wx) * 0.013 + 19, (z + wz) * 0.011 - 6, 2);
+    if (Math.abs(a) < 0.055 && Math.abs(b) > 0.12) return 'gravel';
+    return a * 0.8 + b * 0.2 > 0.02 ? 'plough' : 'pasture';
+  }
   baseType(x, z) {
     const n = this.n;
     const tw = this.tAt(x, z);
@@ -434,29 +454,29 @@ export class WorldData {
     }
     if (tw > 1.0) return 'wet';
     const w = this.biomes.weights(x, z);
-    // ground in an ecotone: the biome whose weight (plus a patchy ~15 m noise) is highest, so ground of both biomes interleaves in
-    // irregular patches across the blend and is pure in the middle of each biome
+    // ground in an ecotone: soft blobs of both biomes across the blend, pure in the middle of each
     let id = 0, best = -9;
     for (let i = 0; i < w.length; i++) {
       if (w[i] < 0.02) continue;
-      const sc = w[i] >= 0.86 ? w[i] + 1 : w[i] + 0.34 * n.noise2(x * 0.07 + i * 31.7, z * 0.07 - i * 13.1);
+      const sc = w[i] >= 0.86 ? w[i] + 1 : w[i] + 0.2 * n.fbm(x * 0.018 + i * 3.1, z * 0.018 - i * 1.7, 2);
       if (sc > best) { best = sc; id = i; }
     }
     switch (BIOMES[id]) {
-      case 'suburb':
+      case 'suburb': {
         if (this.isRoad(x, z)) return 'road';
-        return n.fbm(x * 0.02 + 8, z * 0.02) > 0.45 ? 'grass' : 'lawn';
-      case 'town':
+        const wx = n.fbm(x * 0.018 + 2, z * 0.018, 2) * 26;
+        const wz = n.fbm(x * 0.018 - 6, z * 0.018 + 4, 2) * 26;
+        return n.fbm((x + wx) * 0.01 + 8, (z + wz) * 0.01, 3) > 0.08 ? 'grass' : 'lawn';
+      }
+      case 'town': {
         if (this.isRoad(x, z)) return 'road';
         if (this.inLot(x, z, 0)) return 'paving';
         if (this.isRoad(x, z, 2.8)) return 'paving';
-        return n.fbm(x * 0.03 + 4, z * 0.03) > 0.3 ? 'lawn' : 'paving';
-      case 'farm': {
-        const cx = Math.floor(x / 70), cz = Math.floor(z / 70);
-        const hsh = (Math.sin(cx * 127.1 + cz * 311.7 + this.seed * 0.001) * 43758.5453) % 1;
-        if ((((x % 70) + 70) % 70) < 2.2 && hsh > 0) return 'gravel';
-        return Math.abs(hsh) > 0.6 ? 'plough' : 'pasture';
+        const wx = n.fbm(x * 0.02 + 1, z * 0.02, 2) * 18;
+        const wz = n.fbm(x * 0.02 + 5, z * 0.02 - 2, 2) * 18;
+        return n.fbm((x + wx) * 0.012 + 4, (z + wz) * 0.012, 3) > 0.02 ? 'lawn' : 'paving';
       }
+      case 'farm': return this.farmKind(x, z);
       case 'bush': {
         const r = n.fbm(x * 0.016 + 9, z * 0.016 - 4, 3);
         if (r > 0.34 && tw > 0.5) return 'rock';

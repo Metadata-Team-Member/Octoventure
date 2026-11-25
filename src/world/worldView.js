@@ -9,6 +9,7 @@
 //  small stuff (grass, flowers ...) is further culled by distance.
 // =====================================================================
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMat } from './toon.js';
 import { CONFIG, TERRAIN } from '../config.js';
 import { smoothstep as ss, lerp, clamp } from '../util/rng.js';
@@ -75,13 +76,16 @@ const LOD_DIST = 150;
 const FAR = { grass: 135, flower: 110, reed: 190, beach: 120, seagrass: 120, reef: 200, drop: 160 };
 // on a phone, small yard / shore clutter is only a pixel or two past ~150 m: those per-chunk draws are skipped there
 const SMALL_PROPS = new Set(['post', 'plank', 'tin', 'letterbox', 'bin', 'bowl', 'birdbath', 'crabpot', 'towel', 'umbrella', 'shellhide', 'slab',
-  'coralhead', 'lamp', 'haybale', 'trough', 'sheep', 'drain', 'cairn', 'hollowlog', 'culvert', 'log', 'fencehole', 'pipe', 'hoist']);
-const MOBILE_PROP_FAR = 150;
+  'coralhead', 'lamp', 'haybale', 'trough', 'sheep', 'drain', 'cairn', 'hollowlog', 'culvert', 'log', 'fencehole', 'pipe', 'hoist', 'fence']);
+const MOBILE_PROP_FAR = 115;
 
 export class WorldView {
   constructor(world, scene, opts = {}) {
     this.world = world;
     this.mobile = !!opts.mobile;
+    this.far = this.mobile
+      ? { grass: 95, flower: 72, reed: 130, beach: 80, seagrass: 80, reef: 130, drop: 100 }
+      : FAR;
     this.scene = scene;
     this.root = new THREE.Group();
     scene.add(this.root);
@@ -101,7 +105,7 @@ export class WorldView {
     this._buildFish();
     const s = world.start;
     this.flushAround(s.x, s.z, 120);   // nearest chunks only; the rest of the ring streams in on the start screen (6 ms a frame)
-    this.visRadius = CONFIG.graphics.fogFar + 70;
+    this.visRadius = CONFIG.graphics.fogFar + (this.mobile ? 0 : 70);
     this._cullT = 0;
   }
 
@@ -190,12 +194,48 @@ export class WorldView {
   _disposeChunk(key) {
     const grp = this.chunks.get(key); if (!grp) return;
     this.root.remove(grp);
-    for (const o of grp.children) { if (o.isInstancedMesh) { o.dispose(); if (o.userData.ownGeo) o.geometry.dispose(); } else if (o.geometry) o.geometry.dispose(); }
+    for (const o of grp.children) {
+      if (o.isInstancedMesh) { o.dispose(); if (o.userData.ownGeo) o.geometry.dispose(); }
+      else if (o.geometry) {
+        const lod = o.userData.lod;
+        if (lod) { for (const g of lod) g.dispose(); }
+        else o.geometry.dispose();
+      }
+    }
     this.chunks.delete(key);
     this.stats.chunksFreed = (this.stats.chunksFreed ?? 0) + 1;
   }
   _propGeo(kind) {
     const had = kind in this.lib.propCache; const g = this.lib.propGeo(kind); if (!had) this.track(g); return g;
+  }
+
+  /** one mesh for many seated copies (phone chunks: one draw instead of one per kind).
+   *  Every copy is baked to non-indexed triangles so mixed indexed/non-indexed props can share the mesh. */
+  _merged(bits) {
+    if (!bits.length) return null;
+    const geos = [];
+    for (const it of bits) {
+      const src = it.geo;
+      const g = src.index ? src.toNonIndexed() : src.clone();
+      g.applyMatrix4(it.matrix);
+      for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color') g.deleteAttribute(k);
+      if (!g.attributes.normal) g.computeVertexNormals();
+      const n = g.attributes.position.count, t = it.color;
+      const col = g.attributes.color;
+      if (!col || col.itemSize < 3) {
+        const a = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) { a[i * 3] = t.r; a[i * 3 + 1] = t.g; a[i * 3 + 2] = t.b; }
+        g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+      } else {
+        for (let i = 0; i < n; i++) col.setXYZ(i, col.getX(i) * t.r, col.getY(i) * t.g, col.getZ(i) * t.b);
+      }
+      geos.push(g);
+    }
+    const merged = mergeGeometries(geos, false);
+    for (const g of geos) g.dispose();
+    if (!merged) return null;
+    merged.computeBoundingSphere();
+    return new THREE.Mesh(merged, this.vcMat);
   }
 
   /** build every not-yet-built chunk whose centre is within r metres (synchronous: used at start and on teleports) */
@@ -228,36 +268,95 @@ export class WorldView {
     grp.add(this._terrainChunk(x0, z0));
     const b = this.buckets.get(key) || {};
     const sh = this.shadows;
-    if (b.tree) for (const kind in b.tree) {
-      const m = instancedSeat(this.world, this.geo.tree[kind], this.vcMat, b.tree[kind], 'tree', kind, (o, c) => c.setScalar(o.tint));
-      m.castShadow = sh && kind !== 'bush'; add(m);
-      m.userData.lod = [this.geo.tree[kind], this.geo.treeLod[kind]];       // far chunks swap to the cheap version (cull pass)
+    if (b.tree) {
+      if (this.mobile) {
+        const bits = [], lodBits = [];
+        for (const kind in b.tree) {
+          const geo = this.geo.tree[kind], lod = this.geo.treeLod[kind], gh = geoHeight(geo);
+          for (const o of b.tree[kind]) {
+            seat(this.world, geo, instanceSpec('tree', kind, o, gh), _m);
+            const matrix = _m.clone(), color = _c.setScalar(o.tint).clone();
+            bits.push({ geo, matrix, color });
+            if (lod) lodBits.push({ geo: lod, matrix, color });
+          }
+        }
+        const m = this._merged(bits);
+        if (m) {
+          const far = lodBits.length ? this._merged(lodBits) : null;
+          if (far) m.userData.lod = [m.geometry, far.geometry];
+          add(m);
+        }
+      } else for (const kind in b.tree) {
+        const m = instancedSeat(this.world, this.geo.tree[kind], this.vcMat, b.tree[kind], 'tree', kind, (o, c) => c.setScalar(o.tint));
+        m.castShadow = sh && kind !== 'bush'; add(m);
+        m.userData.lod = [this.geo.tree[kind], this.geo.treeLod[kind]];
+      }
     }
     if (b.rock) {
       const m = instancedSeat(this.world, this.geo.rock, this.whiteMat, b.rock.r, 'rock', 'r', (o, c) => c.set(o.mound ? 0xb5623a : o.red ? 0x8e4630 : o.dark ? 0x56595f : 0x8f8d88).multiplyScalar(o.tint));
       m.castShadow = sh; m.receiveShadow = sh; add(m);
     }
     if (b.grass) add(instancedSeat(this.world, this.geo.grass, this.grassMat, b.grass.g, 'grass', 'g',
-      (o, c) => (o.wet ? c.set(0x4f8a3a) : o.dry ? c.set(0xb8a45a) : c.set(0x6fa83c)).multiplyScalar(o.tint)), FAR.grass);
+      (o, c) => (o.wet ? c.set(0x4f8a3a) : o.dry ? c.set(0xb8a45a) : c.set(0x6fa83c)).multiplyScalar(o.tint)), this.far.grass);
     if (b.flower) {
       const fm = instancedSeat(this.world, this.geo.flower, this.vcMat, b.flower.f, 'flower', 'f', (o, c) => c.set(o.color));
       b.flower.f.forEach((f, i) => { f.inst = { mesh: fm, i }; });        // systems/flowers.js swaps a touched flower for an animated copy
-      add(fm, FAR.flower);
+      add(fm, this.far.flower);
     }
-    if (b.reed) add(instancedSeat(this.world, this.geo.reed, this.vcMat, b.reed.r, 'reed', 'r'), FAR.reed);
+    if (b.reed) add(instancedSeat(this.world, this.geo.reed, this.vcMat, b.reed.r, 'reed', 'r'), this.far.reed);
     if (b.beach) {
       const col = { shell: 0xffffff, weed: 0x3f5a2c, wood: 0x7a5d44 };
-      for (const kind in b.beach) add(instancedSeat(this.world, this.geo[kind], kind === 'shell' ? this.vcMat : this.whiteMat, b.beach[kind], 'beach', kind, (o, c) => c.set(col[kind])), FAR.beach);
+      if (this.mobile) {
+        const bits = [];
+        for (const kind in b.beach) {
+          const geo = this.geo[kind];
+          for (const o of b.beach[kind]) {
+            seat(this.world, geo, instanceSpec('beach', kind, o, geoHeight(geo)), _m);
+            bits.push({ geo, matrix: _m.clone(), color: _c.set(col[kind]).clone() });
+          }
+        }
+        const m = this._merged(bits); if (m) add(m, this.far.beach);
+      } else for (const kind in b.beach) add(instancedSeat(this.world, this.geo[kind], kind === 'shell' ? this.vcMat : this.whiteMat, b.beach[kind], 'beach', kind, (o, c) => c.set(col[kind])), this.far.beach);
     }
-    if (b.seagrass) add(instancedSeat(this.world, this.geo.seagrass, this.vcMat, b.seagrass.s, 'seagrass', 's', (o, c) => c.setHSL(0.27 + (o.rot % 1) * 0.07, 0.55, 0.3)), FAR.seagrass);
+    if (b.seagrass) add(instancedSeat(this.world, this.geo.seagrass, this.vcMat, b.seagrass.s, 'seagrass', 's', (o, c) => c.setHSL(0.27 + (o.rot % 1) * 0.07, 0.55, 0.3)), this.far.seagrass);
     if (b.reef) {
-      if (b.reef.coral) add(instancedSeat(this.world, this.geo.coral, this.vcMat, b.reef.coral, 'reef', 'coral', coralColor), FAR.reef);
-      if (b.reef.rock) add(instancedSeat(this.world, this.geo.rock, this.whiteMat, b.reef.rock, 'reef', 'rock', (o, c) => c.set(0x62807c)), FAR.reef);
+      if (this.mobile) {
+        const bits = [];
+        const pushReef = (kind, list, colorOf) => {
+          const geo = kind === 'coral' ? this.geo.coral : this.geo.rock;
+          for (const o of list) {
+            seat(this.world, geo, instanceSpec('reef', kind, o, geoHeight(geo)), _m);
+            bits.push({ geo, matrix: _m.clone(), color: colorOf(o, _c).clone() });
+          }
+        };
+        if (b.reef.coral) pushReef('coral', b.reef.coral, coralColor);
+        if (b.reef.rock) pushReef('rock', b.reef.rock, (o, c) => c.set(0x62807c));
+        const m = this._merged(bits); if (m) add(m, this.far.reef);
+      } else {
+        if (b.reef.coral) add(instancedSeat(this.world, this.geo.coral, this.vcMat, b.reef.coral, 'reef', 'coral', coralColor), this.far.reef);
+        if (b.reef.rock) add(instancedSeat(this.world, this.geo.rock, this.whiteMat, b.reef.rock, 'reef', 'rock', (o, c) => c.set(0x62807c)), this.far.reef);
+      }
     }
-    if (b.prop) for (const kind in b.prop) {
-      const hue = HUE_KINDS.has(kind);
-      const m = instancedSeat(this.world, this._propGeo(kind), this.vcMat, b.prop[kind], 'prop', kind, (o, c) => (hue ? hueColor(o, c) : c.setScalar(o.tint)));
-      m.castShadow = sh && this.shadowKinds.has(kind); m.receiveShadow = sh && (kind.startsWith('house') || kind === 'barn'); add(m, this.mobile && SMALL_PROPS.has(kind) ? MOBILE_PROP_FAR : 0);
+    if (b.prop) {
+      const hue = (kind) => HUE_KINDS.has(kind);
+      const drawKind = (kind, list) => {
+        const m = instancedSeat(this.world, this._propGeo(kind), this.vcMat, list, 'prop', kind, (o, c) => (hue(kind) ? hueColor(o, c) : c.setScalar(o.tint)));
+        m.castShadow = sh && this.shadowKinds.has(kind); m.receiveShadow = sh && (kind.startsWith('house') || kind === 'barn'); add(m, this.mobile && SMALL_PROPS.has(kind) ? MOBILE_PROP_FAR : 0);
+      };
+      if (this.mobile) {
+        const bits = [], big = [];
+        for (const kind in b.prop) {
+          const geo = this._propGeo(kind), gh = geoHeight(geo);
+          const dest = SMALL_PROPS.has(kind) ? bits : big;
+          for (const o of b.prop[kind]) {
+            seat(this.world, geo, instanceSpec('prop', kind, o, gh), _m);
+            const c = hue(kind) ? hueColor(o, _c) : _c.setScalar(o.tint ?? 1);
+            dest.push({ geo, matrix: _m.clone(), color: c.clone() });
+          }
+        }
+        const m = this._merged(bits); if (m) add(m, MOBILE_PROP_FAR);
+        const bm = this._merged(big); if (bm) add(bm);
+      } else for (const kind in b.prop) drawKind(kind, b.prop[kind]);
     }
     if (b.water) {
       const colors = { puddle: 0x4aa8dc, pond: 0x2f8fc8, tidepool: 0x57c2d6, stream: 0x5ab6e6, drip: 0x58b0e0, trough: 0x5aa6c8, dam: 0x3d86a8, estuary: 0x4fa3c0, birdbath: 0x6cc0ea, bowl: 0x6cc0ea, aircon: 0x58b0e0, hose: 0x58b0e0, swamp: 0x3f7f78, creek: 0x4ea6d6 };
@@ -289,7 +388,7 @@ export class WorldView {
       if (pads.length) {
         const pm = new THREE.InstancedMesh(this.geo.pad, this.padMat, pads.length);
         pads.forEach((p, i) => { _e.set(0, p.rot, 0); _q.setFromEuler(_e); _m.compose(_v.set(p.x, p.y, p.z), _q, _s.set(p.s, 1, p.s)); pm.setMatrixAt(i, _m); });
-        pm.instanceMatrix.needsUpdate = true; pm.computeBoundingSphere(); pm.renderOrder = 3; add(pm, FAR.reed);
+        pm.instanceMatrix.needsUpdate = true; pm.computeBoundingSphere(); pm.renderOrder = 3; add(pm, this.far.reed);
       }
     }
     for (const m of grp.userData.items) m.userData.cull = true;
@@ -317,6 +416,11 @@ export class WorldView {
         c.copy(tcol[type] ?? tcol.grass);
         const v = 0.9 + 0.2 * w.n.noise2(x * 0.35, z * 0.35) + 0.06 * w.n.noise2(x * 0.05 + 3, z * 0.05);
         c.multiplyScalar(v);
+        if (type === 'pasture' || type === 'plough' || type === 'lawn' || type === 'grass') {
+          const mix = 0.5 + 0.5 * w.n.fbm(x * 0.012 + 2, z * 0.012 - 3, 2);
+          const mate = type === 'plough' || type === 'grass' ? tcol.pasture : tcol.plough;
+          c.lerp(mate, mix * 0.16);
+        }
         for (const q of w.waterHash.at(x, z)) if (q.kind === 'sprinkler' && Math.hypot(x - q.x, z - q.z) < q.r) c.multiplyScalar(0.8);
         if (hh < 0.06 && w.tAt(x, z) > 0.95) {
           const d = clamp(-hh, 0, 5);
@@ -448,52 +552,87 @@ export class WorldView {
       const m = instancedSeat(this.world, this.geo.tree.norfolk, this.landMat, trees, 'tree', 'norfolk', (o, c) => c.setScalar(o.tint));
       m.castShadow = this.shadows; g.add(m);
     }
+    const byKind = new Map();
     for (const p of this.landProps) {
-      const mesh = new THREE.Mesh(this._propGeo(p.kind), this.landMat);
-      const pg = this._propGeo(p.kind);
-      seat(this.world, pg, instanceSpec('prop', p.kind, p, geoHeight(pg)), _m); mesh.matrixAutoUpdate = false; mesh.matrix.copy(_m); mesh.castShadow = this.shadows;
-      g.add(mesh);
+      let a = byKind.get(p.kind); if (!a) { a = []; byKind.set(p.kind, a); }
+      a.push(p);
+    }
+    for (const [kind, list] of byKind) {
+      const mesh = instancedSeat(this.world, this._propGeo(kind), this.landMat, list, 'prop', kind, (o, c) => c.setScalar(o.tint ?? 1));
+      mesh.castShadow = this.shadows; g.add(mesh);
     }
     this.landmarkGroup = g;
     this.root.add(g);
   }
 
-  // ------------------------------------------------------------ banded world: the mountain ranges (one instanced draw, fog-free and hazed like the landmarks)
+  // ------------------------------------------------------------ banded world: rounded toon ranges (one merged draw, own colours, no shadows)
   _buildRanges() {
     const w = this.world, peaks = [];
-    let seed = 7; const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    const row = (d, step, hLo, hHi, rLo, rHi) => {
-      const push = (x, z) => { const hh = hLo + r() * (hHi - hLo); peaks.push({ x, z, h: hh, rad: rLo + r() * (rHi - rLo) }); };
-      for (let z = EDGE.north - d; z < EDGE.sea + 160; z += step * (0.8 + r() * 0.4)) { push(EDGE.west - d + (r() - 0.5) * 30, z); push(EDGE.east + d + (r() - 0.5) * 30, z); }
-      for (let x = EDGE.west - d + step; x < EDGE.east + d - step / 2; x += step * (0.8 + r() * 0.4)) push(x, EDGE.north - d + (r() - 0.5) * 30);
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const row = (d, step, hLo, hHi, rLo, rHi, snow) => {
+      const push = (x, z) => {
+        const hh = hLo + rnd() * (hHi - hLo);
+        peaks.push({ x, z, h: hh, rad: rLo + rnd() * (rHi - rLo), style: Math.floor(rnd() * 4), lav: rnd(), snow: !!(snow && hh > (hLo + hHi) * 0.48), yaw: rnd() * 6.28, aspect: 0.7 + rnd() * 0.5 });
+      };
+      for (let z = EDGE.north - d; z < EDGE.sea + 140; z += step * (0.7 + rnd() * 0.6)) {
+        push(EDGE.west - d + (rnd() - 0.5) * 50, z + (rnd() - 0.5) * 28);
+        push(EDGE.east + d + (rnd() - 0.5) * 50, z + (rnd() - 0.5) * 28);
+      }
+      for (let x = EDGE.west - d + step; x < EDGE.east + d - step / 2; x += step * (0.7 + rnd() * 0.6)) push(x + (rnd() - 0.5) * 40, EDGE.north - d + (rnd() - 0.5) * 36);
     };
-    row(150, 95, 55, 85, 70, 95);
-    row(260, 120, 90, 150, 95, 135);
-    row(390, 150, 130, 190, 120, 170);
-    // one low-poly rounded peak with a snow cap (vertex colours), scaled per instance
-    const prof = [];
-    for (let i = 0; i <= 8; i++) { const t = i / 8; prof.push(new THREE.Vector2(Math.max(0.001, Math.pow(1 - t, 0.75) * (1 - 0.12 * t)), t)); }
-    const body = new THREE.LatheGeometry(prof, 10);
-    body.computeVertexNormals();
-    const pos = body.attributes.position, col = new Float32Array(pos.count * 3);
-    const rockC = new THREE.Color(0x5e6680), snowC = new THREE.Color(0xf4f6fb);
-    for (let i = 0; i < pos.count; i++) {
-      const y = pos.getY(i), wob = 0.06 * Math.sin(Math.atan2(pos.getZ(i), pos.getX(i)) * 3);
-      const c = y > 0.62 + wob ? snowC : rockC.clone().multiplyScalar(0.9 + 0.2 * y);
-      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-    }
-    body.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    this.track(body);
-    const m = new THREE.InstancedMesh(body, this.landMat, peaks.length);
-    peaks.forEach((p, i) => {
-      const y0 = Math.min(w.heightAt(clamp(p.x, -w.half * 2, w.half * 2), p.z), 30) - 12;
-      _e.set(0, (p.x * 0.37 + p.z) % 6.28, 0); _q.setFromEuler(_e);
-      _m.compose(_v.set(p.x, y0, p.z), _q, _s.set(p.rad, p.h + 12, p.rad * (0.8 + 0.3 * ((p.x * 0.013) % 1 + 1) % 1)));
-      m.setMatrixAt(i, _m);
+    row(145, 120, 46, 88, 58, 96, false);
+    row(255, 150, 96, 160, 88, 136, true);
+    row(390, 180, 140, 230, 112, 180, true);
+    const geos = [0.5, 0.85, 1.2, 1.7].map((exp) => {
+      const prof = [];
+      for (let i = 0; i <= 7; i++) {
+        const t = i / 7;
+        prof.push(new THREE.Vector2(Math.max(0.02, Math.pow(Math.cos(t * Math.PI * 0.5), exp)), t));
+      }
+      const g = new THREE.LatheGeometry(prof, 8);
+      g.computeVertexNormals();
+      return g;
     });
-    m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); m.frustumCulled = false;
-    this.ranges = m;
-    this.root.add(m);
+    let vc = 0, ic = 0;
+    for (const p of peaks) { const g = geos[p.style]; vc += g.attributes.position.count; ic += g.index.count; }
+    const pos = new Float32Array(vc * 3), nor = new Float32Array(vc * 3), col = new Float32Array(vc * 3), idx = new Uint32Array(ic);
+    const rockA = new THREE.Color(0x6d7b96), rockB = new THREE.Color(0xb4a6c9), snowC = new THREE.Color(0xf4f1f8), tmp = new THREE.Color();
+    const m4 = new THREE.Matrix4(), n3 = new THREE.Matrix3(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), s = new THREE.Vector3();
+    let vo = 0, io = 0;
+    for (const p of peaks) {
+      const g = geos[p.style], gp = g.attributes.position, gn = g.attributes.normal, gi = g.index;
+      const y0 = Math.min(w.heightAt(clamp(p.x, -w.half * 2, w.half * 2), p.z), 26) - p.h * 0.16;
+      e.set(0, p.yaw, 0); q.setFromEuler(e);
+      m4.compose(v.set(p.x, y0, p.z), q, s.set(p.rad, p.h, p.rad * p.aspect));
+      n3.getNormalMatrix(m4);
+      const base = vo;
+      for (let i = 0; i < gp.count; i++) {
+        v.fromBufferAttribute(gp, i).applyMatrix4(m4);
+        pos[(base + i) * 3] = v.x; pos[(base + i) * 3 + 1] = v.y; pos[(base + i) * 3 + 2] = v.z;
+        const ny = gn.getY(i);
+        v.fromBufferAttribute(gn, i).applyMatrix3(n3).normalize();
+        nor[(base + i) * 3] = v.x; nor[(base + i) * 3 + 1] = v.y; nor[(base + i) * 3 + 2] = v.z;
+        const y = gp.getY(i);
+        tmp.copy(rockA).lerp(rockB, p.lav).multiplyScalar(0.62 + 0.42 * y);
+        if (p.snow && y > 0.74 + 0.06 * Math.sin(gp.getX(i) * 9 + ny)) tmp.copy(snowC);
+        col[(base + i) * 3] = tmp.r; col[(base + i) * 3 + 1] = tmp.g; col[(base + i) * 3 + 2] = tmp.b;
+      }
+      for (let i = 0; i < gi.count; i++) idx[io++] = gi.getX(i) + base;
+      vo += gp.count;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    geo.computeBoundingSphere();
+    this.track(geo);
+    for (const g of geos) g.dispose();
+    this.rangeMat = this.track(toonMat({ vertexColors: true, roughness: 0.94, fog: false, color: 0xffffff }));
+    const mesh = new THREE.Mesh(geo, this.rangeMat);
+    mesh.frustumCulled = false; mesh.castShadow = false; mesh.receiveShadow = false;
+    this.ranges = mesh;
+    this.root.add(mesh);
   }
 
   // ------------------------------------------------------------ banded world: grey shark fins patrolling beyond the reef (they never come in)
@@ -665,7 +804,6 @@ export class WorldView {
   _buildRain() {
     const w = this.world;
     this.rainN = 150;
-    this.clouds = [];
     const cgeo = this.track(merge([
       at(tint(new THREE.IcosahedronGeometry(4, 1), 0x7c8591), 0, 0, 0, 0, 0, 0, 1.6, 0.6, 1.2),
       at(tint(new THREE.IcosahedronGeometry(3.4, 1), 0x6f7883), 5, -0.4, 1.5, 0, 0, 0, 1.5, 0.6, 1.1),
@@ -682,14 +820,17 @@ export class WorldView {
     this.root.add(this.rainPoints);
     this.rainSeeds = new Float32Array(this.rainN * 3);
     for (let i = 0; i < this.rainSeeds.length; i++) this.rainSeeds[i] = Math.random();
-    for (let i = 0; i < w.rain.length; i++) {
-      const m = new THREE.Mesh(cgeo, cmat);
-      m.castShadow = false; this.root.add(m);
-      this.clouds.push(m);
+    this.cloudMesh = new THREE.InstancedMesh(cgeo, cmat, Math.max(1, w.rain.length));
+    this.cloudMesh.count = w.rain.length;
+    this.cloudMesh.frustumCulled = false;
+    this.cloudMesh.castShadow = false;
+    this.root.add(this.cloudMesh);
+    for (let c = 0; c < w.rain.length; c++) {
+      const cl = w.rain[c];
+      _m.compose(_v.set(cl.x, w.baseHeight(cl.x, cl.z) + 24, cl.z), _q.identity(), _s.set(1, 1, 1));
+      this.cloudMesh.setMatrixAt(c, _m);
     }
-    // wet ground ring decal under each cloud
-    const rg = this.track(new THREE.RingGeometry(0.1, 1, 28)); rg.rotateX(-Math.PI / 2);
-    this.rainRing = [];
+    if (w.rain.length) this.cloudMesh.instanceMatrix.needsUpdate = true;
   }
 
   _buildClouds() {
@@ -700,15 +841,22 @@ export class WorldView {
     ]));
     const mat = this.track(new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, transparent: true, opacity: 0.92 }));
     this.skyClouds = [];
+    this.skyCloudMesh = new THREE.InstancedMesh(geo, mat, 16);
+    this.skyCloudMesh.frustumCulled = false;
+    this.skyCloudMesh.count = 16;
     const r = (a, b) => a + Math.random() * (b - a);
-    for (let i = 0; i < 16; i++) {
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(r(-600, 600), r(110, 160), r(-600, 600));
-      m.rotation.y = r(0, 6);
-      m.scale.setScalar(r(0.8, 1.8));
-      this.root.add(m);
-      this.skyClouds.push(m);
+    for (let i = 0; i < 16; i++) this.skyClouds.push({ x: r(-600, 600), y: r(110, 160), z: r(-600, 600), rot: r(0, 6), s: r(0.8, 1.8) });
+    this.root.add(this.skyCloudMesh);
+    this._syncSkyClouds();
+  }
+  _syncSkyClouds() {
+    for (let i = 0; i < this.skyClouds.length; i++) {
+      const m = this.skyClouds[i];
+      _e.set(0, m.rot, 0); _q.setFromEuler(_e);
+      _m.compose(_v.set(m.x, m.y, m.z), _q, _s.setScalar(m.s));
+      this.skyCloudMesh.setMatrixAt(i, _m);
     }
+    this.skyCloudMesh.instanceMatrix.needsUpdate = true;
   }
 
   _buildWind() {
@@ -850,7 +998,8 @@ export class WorldView {
       const cl = w.rain[c];
       const gy = w.baseHeight(cl.x, cl.z);
       const top = gy + 22;
-      this.clouds[c].position.set(cl.x, top + 2, cl.z);
+      _m.compose(_v.set(cl.x, top + 2, cl.z), _q.identity(), _s.set(1, 1, 1));
+      this.cloudMesh.setMatrixAt(c, _m);
       for (let i = 0; i < R; i++) {
         const f = (this.rainSeeds[i * 3] + t * (0.9 + this.rainSeeds[i * 3 + 1] * 0.5)) % 1;
         const a = this.rainSeeds[i * 3 + 1] * 6.283 * 7, rr = Math.sqrt(this.rainSeeds[i * 3 + 2]) * cl.r * 1.05;
@@ -859,13 +1008,16 @@ export class WorldView {
       }
     }
     this.rainPoints.geometry.attributes.position.needsUpdate = true;
+    if (w.rain.length) this.cloudMesh.instanceMatrix.needsUpdate = true;
 
-    // sky clouds
-    if (playerPos) for (const m of this.skyClouds) {
-      m.position.x += dt * 2.5;
-      // keep the cloud deck around the player (wraps within +-700 m)
-      if (m.position.x - playerPos.x > 700) m.position.x -= 1400; else if (m.position.x - playerPos.x < -700) m.position.x += 1400;
-      if (m.position.z - playerPos.z > 700) m.position.z -= 1400; else if (m.position.z - playerPos.z < -700) m.position.z += 1400;
+    // sky clouds (one instanced draw; the deck drifts and wraps around the player)
+    if (playerPos) {
+      for (const m of this.skyClouds) {
+        m.x += dt * 2.5;
+        if (m.x - playerPos.x > 700) m.x -= 1400; else if (m.x - playerPos.x < -700) m.x += 1400;
+        if (m.z - playerPos.z > 700) m.z -= 1400; else if (m.z - playerPos.z < -700) m.z += 1400;
+      }
+      this._syncSkyClouds();
     }
 
     // wind specks: float around the player, blowing from the sea toward the land

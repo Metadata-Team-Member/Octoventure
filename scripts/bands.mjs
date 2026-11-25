@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { WorldData } from '../src/world/worldData.js';
 import { BANDS, BAND_IDS, EDGE, AGGRO, planLife, bandArea, SHORE_Z } from '../src/world/bands.js';
-import { BIOMES } from '../src/world/biomes.js';
+import { BIOMES, bandZw } from '../src/world/biomes.js';
 import { CONFIG } from '../src/config.js';
 import { readSaveText, SAVE_VERSION } from '../src/systems/save.js';
 import { mulberry32 } from '../src/util/rng.js';
@@ -28,6 +28,33 @@ for (const [bi, names] of Object.entries(expect)) {
   ok(hit / tot > 0.9, `the middle of the ${b.id} band is its own biomes (${(100 * hit / tot).toFixed(0)}%)`);
 }
 ok(dom(-200, -420) === 'mudflat' && dom(400, -330) === 'desert', 'mud flats on the west of the outback band, red desert on the east');
+{
+  const wander = [];
+  for (let x = -500; x <= 500; x += 40) wander.push(bandZw(w.n, x, -40) + 40);
+  const wr = Math.max(...wander) - Math.min(...wander);
+  ok(wr > 20 && wr < 120, `band borders wander (${wr.toFixed(0)} m), they are not a ruled line`);
+  const zShore = (x) => {
+    let lo = 250, hi = 640;
+    for (let i = 0; i < 18; i++) { const mid = (lo + hi) / 2; if (w.tAt(x, mid) > 1) hi = mid; else lo = mid; }
+    return (lo + hi) / 2;
+  };
+  const zs = [-520, -360, -80, 40, 240, 460].map(zShore);
+  const zd = Math.max(...zs) - Math.min(...zs);
+  ok(zd > 25, `the shoreline curves (${zd.toFixed(0)} m from headland to bay to cove)`);
+  let strips = 0;
+  for (let x = -240; x < 240; x += 70) {
+    let g = 0, n = 0;
+    for (let z = 20; z < 260; z += 12) {
+      if (dom(x + 1, z) !== 'farm') continue;
+      n++; if (w.baseType(x + 1, z) === 'gravel') g++;
+    }
+    if (n > 5 && g / n > 0.65) strips++;
+  }
+  ok(strips === 0, 'farm lanes are not a gravel strip every 70 m');
+  const kinds = new Set();
+  for (let x = -160; x < 160; x += 18) for (let z = 30; z < 200; z += 18) if (dom(x, z) === 'farm') kinds.add(w.baseType(x, z));
+  ok(kinds.has('pasture') && kinds.has('plough'), `paddocks are still fields (${[...kinds].join(', ')})`);
+}
 ok(BIOMES.every((b) => { const s = w.findBiomeSpot(b); return s && w.biomeAt(s.x, s.z) === b; }), 'every biome can be found');
 ok(w.landmarks.some((l) => l.kind === 'factory') && w.smoke?.length === 2 && w.landmarks.some((l) => l.kind === 'octoshell') && w.oasis, 'the shell, the factory with smoking stacks and the oasis exist');
 ok(!w.props.some((p) => /castle|keep|turret|rampart|battlement/.test(p.kind)), 'no castle props');

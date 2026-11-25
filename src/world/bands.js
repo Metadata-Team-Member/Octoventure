@@ -6,8 +6,8 @@
 //     ocean  >  shore (beach, dunes, headland, estuary + mangroves)  >  suburb, town and farm  >  bush (gum forest,
 //     wetland, a rainforest corner)  >  mud flats (west) | red outback (east)  >  wasteland (old factory, drain, sludge)
 //  Soft round mountains close the west, east and north sides; grey shark fins patrol the outer edge of the sea. A river
-//  runs from the northern mountains down to the estuary. Hand-overs between bands are short blends (about 40 m), and the
-//  borders wander a little, so each band reads as its own place without a ruled line.
+//  runs from the northern mountains down to the estuary. Hand-overs between bands are short blends (about 30 m), and the
+//  borders wave, so each band reads as its own place without a ruled line.
 // =====================================================================
 
 /** the shoreline (unwarped) and the start-to-shore span the coast profiles in worldData were tuned for */

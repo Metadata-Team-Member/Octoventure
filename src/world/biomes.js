@@ -15,6 +15,14 @@
 import { smoothstep as ss, clamp } from '../util/rng.js';
 import { BANDS } from './bands.js';
 
+/** warped northing for the band edges. A long wave in x (so walking due north still crosses each edge once)
+ *  plus a little noise, about ±45 m. Callers blend across ~30 m (the 10–30 m hand-over). */
+export function bandZw(n, x, z) {
+  const wave = Math.sin(x * 0.008 + 0.55) * 24 + Math.sin(x * 0.0185 + 1.35) * 9;
+  const nse = n.fbm(x * 0.0042 + 101, z * 0.0042 - 57, 2) * 12 + n.fbm(x * 0.013 - 8, z * 0.013 + 3, 2) * 4;
+  return z + wave + nse;
+}
+
 export const BIOMES = ['suburb', 'town', 'farm', 'bush', 'riverbank', 'wetland', 'dunes', 'beach', 'headland', 'estuary', 'sea', 'desert', 'rainforest', 'mudflat', 'wasteland'];   // (t241u: desert + rainforest appended; banded world: mud flats + wasteland appended)
 export const B = Object.fromEntries(BIOMES.map((n, i) => [n, i]));
 export const NB = BIOMES.length;
@@ -73,10 +81,10 @@ export class BiomeField {
     w.fill(0);
     const tw = W.tAt(x, z);
     const u = W.lateral(x, z);
-    // ---- the bands, south to north (see bands.js). Borders wander ~25 m and hand over in ~40 m, so every band is its own place.
-    const zw = z + n.fbm(x * 0.006 + 101, z * 0.006 - 57, 2) * 26 + n.fbm(x * 0.02 - 8, z * 0.02 + 3, 2) * 6;
+    // ---- the bands, south to north (see bands.js). Borders wave and hand over in about 30 m.
+    const zw = bandZw(n, x, z);
     const xw = x + n.fbm(x * 0.005 - 40, z * 0.005 + 90, 2) * 55;
-    const up = (e) => ss(e - 20, e + 20, zw);                 // 1 on the south side of a band edge
+    const up = (e) => ss(e - 15, e + 15, zw);                 // 1 on the south side of a band edge
     const eWaste = BANDS[5].z1, eOut = BANDS[4].z1, eBush = BANDS[3].z1;
     const waste = 1 - up(eWaste);
     const outback = up(eWaste) * (1 - up(eOut));
@@ -95,25 +103,25 @@ export class BiomeField {
     w[B.bush] = bushB * (1 - rain) * (1 - wet);
     // suburb + town (the town centre in the middle), farms and green fields north of them and out on both flanks
     const sub = ss(110, 150, zw) * ss(-370, -310, xw) * (1 - ss(430, 490, xw));
-    const town = sub * (1 - ss(120, 170, Math.abs(xw - 40))) * ss(175, 205, zw) * (1 - ss(290, 315, zw));
+    const town = sub * (1 - ss(120, 170, Math.abs(xw - 40))) * ss(168, 212, zw) * (1 - ss(280, 325, zw));
     w[B.town] = townB * town;
     w[B.suburb] = townB * (sub - town);
     w[B.farm] = townB * (1 - sub);
     w[B.wasteland] = waste;
     // ---- coast -------------------------------------------------------------------------
-    const coast = ss(0.79, 0.83, tw);
+    const coast = ss(0.78, 0.84, tw);
     if (coast > 0) {
       for (let i = 0; i < NB; i++) w[i] *= 1 - coast;
       const ck = this.coastKinds(u);
       const beachK = ck[0], mangK = ck[1], headK = ck[2], estK = ck[3];
-      w[B.dunes] += coast * beachK * (1 - ss(0.9, 0.93, tw));
-      w[B.beach] += coast * beachK * ss(0.9, 0.93, tw);
-      w[B.wetland] += coast * (mangK + estK * (1 - ss(0.86, 0.9, tw)));
+      w[B.dunes] += coast * beachK * (1 - ss(0.885, 0.945, tw));
+      w[B.beach] += coast * beachK * ss(0.885, 0.945, tw);
+      w[B.wetland] += coast * (mangK + estK * (1 - ss(0.845, 0.915, tw)));
       w[B.headland] += coast * headK;
-      w[B.estuary] += coast * estK * ss(0.86, 0.9, tw);
+      w[B.estuary] += coast * estK * ss(0.845, 0.915, tw);
     }
     // ---- sea beyond the shoreline ----------------------------------------------------------
-    const sea = ss(0.985, 1.03, tw);
+    const sea = ss(0.97, 1.045, tw);
     if (sea > 0) {
       for (let i = 0; i < NB; i++) w[i] *= 1 - sea;
       w[B.sea] = sea;

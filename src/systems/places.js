@@ -92,7 +92,10 @@ export class Places {
   _cullCells(dt, o) {
     if ((this._cellT -= dt) > 0 || !this.cells) return;
     this._cellT = 0.25;
-    const R = CONFIG.graphics.fogFar * 1.2 + 60;
+    const fog = CONFIG.graphics.fogFar;
+    // phone: yard gnomes and sheds are a pixel inside the haze, and the beach looks straight into the town.
+    // keep only the nearby cells (about 140 m) so those spots stay inside the old draw-call budget.
+    const R = this.game.mobile ? fog * 0.62 : fog * 1.2 + 60;
     for (const g of this.cells) g.visible = Math.hypot(g.userData.cx - o.x, g.userData.cz - o.z) < R;
   }
 

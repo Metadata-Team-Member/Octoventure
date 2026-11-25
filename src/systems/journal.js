@@ -41,6 +41,10 @@ export const ENTRIES = [
   { id: 'hermit',     group: 'creature', glyph: 'j_hermit',  title: 'Hermit crab',      note: 'A borrowed shell walking on the beach, pausing to choose a new home.', how: 'critter:hermit' },
   { id: 'butterfly',  group: 'creature', glyph: 'j_butter',  title: 'Butterfly',        note: 'Soft wings over flowers and grass. It flutters off if you brush past.', how: 'critter:butterfly' },
   { id: 'wren',       group: 'creature', glyph: 'j_wren',    title: 'Fairy-wren',       note: 'A tiny bird hopping through the undergrowth, too small to hunt you.', how: 'critter:wren' },
+  { id: 'wader',      group: 'creature', glyph: 'j_heron',   title: 'Wading bird',      note: 'A small grey bird in the mud, picking between the puddles.', how: 'critter:wader' },
+  { id: 'rat',        group: 'creature', glyph: 'j_skink',   title: 'Rat',              note: 'A quick brown rat on the broken ground. It keeps to the shadows.', how: 'critter:rat' },
+  { id: 'fly',        group: 'creature', glyph: 'j_fly',     title: 'Fly',              note: 'A small dark fly buzzing over the waste. Not the jewel of the wetlands.', how: 'critter:fly' },
+  { id: 'cockroach',  group: 'creature', glyph: 'j_gcrab',   title: 'Cockroach',        note: 'A flat brown scuttle. It runs when the light finds it.', how: 'critter:cockroach' },
   // ---- plants (gathered plus flowers)
   { id: 'flower',     group: 'plant',    glyph: 'j_flower',  title: 'Flower',           note: 'A bright face in the grass. Brush it and the petals curl; sometimes a sip of dew.', how: 'flower' },
   { id: 'kelp',       group: 'plant',    glyph: 'kelp',      title: 'Kelp',             note: loreOf('kelp').note, how: 'item:kelp' },
