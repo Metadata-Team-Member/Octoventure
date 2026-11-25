@@ -159,7 +159,7 @@ Octopus alone: about 18 draw calls (9 parts + 9 skinned outlines). Triangles are
 `systems/critters.js`. Soft-toon instanced pools with outlines (except ants, which are too small). Existing kinds were given eyes and clearer idle motion: skinks bask flat then dart, ants march between nest and food (and pack up in heavy rain), dragonflies hover and zip (and startle further off), ghost crabs sidle, come a little closer, then dash down a burrow.
 
 Four new harmless kinds, each with a journal entry:
-- **Frog** (wetland, rainforest, riverbank, estuary): hops, sits at the water's edge, plops in when startled; livelier in the rain and at dusk.
+- **Frog** (wetland, rainforest, riverbank, estuary, mudflat): the soft-toon motorbike frog (see Frog model). Hops, sits at the water's edge, plops in when startled; livelier in the rain and at dusk.
 - **Hermit crab** (beach, dunes, estuary): sidles with a borrowed shell, tucks in when the octopus comes close.
 - **Butterfly** (bush, rainforest, wetland, farm, suburb, riverbank, dunes): flutters and lands; hides at night and in the rain.
 - **Fairy-wren** (bush, farm, suburb, wetland, rainforest, riverbank): hops and pecks, short flits, flies up when startled; sleeps at night.
@@ -190,6 +190,12 @@ The player is the soft-toon blue-ringed octopus from `src/assets/models/octopus.
 The mesh is already real size (about 20 cm, bind span about 0.51 u with the arms curled). It is drawn at world scale 1. `group.scale` stays `sz` 0.42 so movement, the camera and collision do not change; a child under the body is scaled by `1 / 0.42` and is the thing `animate()` does not overwrite. +Z is forward, arm0 is the front arm, and the origin is on the ground under the mantle. There is no +0.02 lift — that floated this mesh. Arm tips sit on the ground in idle; the walk clip plants them.
 
 `idle` (3 s) and `walk` (1 s, playback scaled to ground speed) on land and in the shallows. In deep water (`swim > 0.3`) a moving octopus plays `swim` (~1.17 s) and a still one plays `swimIdle` (3 s). Cross-fade is 0.2 s. One-shots do not loop and locomotion does not restart under them: beak bite → `bite` (0.42 s), venomous bite → `venomBite` (0.75 s), ink → `ink` (0.5 s), a pickup → `scoop` (0.5 s), a level shimmer → `celebrate` (0.83 s; the octopus does not grow), a predator alarm → `threat` (1 s). Hide-in-shell, tunnels, climbing, being carried, drying and the phone blob shadow still work. Pollen dots hang off the eight `arm{i}_tip` bones. Each part has a thin skinned outline, hidden while camouflaged. Saves stay at v10.
+
+## Frog model
+
+The ambient frog is the soft-toon motorbike frog from `src/assets/models/frog.glb` (built by `tools/blender/frog.py`), not the old green spheres. The file is imported as a module so the single-file build inlines it. The same glTF helper as the ant bakes the twelve materials into vertex colours on one shared `toonMat` (back `#A8EC3C`, flank `#E8C83A`, dark olive blotch `#2A3214`, cream belly `#F4E8C8`, gold eye ring `#E8B43A`, near-black eye, white catchlight, mouth `#3A281C`, toe pad `#F0C8B0`, throat `#F6D8C0`, tongue `#E87A7A`, leg `#C8D43A`). The mesh is already about 6 cm = 0.19 u, so the object scale is 1. +Z is forward and the origin sits on the ground between the feet; each frog is seated with `heightAt`. A wet one sinks 0.02 u as the plop. Nothing else lifts it.
+
+There are still six, in the wetland, rainforest, riverbank, estuary and mud flats, preferring the water's edge. `idle` (2.5 s, throat and a blink) plays while one is sitting. `hop` (0.58 s, no root motion) plays for the whole leap; the arc is still code, `sin(uπ)` over that 0.58 s instead of the old ~0.38 s, along the facing so model +Z is the jump. `croak` (0.79 s) plays once on the nearest frog the camera can see when the existing croak beat fires (`ambient.frogs > 0.2`). `tongue` (0.29 s) is an occasional flick while idle. Only frogs within 14 m run an `AnimationMixer`, and only up to 6 of them (4 on a phone). The rest are one instanced bind-pose stand-in. A thin skinned outline shows on a computer and is skipped on a phone, same as the other critter hulls. The scare hop, the rain and dusk eagerness, and the journal entry `frog` are unchanged. The night glow-frog and the frogspawn gatherable stay their own meshes. Saves stay at v10.
 
 ## Secrets of night and rain
 

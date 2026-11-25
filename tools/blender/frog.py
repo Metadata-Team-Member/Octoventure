@@ -1,4 +1,4 @@
-"""Build the Octoventure soft-toon motorbike frog and export public/models/frog.glb.
+"""Build the Octoventure soft-toon motorbike frog and export src/assets/models/frog.glb.
 
 Run:
     /opt/blender/blender -b --python tools/blender/frog.py
@@ -41,7 +41,7 @@ import bpy
 from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[2]
-GLB_PATH = ROOT / "public" / "models" / "frog.glb"
+GLB_PATH = ROOT / "src" / "assets" / "models" / "frog.glb"
 PREVIEW_REPO = ROOT / "tools" / "blender" / "frog-preview.png"
 PREVIEW_REPO_SIDE = ROOT / "tools" / "blender" / "frog-preview-side.png"
 PREVIEW_REPO_HOP = ROOT / "tools" / "blender" / "frog-hop.png"
