@@ -1350,7 +1350,7 @@ export class PredatorManager {
       A.push(a);
     }
     if (A.length < 2) return 0;
-    return separate(A, { cell: 3.5, passes: 2, apply: (a, dx, dz, dy) => {
+    return separate(A, { cell: 3.5, passes: 4, apply: (a, dx, dz, dy) => {
       const p = a.p, nx = p.x + dx, nz = p.z + dz;
       if (p.spec.flying) { p.x = nx; p.z = nz; if (dy && p.alt > 1) p.alt = Math.max(0.6, p.alt + dy); }
       else if (p.canWalk(nx, nz)) { const r = w.resolve(nx, nz, 0.5 * p.scale); p.x = r.x; p.z = r.z; if (dy && p.lift > 0.5) p.lift = Math.max(0, p.lift + dy); }
