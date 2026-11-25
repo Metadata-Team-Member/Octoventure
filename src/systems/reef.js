@@ -3,7 +3,8 @@
 import * as THREE from 'three';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
 import { merge, at } from '../world/models.js';
-import { damp } from '../util/rng.js';
+import { damp, smoothstep as ss } from '../util/rng.js';
+import { EDGE } from '../world/bands.js';
 
 const FISH = 18;
 const STARS = 7;
@@ -35,6 +36,11 @@ export function flowAt(world, x, z, swim, out) {
   const s = 0.7 * k;
   out.x = world.perp.x * s + world.dir.x * 0.12 * k;
   out.z = world.perp.z * s + world.dir.z * 0.12 * k;
+  if (world.banded) {                         // out past the shark fins a soft return current turns a swimmer back towards the reef (no wall, no warning)
+    const back = ss(EDGE.sea - 60, EDGE.sea - 5, z), side = ss(EDGE.east - 90, EDGE.east - 10, Math.abs(x));
+    out.z -= 2.2 * back + 0.12 * k;
+    out.x -= Math.sign(x) * 1.8 * side;
+  }
   return out;
 }
 

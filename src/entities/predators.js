@@ -13,6 +13,7 @@ import { CONFIG, diff } from '../config.js';
 import { clamp, damp, dampAngle, angleDiff, lerp } from '../util/rng.js';
 import { TIER, nipsFor } from '../systems/combat.js';
 import { inkDeter } from '../systems/ink.js';
+import { planLife, AGGRO } from '../world/bands.js';
 
 let RND = Math.random;
 const _up = new THREE.Vector3(0, 1, 0), _sv = new THREE.Vector3(), _sn = { x: 0, y: 1, z: 0 };
@@ -417,7 +418,7 @@ export class Predator {
     { const a = RND() * 6.2832, r = 0.9 + RND() * 1.4; this.perchOff = { x: Math.cos(a) * r, z: Math.sin(a) * r }; }
     this.slotA = RND() * 6.2832; this.circR = 6 + RND() * 5; this.circDir = RND() < 0.5 ? -1 : 1; this.seed = RND() * 100;
     this.leaveBias = 0; this.searchPt = null; this.windup = 0; this.windup0 = 0.25; this.recover = 0; this.lookBack = 0; this.preen = 0; this.turnV = 0;
-    this.swoops = 0; this.perchAlt = 5.5 + RND() * 3; this.mgr = null; this.pounceT = 0; this.trackPt = null; this.act = 1;
+    this.swoops = 0; this.perchAlt = 5.5 + RND() * 3; this.mgr = null; this.pounceT = 0; this.trackPt = null; this.act = 1; this.aggro = 1; this.band = -1;
     this.idleT = 0.4 + (this.seed % 1.9); this.idleMode = Math.floor(this.seed * 4) % 4; this.idleHead = 0; this.hopShift = 0; this.wingFlick = 0;
     this.flightIn = 9 + (this.seed % 7); this.wade = 0; this.sink = 0;
     if (this.spec.swoop) { this.state = 'perch'; this.alt = this.perchAlt; }
@@ -590,7 +591,7 @@ export class Predator {
     const s = this.spec, w = this.world;
     const alive = player.alive && !player.won, fooled = player.camoProtected || player.birdHidden;
     const gy = w.heightAt(this.x, this.z);
-    const noticeR = s.notice * (player.moving ? 1 : 0.6) * this.act * (player.visibility ?? 1) * diff().notice;
+    const noticeR = s.notice * (player.moving ? 1 : 0.6) * this.act * this.aggro * (player.visibility ?? 1) * diff().notice;
     let dmg = 0;
     const flapSpeed = this.state === 'perch' ? 0 : 1;
     this.speed = this.state === 'perch' ? 0 : this.speed;
@@ -703,7 +704,7 @@ export class Predator {
     const fooled = player.camoProtected;      // hidden: nobody can see, track or hurt you (no close-range exception)
     const alive = player.alive && !player.won;
     const sprintBoost = player.sprinting ? 1.25 : 1;
-    const noticeR = s.notice * (player.moving ? sprintBoost : 0.65) * this.act * (player.visibility ?? 1) * diff().notice;
+    const noticeR = s.notice * (player.moving ? sprintBoost : 0.65) * this.act * this.aggro * (player.visibility ?? 1) * diff().notice;
     let dmg = 0;
     const entered = this.state !== this._st; this._st = this.state;     // first frame in this state
     if (!fooled && alive && (this.state === 'alert' || this.state === 'chase' || this.state === 'stalk')) this.lastSeen = { x: player.x, z: player.z };
@@ -997,7 +998,7 @@ export class Predator {
         this.speed = 9;
         this.x += Math.sin(this.heading) * this.speed * dt; this.z += Math.cos(this.heading) * this.speed * dt;
         this.alt = damp(this.alt, 24 + Math.sin(this.phase * 0.05) * 3, 1.5, dt);
-        const noticeR = s.notice * (player.moving ? (player.sprinting ? 1.2 : 1) : 0.45) * this.act * (player.visibility ?? 1) * diff().notice;
+        const noticeR = s.notice * (player.moving ? (player.sprinting ? 1.2 : 1) : 0.45) * this.act * this.aggro * (player.visibility ?? 1) * diff().notice;
         if (alive && this.ignore <= 0 && !fooled && this.cool <= 0 && dist < noticeR) { this.state = 'alert'; this.alertT = 1.2; }
         break;
       }
@@ -1208,6 +1209,13 @@ export class PredatorManager {
     this.world = world; this.scene = scene; this.list = []; this.stormBirds = 0;
     setPredatorRng(world.rnd);
     if (!CONFIG.predators.enabled) return;
+    if (world.banded) {                       // banded world: who lives where follows the bands (gentle by the sea, busiest and sharpest-eyed up north)
+      for (const a of planLife(world, { safe: CONFIG.predators.safeRadiusAtStart })) {
+        const p = this.add(new Predator(a.kind, a.x, a.z, world, scene));
+        p.band = a.band; p.aggro = AGGRO[a.band] ?? 1;
+      }
+      return;
+    }
     const K = world.areaScale;                // counts in the config are per 800x800 m
     for (const [kind, per] of Object.entries(CONFIG.predators.counts)) {
       const hab = HABITAT[kind];
@@ -1241,7 +1249,7 @@ export class PredatorManager {
     const w = this.world;
     this._farT = (this._farT ?? 0) - dt; if (this._farT > 0 || !CONFIG.predators.enabled) return;
     this._farT = 2.5;
-    if (Math.max(Math.abs(player.x), Math.abs(player.z)) < w.half + 20) return;
+    if (w.banded || Math.max(Math.abs(player.x), Math.abs(player.z)) < w.half + 20) return;
     const H = w.harshAt(player.x, player.z);
     let eagles = 0, ground = 0;
     for (const p of this.list) if (p.far) (p.kind === 'eagle' ? eagles++ : ground++);

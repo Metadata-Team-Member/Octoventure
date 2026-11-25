@@ -73,9 +73,10 @@ function car() {
 
 export const CAR_SCALE = 1.25;
 export const PROP_GEO = {
-  house0: () => house(9, 8, 4.6, 0xe8d9c2, 0xa14b3a),
-  house1: () => house(11, 9, 5.2, 0xc9d6df, 0x5a5f6b),
-  house2: () => house(8, 7.5, 4.2, 0xefe6a9, 0x7a4a3a),
+  // Australian brick houses: orange-red, cream and red-brown brick under terracotta / red tile roofs
+  house0: () => house(9, 8, 4.6, 0xd59a78, 0xb4533a),
+  house1: () => house(11, 9, 5.2, 0xe2c09a, 0xa8432f),
+  house2: () => house(8, 7.5, 4.2, 0xc4866a, 0xc56a42),
   shop: () => merge([
     box(11, 7, 9, 0xd9c7a6, 0, 1.5, 0), box(11.4, 0.5, 9.4, 0x7a7a80, 0, 5.2, 0),
     box(8, 0.35, 1.8, 0xd04a4a, 0, 3.4, 4.9), box(2.2, 2.6, 0.15, 0x9fd3ee, -2.4, 1.5, 4.55), box(2.2, 2.6, 0.15, 0x9fd3ee, 2.4, 1.5, 4.55),
@@ -123,11 +124,44 @@ export const PROP_GEO = {
   cairn: () => merge([ball(0.6, 0x8a8984, 0, 0.35, 0, 1.2, 0.7, 1.2), ball(0.42, 0x908f89, 0.05, 0.9, 0, 1, 0.7, 1), ball(0.28, 0x95948e, 0, 1.3, 0.03)]),
   lamp: () => merge([cyl(0.08, 0.1, 5, 0x4d5258, 0, 2.5, 0, 0, 0, 0, 6), box(0.6, 0.16, 0.34, 0x4d5258, 0.2, 5.0, 0), box(0.42, 0.06, 0.22, 0xfff0c0, 0.2, 4.9, 0)]),
   parkedcar: car,
+  // ---- banded world ---------------------------------------------------------------------------------
+  // the big shell in the shallows where every game begins (the future Octo house)
+  octoshell: () => { const g = bigShell(); g.scale(2.6, 2.6, 2.6); return g; },
+  // reef city: a soft rock arch and bright coral heads (yellow, coral pink, violet, orange: never green)
+  arch: () => merge([ball(1.1, 0x8a8478, -2.2, 1.3, 0, 1, 1.7, 1), ball(1.05, 0x837d72, 2.2, 1.3, 0, 1, 1.7, 1), ball(1.0, 0x8f897d, 0, 3.1, 0, 3.0, 0.75, 1.0),
+    ball(0.6, 0x9a9488, -1.6, 2.7, 0.1), ball(0.6, 0x948e82, 1.6, 2.7, -0.1)]),
+  coralhead: () => merge([ball(0.9, 0xff8a7a, 0, 0.55, 0, 1.25, 0.7, 1.2), ball(0.62, 0xffc24a, 0.75, 1.05, 0.2), ball(0.56, 0xb07ae0, -0.7, 0.95, -0.3),
+    ball(0.46, 0xff9ec4, 0.1, 1.45, 0.45), ball(0.4, 0xffa04a, -0.2, 1.3, -0.55)]),
+  // backyard: a Hills Hoist and a letterbox by the gate
+  hoist: () => merge([cyl(0.09, 0.13, 4.7, 0x9aa3ab, 0, 2.35, 0, 0, 0, 0, 6), rail(6.4, 0.06, 0x9aa3ab, 0, 4.55, 0, 0), rail(6.4, 0.06, 0x9aa3ab, 0, 4.55, 0, Math.PI / 2),
+    ...[1.2, 2.0, 2.8].flatMap((r) => [rail(r * 2, 0.025, 0xdfe3e6, 0, 4.5, r, 0), rail(r * 2, 0.025, 0xdfe3e6, 0, 4.5, -r, 0), rail(r * 2, 0.025, 0xdfe3e6, r, 4.5, 0, Math.PI / 2), rail(r * 2, 0.025, 0xdfe3e6, -r, 4.5, 0, Math.PI / 2)]),
+    box(0.9, 1.0, 0.06, 0xf2c94c, 1.2, 3.95, 2.0, 0, 0, 0, 0.03), box(0.8, 0.7, 0.06, 0x6aa6ff, -1.0, 4.1, -2.8, 0, 0, 0, 0.03)]),
+  letterbox: () => merge([cyl(0.08, 0.1, 1.7, 0x7a5a3a, 0, 0.85, 0, 0, 0, 0, 6), box(0.75, 0.6, 0.95, 0xc8483a, 0, 1.95, 0, 0, 0, 0, 0.12), box(0.5, 0.06, 0.08, 0x222222, 0, 2.08, 0.48)]),
+  // farm: a woolly sheep, grazing
+  sheep: () => merge([ball(1.0, 0xf4efe4, 0, 1.3, 0, 1.0, 0.85, 1.3), ball(0.62, 0xf8f4ea, 0, 1.75, 0.2), ball(0.4, 0x3a3030, 0, 1.35, 1.35, 0.9, 1.0, 1.15),
+    ball(0.13, 0x3a3030, 0.36, 1.55, 1.25, 1, 0.5, 1.4), ball(0.13, 0x3a3030, -0.36, 1.55, 1.25, 1, 0.5, 1.4),
+    ...[[-0.45, 0.65], [0.45, 0.65], [-0.45, -0.7], [0.45, -0.7]].map(([x, z]) => cyl(0.12, 0.1, 0.9, 0x3a3030, x, 0.45, z, 0, 0, 0, 6))]),
+  // wasteland: the old factory (two chimneys), the storm-drain outfall
+  factory: () => merge([
+    box(22, 9.5, 14, 0x9a8f86, 0, 3.25, 0, 0, 0, 0, 0.3), box(22.4, 2.1, 14.4, 0x6f6660, 0, -0.45, 0, 0, 0, 0, 0.2),   // walls and plinth run 1.5 m into the ground (a skirt: it stands on a levelled slab)
+    ...[-7.5, -2.5, 2.5, 7.5].map((x) => at(prism(14.2, 5, 2.2, 0x7d7f86), x, 8, 0, 0, Math.PI / 2, 0)),
+    ...[-7.5, -2.5, 2.5, 7.5].map((x) => sbox(4.2, 1.6, 0.1, 0x3a3f4a, x + 0.6, 8.8, 0)),
+    box(6, 5.2, 0.3, 0x8a6a4a, 3, 2.6, 7.05), ...[-8, -4.5].map((x) => box(2.2, 1.6, 0.2, 0x3a3f4a, x, 4.6, 7.05)),
+    cyl(1.1, 1.5, 20, 0x8a5e4e, -6, 10, -4, 0, 0, 0, 10), cyl(1.25, 1.25, 0.8, 0xe0b23a, -6, 18.6, -4, 0, 0, 0, 10),
+    cyl(0.9, 1.25, 16, 0x7e5648, -1.5, 8, -4.5, 0, 0, 0, 10), cyl(1.05, 1.05, 0.7, 0xe0b23a, -1.5, 14.8, -4.5, 0, 0, 0, 10)]),
+  outfall: () => merge([box(9, 4.8, 1.4, 0xa8a49c, 0, 2.4, 0, 0, 0, 0, 0.25), cyl(1.8, 1.8, 1.8, 0xb9b6ae, 0, 2.0, 0.6, Math.PI / 2, 0, 0, 14), cyl(1.38, 1.38, 1.9, 0x141416, 0, 2.0, 0.66, Math.PI / 2, 0, 0, 14),
+    box(2.2, 0.5, 2.6, 0x9a968e, 0, 0.25, 1.6, 0, 0, 0, 0.15)]),
+  // farm: a small old stone ruin (low broken walls and one doorway), not a castle
+  ruin: () => merge([box(7, 2.4, 0.9, 0xa69f92, 0, 1.2, 0, 0, 0, 0, 0.25), box(0.9, 3.4, 5, 0x9d9688, -3.5, 1.7, -2.4, 0, 0, 0, 0.25), box(3.4, 1.3, 0.9, 0xa39c8f, -1.6, 0.65, -4.8, 0, 0, 0, 0.25),
+    box(0.9, 4.2, 0.9, 0xa29b8e, 1.6, 2.1, -4.8, 0, 0, 0, 0.2), box(0.9, 4.2, 0.9, 0xa29b8e, 4.4, 2.1, -4.8, 0, 0, 0, 0.2), box(3.8, 0.9, 0.95, 0x9a9386, 3.0, 4.6, -4.8, 0, 0, 0, 0.2),
+    box(1.2, 0.8, 1.0, 0x968f83, 2.6, 0.4, 1.6, 0.4, 0, 0, 0.2), box(0.9, 0.6, 0.9, 0x9d9688, -1.2, 0.3, 2.2, 0.9, 0, 0, 0.2)]),
 };
 /** kinds whose instance colour comes from `hue` (HSL) rather than a grey `tint` */
 export const HUE_KINDS = new Set(['parkedcar', 'umbrella', 'towel', 'hull']);
+/** banded world: the chimneys on the old factory (local x, top y, z) - smoke puffs rise from here */
+export const FACTORY_STACKS = [[-6, 19.0, -4], [-1.5, 15.2, -4.5]];
 /** tall landmarks that stay visible beyond the normal view distance */
-export const LANDMARK_KINDS = new Set(['lighthouse', 'windmill', 'watertower']);
+export const LANDMARK_KINDS = new Set(['lighthouse', 'windmill', 'watertower', 'factory']);
 
 /**
  * Real-scale perspective: against a 20 cm octopus these things are far taller than their layouts (lot sizes, car slots, fence runs)

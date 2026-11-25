@@ -157,6 +157,13 @@ export const TERRAIN = {
   spinifex:  { name: 'Spinifex',       color: 0xb8a45a, speed: 0.80, dry: 1.70 },
   fern:      { name: 'Fern floor',     color: 0x3e6e34, speed: 0.80, dry: 0.45 },
   mossy:     { name: 'Mossy floor',    color: 0x4c8a3e, speed: 0.85, dry: 0.40 },
+  // banded world: mud flats, the wasteland, the big red rock and the ranges
+  cracked:   { name: 'Cracked mud',    color: 0xa58d6a, speed: 0.90, dry: 1.20 },
+  ash:       { name: 'Ashy ground',    color: 0x9c93a8, speed: 0.95, dry: 1.70 },
+  slag:      { name: 'Rusty slag',     color: 0x74605a, speed: 0.85, dry: 1.80 },
+  redrock:   { name: 'Red rock',       color: 0xb4532c, speed: 0.75, dry: 1.90 },
+  alpine:    { name: 'Mountain grass', color: 0x8f9c78, speed: 0.80, dry: 1.10 },
+  snow:      { name: 'Snow',           color: 0xf2f4f8, speed: 0.60, dry: 0.80 },
 };
 
 /** the active difficulty's multipliers */

@@ -39,7 +39,7 @@ import { RareFinds } from './systems/rares.js';
 import { TOON } from './world/toon.js';
 import { TIER, PEOPLE, BITE, killTier, nipsFor, killXP, lethal } from './systems/combat.js';
 import { BIOMES } from './world/biomes.js';
-import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell } from './systems/save.js';
+import { snapshot, applySave, writeSave, clearSave, encodeCode, decodeCode, exploreCell, unpackCell } from './systems/save.js';
 import { clamp, damp, lerp, mulberry32, frameDt } from './util/rng.js';
 const _fadeT = new THREE.Vector3(), _camOff = new THREE.Vector3(), _camWant = new THREE.Vector3();   // (t241u: camera scratch, no per-frame allocation)
 
@@ -256,10 +256,12 @@ void main(){
     this.levels.reset(); this.levels.allBiomes = BIOMES.length; this.freshBadges.clear(); this.lv = { babies: 0, shells: 0, biomeT: 0, rain: 0, chased: false, calmT: 0 };
     this.journal.reset();
     this.camInit = false;
-    this.input.yaw = Math.random() * Math.PI * 2; this.input.pitch = CONFIG.camera.pitch; this.input.zoom = 0;
+    this.input.yaw = this.world.banded ? 0 : Math.random() * Math.PI * 2; this.input.pitch = CONFIG.camera.pitch; this.input.zoom = 0;   // banded: begin by the shell, looking north up the beach to the land
     this.explored = new Set(); this.trail = []; this.saveT = 0; this.pendingSave = null;
     if (save) { applySave(this, save); this.pendingSave = save; }
     else if (hadWorld && this.saveEnabled) clearSave();          // a brand new world replaces whatever was saved
+    // banded: every game begins in the sea, so the sea moment is the homecoming (back to the water after going inland, to the town or beyond)
+    this.inland = !this.world.banded || [...this.explored].some((n) => { const c = unpackCell(n); return this.world.bandAt(c.ix * 100 + 50, c.iz * 100 + 50) >= 2; });
     if (this.reef) this.reef.seen = !!this.levels.st.grotto;
     this.rares = new RareFinds(this);
     this.places = new Places(this);
@@ -431,6 +433,7 @@ void main(){
       if (!away) {
         const cell = exploreCell(o.x, o.z);
         if (!this.explored.has(cell)) { this.explored.add(cell); this.levels.did('cell'); }
+        if (!this.inland && world.bandAt(o.x, o.z) >= 2) this.inland = true;
         this.recordTrail(o.x, o.z);
       }
       this.saveT += dt; if (this.saveT >= 30) { this.saveT = 0; this.saveNow('timer'); }
@@ -478,7 +481,7 @@ void main(){
       }
       this.updateLevels(dt);
       if (!o.alive) this.onDeath();
-      else if (!away && world.isSea(o.x, o.z) && o.y < world.seaLevel - 0.2 && this.progress.markSea(this.runTime)) this.onSeaReached();
+      else if (!away && this.inland && world.isSea(o.x, o.z) && o.y < world.seaLevel - 0.2 && this.progress.markSea(this.runTime)) this.onSeaReached();
     } else {
       this.threat = damp(this.threat ?? 0, 0, 4, dt);
       o.alarm = damp(o.alarm, 0, 6, dt);

@@ -169,13 +169,13 @@ const spd = await page.evaluate(() => {
   let land = null;
   for (let i = 0; i < 24 && !land; i++) {
     const a = (i / 24) * Math.PI * 2, rad = 12 + (i % 3) * 14;
-    const x = w.start.x + Math.cos(a) * rad, z = w.start.z + Math.sin(a) * rad;
+    const x = w.home.x + Math.cos(a) * rad, z = w.home.z + Math.sin(a) * rad;      // (banded: the start is in the sea; measure on land at home)
     if (!dry(x, z)) continue;
     G.teleport(x, z); o.speed = 0; G.advance(0.5);
     if (G.waterKind || !dry(o.x, o.z)) continue;
     land = { speed: G.speed, terrain: G.terrain };
   }
-  if (!land) { G.teleport(w.start.x, w.start.z); o.speed = 0; G.advance(0.6); land = { speed: G.speed, terrain: G.terrain }; }
+  if (!land) { G.teleport(w.home.x, w.home.z); o.speed = 0; G.advance(0.6); land = { speed: G.speed, terrain: G.terrain }; }
   const pond = w.waters.find((q) => q.kind === 'pond' || q.kind === 'stream' || q.kind === 'puddle');
   G.teleport(pond.x, pond.z); o.speed = 0; G.advance(0.5);
   const water = { speed: G.speed, kind: G.waterKind, terrain: G.terrain };
@@ -184,7 +184,7 @@ const spd = await page.evaluate(() => {
 });
 ok(spd.water.kind && spd.water.speed > spd.land.speed * 1.2, `faster in water (${spd.water.speed.toFixed(1)} in ${spd.water.kind} on ${spd.water.terrain}, vs ${spd.land.speed.toFixed(1)} on ${spd.land.terrain})`);
 const shallow = await page.evaluate(() => {
-  const G = window.__game, w = G.game.world, st = w.start, env = G.game.env;
+  const G = window.__game, w = G.game.world, st = w.home, env = G.game.env;      // walk from home (inland) towards the sea
   const saved = { frozen: env.frozen, t: env.t, target: env.target, timer: env.timer, heat: env.heat, rain: env.rain, dark: env.dark, kind: env.kind };
   w.rain.length = 0;   // moving rain clouds would make this flaky
   G.freezeTime(true); G.setTime(0.5); G.setWeather('clear');
@@ -334,11 +334,15 @@ const after = await page.evaluate(() => ({ h: window.__game.health, seed: window
 ok(after.h > 98 && !after.vis, 'restart resets health and hides the overlay');
 const startAfter = await page.evaluate(() => ({ ...window.__game.game.world.start, ox: window.__game.game.octopus.x, oz: window.__game.game.octopus.z }));
 ok(after.seed === seedBefore, 'restart keeps the ONE world (same seed)');
-ok(Math.hypot(startAfter.x - startBefore.x, startAfter.z - startBefore.z) > 20 && Math.hypot(startAfter.ox - startAfter.x, startAfter.oz - startAfter.z) < 1, 'restart begins somewhere else in it (a new start point, the octopus is there)');
+ok(Math.hypot(startAfter.x - startBefore.x, startAfter.z - startBefore.z) > 0.5 && Math.hypot(startAfter.ox - startAfter.x, startAfter.oz - startAfter.z) < 1, 'restart begins at a new spot by the big shell (the octopus is there)');
 
 // ---- the sea is part of the world: arriving is a quiet moment, play continues ------------------------------
 await page.evaluate(() => { const G = window.__game; G.clearPredators(); G.setHealth(40); });
 const before = await page.evaluate(() => ({ uiText: document.body.innerText, overlays: [...document.querySelectorAll('.overlay')].filter((e) => !e.hidden).length }));
+// banded: every game begins in the sea, so the quiet moment is the homecoming - back to the water after a trip inland
+const noMoment = await page.evaluate(() => { const G = window.__game; for (let i = 0; i < 10; i++) G.advance(0.1); return !G.game.seaMoment && !G.game.progress.seaReached; });
+ok(noMoment, 'starting in the sea does not count as reaching it (no sea moment at the start)');
+await page.evaluate(() => { const G = window.__game, w = G.game.world; G.teleport(w.home.x, w.home.z); for (let i = 0; i < 5; i++) G.advance(0.1); });
 const sea = await page.evaluate(() => window.__game.teleportToOcean(6));
 await page.evaluate(() => { const G = window.__game; for (let i = 0; i < 25 && !G.game.seaMoment; i++) G.advance(0.1); });
 const arr = await page.evaluate(() => ({ s: window.__game.state, reached: window.__game.game.progress.seaReached, moment: !!window.__game.game.seaMoment, h: window.__game.health, end: window.__game.restartVisible }));
@@ -370,11 +374,11 @@ for (let i = 0; i < 4; i++) {
   const prevStart = await page.evaluate(() => JSON.stringify(window.__game.game.world.start));
   await page.evaluate(() => window.__game.restart());
   await page.waitForFunction((s) => JSON.stringify(window.__game.game.world.start) !== s && window.__game.state === 'playing', { timeout: 30000 }, prevStart);
-  starts.push(await page.evaluate(() => { const w = window.__game.game.world; return { x: w.start.x, z: w.start.z, toSea: -w.distToSea(w.start.x, w.start.z) }; }));
+  starts.push(await page.evaluate(() => { const w = window.__game.game.world; return { x: w.start.x, z: w.start.z, sea: w.isSea(w.start.x, w.start.z), shell: Math.hypot(w.start.x - w.shell.x, w.start.z - w.shell.z) }; }));
   angles.push(await page.evaluate(() => window.__game.seaAngle));
 }
 ok(new Set(angles.map((a) => a.toFixed(3))).size === 1, `the sea is always in the same direction in the one world (${(angles[0] * 57.3).toFixed(0)}°)`);
-ok(new Set(starts.map((p) => p.x.toFixed(0) + ',' + p.z.toFixed(0))).size === 4 && starts.every((p) => p.toSea > 250), `each new game starts somewhere else, a trek from the sea (${starts.map((p) => p.toSea.toFixed(0) + ' m').join(', ')})`);
+ok(new Set(starts.map((p) => p.x.toFixed(1) + ',' + p.z.toFixed(1))).size === 4 && starts.every((p) => p.sea && p.shell < 30), `each new game starts at a new spot in the sea by the big shell (${starts.map((p) => p.shell.toFixed(0) + ' m').join(', ')})`);
 
 // ---- screenshot ------------------------------------------------------------------------------------
 await page.evaluate(() => {

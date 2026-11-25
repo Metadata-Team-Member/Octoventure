@@ -11,8 +11,10 @@ import { mulberry32, clamp, lerp, smoothstep } from '../util/rng.js';
 import { BiomeField, B, BIOMES, COAST_KINDS } from './biomes.js';
 import { placeAreas } from './areas.js';
 import { scatterGather } from './gather.js';
+import { SHORE_Z, SPAN, EDGE, WALL, bandOfZ, ISLETS, ROCK } from './bands.js';
 
 const ss = smoothstep;
+void WALL;
 
 export class Hash {
   constructor(cell = 16) { this.cell = cell; this.map = new Map(); }
@@ -46,7 +48,8 @@ function housePadWeight(p, x, z) {
   return u * u * (3 - 2 * u);
 }
 
-const STILL = new Set(['puddle', 'dam', 'pond', 'tidepool', 'drip', 'aircon', 'trough']);
+const STILL = new Set(['puddle', 'dam', 'pond', 'tidepool', 'drip', 'aircon', 'trough', 'sludge']);
+
 
 export class WorldData {
   constructor(seed = Math.floor(Math.random() * 1e9), cfg = CONFIG) {
@@ -57,12 +60,15 @@ export class WorldData {
     this.half = cfg.worldSize / 2;
     this.areaScale = (cfg.worldSize / 800) ** 2;      // all "counts" in CONFIG are per 800 x 800 m, so density stays the same on bigger maps
 
-    // --- the secret: which way is the sea? -----------------------------------------
-    this.angle = this.rnd() * Math.PI * 2;
-    this.dir = { x: Math.cos(this.angle), z: Math.sin(this.angle) };   // points TOWARDS the sea
+    // --- the banded world (bands.js): the sea is always to the south (+z), the bands climb north to the ranges ---------
+    this.rnd();                                                         // (kept: the old random sea angle, so the rest of the stream is unchanged)
+    this.banded = true;
+    this.angle = Math.PI / 2;
+    this.dir = { x: 0, z: 1 };                                          // points TOWARDS the sea
     this.perp = { x: -this.dir.z, z: this.dir.x };                     // along the shoreline
-    this.cStart = -cfg.startDistance * this.half;
-    this.cCoast = cfg.coastDistance * this.half;
+    this.cStart = SHORE_Z - SPAN;
+    this.cCoast = SHORE_Z;
+    this.edge = EDGE;
     this.roadOff = { x: this.rnd() * 90, z: this.rnd() * 90 };
 
     this.carveHash = new Hash(16);
@@ -127,24 +133,40 @@ export class WorldData {
     return { x: this.dir.x * c + this.perp.x * u, z: this.dir.z * c + this.perp.z * u };
   }
 
-  /** 0 on the original map, rising to 1 far inland (away from the ocean): the land gets drier and harsher, silently */
+  /** 0 by the sea and in the suburbs, rising through the outback to 0.6 in the wasteland: the land gets drier and harsher, silently */
   harshAt(x, z) {
-    const s = x * this.dir.x + z * this.dir.z;                    // distance along the sea direction from the map centre
-    return ss(-this.half * 0.9, -this.half * 3, s);
+    const t = this.progress(x, z);
+    return 0.45 * ss(0.0, -0.3, t) + 0.15 * ss(-0.3, -0.45, t);
   }
+  /** the band (bands.js index: 0 sea .. 5 wasteland) at x,z, using the same wandering borders as the biomes */
+  bandAt(x, z) {
+    if (this.tAt(x, z) > 1.0) return 0;
+    const n = this.n, zw = z + n.fbm(x * 0.006 + 101, z * 0.006 - 57, 2) * 26 + n.fbm(x * 0.02 - 8, z * 0.02 + 3, 2) * 6;
+    if (this.tAt(x, z) > 0.81) return 1;
+    return Math.max(2, bandOfZ(zw));
+  }
+  /** metres past the inner edge of the land (west, east and north ranges); negative inside */
+  edgeOut(x, z) { return Math.max(EDGE.west - x, x - EDGE.east, EDGE.north - z); }
+  /** the soft wall: where the octopus (or anything that walks) may be. Past WALL metres up the foothills, or past the outer sea, it is held back. */
+  clampToBounds(x, z, out = { x, z, hit: false }) {
+    out.x = x; out.z = z; out.hit = false;
+    if (!this.banded) return out;
+    const lo = EDGE.west - WALL, hi = EDGE.east + WALL, top = EDGE.north - WALL;
+    if (out.x < lo) { out.x = lo; out.hit = true; } else if (out.x > hi) { out.x = hi; out.hit = true; }
+    if (out.z < top) { out.z = top; out.hit = true; } else if (out.z > EDGE.sea) { out.z = EDGE.sea; out.hit = true; }
+    return out;
+  }
+  /** the big shell in the shallows where every game begins (the future Octo house) */
+  get shell() { return this._shell; }
 
   // ---------------- coast stretches & the creek (decided first: no heights needed) -----------------
   _makeCoast() {
     const rnd = this.rnd;
-    // natural neighbours along the shore: rocky headland -> beach (and dunes) -> river mouth -> mangroves -> (headland again)
-    const order = [2, 0, 3, 1];
-    const segs = []; let a = 0;
-    for (const k of order) { const wdt = k === 3 ? rnd.range(240, 330) : rnd.range(290, 440); segs.push({ kind: k, a, b: a + wdt }); a += wdt; }
-    const period = a;
-    const est = segs.find((s) => s.kind === 3);
-    const uE = rnd.range(-220, 220);
-    const shift = uE - (est.a + est.b) / 2;
-    this.coast = { segments: segs, period, shift, estuaryU: uE, kinds: COAST_KINDS };
+    for (let i = 0; i < 5; i++) rnd();                                 // (the old random stretch widths: keep the stream in step)
+    // one fixed shore, west to east: rocky headland | beach with dunes behind (the start) | river mouth + jetty | mangroves.
+    // lateral u = -x, so the stretches run east to west in u.
+    const segs = [{ kind: 1, a: -6000, b: -300 }, { kind: 3, a: -300, b: -110 }, { kind: 0, a: -110, b: 330 }, { kind: 2, a: 330, b: 6000 }];
+    this.coast = { segments: segs, period: 1e6, shift: 0, estuaryU: -205, kinds: COAST_KINDS };
   }
   /** which stretch of coast is at lateral u: index into COAST_KINDS (dominant) */
   coastKindAt(u) { return this.biomes.coastKinds(u).reduce((best, v, i, arr) => (v > arr[best] ? i : best), 0); }
@@ -153,7 +175,8 @@ export class WorldData {
     const k = COAST_KINDS.indexOf(kindName), c = this.coast;
     let best = null;
     for (const s of c.segments) if (s.kind === k) for (const off of [-c.period, 0, c.period]) {
-      const m = (s.a + s.b) / 2 + off + c.shift;
+      const a = this.banded ? Math.max(s.a, -(EDGE.east - 50)) : s.a, b = this.banded ? Math.min(s.b, EDGE.east - 50) : s.b;   // (banded: the part of the stretch inside the ranges)
+      const m = (a + b) / 2 + off + c.shift;
       if (best === null || Math.abs(m - near) < Math.abs(best - near)) best = m;
     }
     return best;
@@ -174,12 +197,13 @@ export class WorldData {
       }
       return pts;
     };
-    const uS = this.coast.estuaryU + rnd.range(-240, 240);
-    const S = this.shorePoint(uS, 0.27);
+    // the river rises at the foot of the northern ranges and winds south through every band to the estuary
+    const S = { x: 40 + rnd.range(-30, 30), z: EDGE.north + 40 };
     const main = mk(S, E, 55);
-    // a tributary that joins the main creek about 60% of the way down
+    // a tributary from the bush wetland that joins the main river out in the farmland
     const j = main[Math.floor(main.length * 0.62)];
-    const S2 = this.shorePoint(uS + rnd.range(-260, 260) , 0.5);
+    rnd();
+    const S2 = { x: -230, z: -150 };
     const trib = mk(S2, j, 30);
     this.creek = main; this.creekTrib = trib;
     for (const list of [main, trib]) list.forEach((p, i) => { if (i % 3 === 0) this.creekHash.add(p.x, p.z, 26, p); });
@@ -207,33 +231,58 @@ export class WorldData {
     const u = this.lateral(x, z);
     const hills = ss(0.46, 0.6, tw);
     const amp = w[B.suburb] * 0.8 + w[B.town] * 0.45 + w[B.farm] * 1.9 + w[B.bush] * (3.4 + 5.2 * hills) + w[B.riverbank] * 1.6 +
-      w[B.wetland] * 0.5 + w[B.dunes] * 2.4 + w[B.beach] * 0.9 + w[B.headland] * 7.5 + w[B.estuary] * 0.3 + w[B.sea] * 0.8 + w[B.desert] * 1.6 + w[B.rainforest] * (3.4 + 5.2 * hills);   // a rainforest gully keeps the bush hills' shape
-    const low = w[B.wetland] + w[B.estuary];
+      w[B.wetland] * 0.5 + w[B.dunes] * 2.4 + w[B.beach] * 0.9 + w[B.headland] * 7.5 + w[B.estuary] * 0.3 + w[B.sea] * 0.8 + w[B.desert] * 1.6 + w[B.rainforest] * (3.4 + 5.2 * hills) + w[B.mudflat] * 0.22 + w[B.wasteland] * 1.1;   // a rainforest gully keeps the bush hills' shape
+    const low = w[B.wetland] + w[B.estuary] + w[B.mudflat] * 0.9;
     const cd = this.creekDist(x, z);
     // (the fine ground ripple is ironed out along the creek bed, so the water surface never hangs over a bump)
     let h = lerp(2.3, 1.1, low) + amp * (n.fbm(x * 0.011, z * 0.011, 4) + 1) * 0.95 + 0.22 * n.noise2(x * 0.13, z * 0.13) * (1 - low * 0.6) * (cd < 14 ? 0.25 + 0.75 * ss(3, 14, cd) : 1);
     // creek valley: the banks slope gently down to the water
     if (cd < 22) h -= 0.55 * (1 - ss(3, 22, cd)) * (1 - low);
     // ---- the shore: each stretch of coast has its own profile ------------------------------
-    const coast = ss(0.64, 0.74, tw);
+    const coast = ss(0.76, 0.82, tw);
     if (coast > 0) {
       const ck = this.biomes.coastKinds(u);
       // beach (+ dunes behind): ridges, then a gentle slope into the sea
-      let hb = h + ss(0.7, 0.76, tw) * (1 - ss(0.88, 0.95, tw)) * 3.0 * Math.pow(1 - Math.abs(n.noise2(x * 0.028 + 5, z * 0.028 - 9)), 2);
+      let hb = h + ss(0.8, 0.84, tw) * (1 - ss(0.88, 0.95, tw)) * 3.0 * Math.pow(1 - Math.abs(n.noise2(x * 0.028 + 5, z * 0.028 - 9)), 2);
       hb = lerp(hb, 1.5 - 15 * (tw - 0.9), ss(0.84, 0.95, tw));
       // mangrove wetland: low, flat, muddy; shallow for a long way
-      let hm = lerp(h, 0.75 - 4 * (tw - 0.9) + 0.1 * n.noise2(x * 0.2, z * 0.2), ss(0.74, 0.9, tw)) - 14 * ss(1.05, 1.3, tw);
+      let hm = lerp(h, 0.75 - 4 * (tw - 0.9) + 0.1 * n.noise2(x * 0.2, z * 0.2), ss(0.8, 0.9, tw)) - 14 * ss(1.05, 1.3, tw);
       // headland: high ground, a cliff, a rocky shelf with pools, then deep water
       let hh = lerp(h, 0.55 + 0.35 * n.noise2(x * 0.09, z * 0.09), ss(0.9, 0.972, tw)) - 55 * ss(1.0, 1.1, tw) * 0.2 - 10 * ss(1.02, 1.2, tw);
-      hh += ss(0.7, 0.8, tw) * (1 - ss(0.9, 0.95, tw)) * 1.5;
+      hh += ss(0.8, 0.85, tw) * (1 - ss(0.9, 0.95, tw)) * 1.5;
       // estuary: wide mudflats and channels
-      let he = lerp(h, 0.5 - 3 * (tw - 0.9) + 0.08 * n.noise2(x * 0.15, z * 0.15), ss(0.78, 0.9, tw)) - 12 * ss(1.06, 1.3, tw);
+      let he = lerp(h, 0.5 - 3 * (tw - 0.9) + 0.08 * n.noise2(x * 0.15, z * 0.15), ss(0.82, 0.9, tw)) - 12 * ss(1.06, 1.3, tw);
       const hc = ck[0] * hb + ck[1] * hm + ck[2] * hh + ck[3] * he;
       h = lerp(h, hc, coast);
     }
     if (tw > 0.97 && tw < 1.02) h += 0.1 * n.noise2(x * 0.2, z * 0.2);        // tidal-flat ripples
     if (h < -7) h = -7;
-    return h;                                                                  // no world edge: the land (and sea) simply go on
+    if (this.banded) h = this._features(x, z, h, tw);
+    return h;
+  }
+  /** banded world: rocky islets and the reef out at sea, a big red rock in the outback, and the soft ranges round the edge */
+  _features(x, z, h, tw) {
+    const n = this.n;
+    if (tw > 1.0) {
+      for (const p of ISLETS) {
+        const d = Math.hypot(x - p.x, (z - p.z) * 1.25);
+        if (d > p.r) continue;
+        const k = 1 - ss(p.r * 0.45, p.r, d + n.noise2(x * 0.08, z * 0.08) * 3);
+        h = lerp(h, p.top + 0.5 * n.noise2(x * 0.12 + 3, z * 0.12), k);
+      }
+    }
+    // the big red rock (a rounded, Uluru-like monolith): steep soft sides, a gently domed top
+    {
+      const dx = (x - ROCK.x) / ROCK.rx, dz = (z - ROCK.z) / ROCK.rz, rr = Math.hypot(dx, dz) + n.noise2(x * 0.05, z * 0.05) * 0.05;
+      if (rr < 1.12) h += ROCK.h * ss(1.1, 0.78, rr) * (0.92 + 0.08 * (1 - rr * rr));
+    }
+    // the ranges: rolling soft foothills rising out of the land on three sides (and as headlands into the sea at the corners)
+    const eo = this.edgeOut(x, z);
+    if (eo > -40) {
+      const k = ss(-30, 170, eo);
+      h += 46 * Math.pow(k, 1.25) * (0.72 + 0.4 * (n.fbm(x * 0.007 + 13, z * 0.007 - 29, 3) * 0.5 + 0.5));
+    }
+    return h;
   }
   /**
    * THE ground height. Before freezeTerrain() it is the analytic terrain (+ carved puddles / streams); after, it is the
@@ -377,6 +426,12 @@ export class WorldData {
   baseType(x, z) {
     const n = this.n;
     const tw = this.tAt(x, z);
+    if (this.banded) {
+      const eo = this.edgeOut(x, z);
+      if (eo > 18) { const hh = this.baseHeight(x, z); return hh > 30 ? 'snow' : n.fbm(x * 0.03, z * 0.03, 2) > 0.05 ? 'alpine' : 'rock'; }
+      if (tw > 1.0) return this.baseHeight(x, z) > 0.5 ? 'headland' : 'wet';
+      if (Math.hypot((x - ROCK.x) / ROCK.rx, (z - ROCK.z) / ROCK.rz) < 0.98) return 'redrock';
+    }
     if (tw > 1.0) return 'wet';
     const w = this.biomes.weights(x, z);
     // ground in an ecotone: the biome whose weight (plus a patchy ~15 m noise) is highest, so ground of both biomes interleaves in
@@ -438,6 +493,14 @@ export class WorldData {
         return n.fbm(x * 0.03 - 41, z * 0.03 + 5, 3) > 0.05 ? 'mossy' : 'fern';
       case 'estuary':
         return n.fbm(x * 0.05 + 3, z * 0.05 + 11, 2) > 0.4 ? 'sand' : tw > 0.93 ? 'wet' : 'swamp';
+      case 'mudflat': {
+        const f = n.fbm(x * 0.025 + 61, z * 0.025 - 7, 3);
+        return f > 0.28 ? 'swamp' : f < -0.25 ? 'cracked' : 'mud';
+      }
+      case 'wasteland': {
+        const f = n.fbm(x * 0.02 - 71, z * 0.02 + 19, 3);
+        return f > 0.3 ? 'slag' : f < -0.3 ? 'paving' : 'ash';
+      }
       default: return 'wet';
     }
   }
@@ -463,6 +526,7 @@ export class WorldData {
     let best = null;
     for (let i = 0; i < list.length; i++) {
       const w = list[i];
+      if (w.kind === 'sludge') continue;                          // wasteland sludge is not water: it neither drinks nor drowns
       const lim = w.kind === 'sprinkler' ? w.r : w.r * 0.95;
       if (Math.hypot(x - w.x, z - w.z) < lim) {
         if (!best || (this.cfg.water[w.kind] ?? 20) > (this.cfg.water[best.kind] ?? 20)) best = w;
@@ -537,6 +601,7 @@ export class WorldData {
     for (let i = 0; i < tries; i++) {
       const x = rect ? rnd.range(rect.x0, rect.x1) : rnd.range(-this.half + edge, this.half - edge);
       const z = rect ? rnd.range(rect.z0, rect.z1) : rnd.range(-this.half + edge, this.half - edge);
+      if (this.banded && this.edgeOut(x, z) > -8) continue;           // nothing is built up in the ranges
       const w = this.biomes.weights(x, z);
       let ok = false;
       for (const id of ids) if (w[id] > minW) { ok = true; break; }
@@ -566,8 +631,8 @@ export class WorldData {
   }
 
   _placeStart() {
-    // start in the garden suburb, off the road, on flat ground
-    let sx = this.dir.x * this.cStart, sz = this.dir.z * this.cStart;
+    // `home` is the canonical garden in the suburbs (its tap and puddle); the houses, maze and small places are laid out around it
+    let sx = this.banded ? -215 : this.dir.x * this.cStart, sz = this.banded ? 235 : this.dir.z * this.cStart;
     for (let i = 0; i < 200; i++) {
       const x = sx + this.rnd.range(-26, 26) , z = sz + this.rnd.range(-26, 26);
       if (this.isRoad(x, z, 12) || this._slope(x, z, 3) > 0.12 || this.biomes.weights(x, z)[B.suburb] < 0.8 || this.baseHeight(x, z) < 1.5) continue;
@@ -575,6 +640,15 @@ export class WorldData {
     }
     this.start = { x: sx, z: sz };
     this.home = { x: sx, z: sz };
+    if (!this.banded) return;
+    // every game begins in the sea, beside a big shell in the shallows off the beach (the future Octo house)
+    let shell = null;
+    for (let zz = SHORE_Z + 18; zz < SHORE_Z + 160 && !shell; zz += 2) {
+      const xx = -60, d = -this.baseHeight(xx, zz);
+      if (d > 0.75 && d < 1.6) shell = { x: xx, z: zz };
+    }
+    this._shell = shell || { x: -60, z: SHORE_Z + 50 };
+    this.start = { x: this._shell.x + 5, z: this._shell.z + 4 };
   }
 
   /**
@@ -583,6 +657,10 @@ export class WorldData {
    * sea is a long way off in a direction the player cannot know), with a drink of water close by.
    */
   spawnOk(x, z) {
+    if (this.banded) {                                                   // in the water near the big shell, clear of it and of the reef city
+      const s = this._shell, d = this.seaLevel - this.heightAt(x, z);
+      return !!s && Math.hypot(x - s.x, z - s.z) < 30 && d > 0.35 && d < 2.4 && !this._blocked(x, z, 1.6);
+    }
     if (Math.abs(x) > this.half - 70 || Math.abs(z) > this.half - 70) return false;
     if (this.heightAt(x, z) < 1.0 || this.waterAt(x, z) || this._blocked(x, z, 3) || this.isRoad(x, z, 8) || this._slope(x, z, 3) > 0.15) return false;
     if (this.inLot(x, z, 4)) return false;
@@ -593,6 +671,19 @@ export class WorldData {
   }
   /** a random valid start point (rnd: a seeded random function, so the daily start is the same for everybody) */
   pickSpawn(rnd, apply = true) {
+    if (this.banded) {
+      const s = this._shell;
+      for (let i = 0; i < 400; i++) {
+        const a = rnd() * Math.PI * 2, d = rnd.range ? rnd.range(5, 16) : 5 + rnd() * 11;
+        const x = s.x + Math.cos(a) * d, z = s.z + Math.sin(a) * d;
+        if (!this.spawnOk(x, z)) continue;
+        if (apply) this.start = { x, z };
+        return { x, z };
+      }
+      const p = { x: s.x + 5, z: s.z + 6 };
+      if (apply) this.start = p;
+      return p;
+    }
     for (let i = 0; i < 800; i++) {
       const u = rnd.range(-0.78, 0.78) * this.half, t = rnd.range(-0.08, 0.5);
       const p = this.shorePoint(u, t);
@@ -602,7 +693,11 @@ export class WorldData {
     }
     return { x: this.home.x, z: this.home.z };
   }
-  setSpawn(x, z) { this.start = { x, z }; }
+  setSpawn(x, z) {
+    if (this.banded && Number.isFinite(x) && Number.isFinite(z)) { const c = this.clampToBounds(x, z, { x, z }); x = c.x; z = c.z; }   // an old position outside the ranges comes back inside
+    if (!Number.isFinite(x) || !Number.isFinite(z)) { const s = this.shell || { x: 0, z: 0 }; x = s.x + 5; z = s.z + 6; }
+    this.start = { x, z };
+  }
 
   _placeWater() {
     const W = this.cfg.water, rnd = this.rnd, K = this.areaScale;
@@ -612,10 +707,10 @@ export class WorldData {
     // A friendly drip tap + puddle near the start so the first seconds teach the idea.
     {
       const a = rnd() * Math.PI * 2, d = 9;
-      const tx = this.start.x + Math.cos(a) * d, tz = this.start.z + Math.sin(a) * d;
+      const tx = this.home.x + Math.cos(a) * d, tz = this.home.z + Math.sin(a) * d;
       this._addWater('drip', tx, tz, 2.3, { depth: 0.12 });
       this.taps.push({ type: 'tap', x: tx, z: tz, rot: rnd() * 6.28 });
-      const px = this.start.x - Math.cos(a) * 14, pz = this.start.z - Math.sin(a) * 14;
+      const px = this.home.x - Math.cos(a) * 14, pz = this.home.z - Math.sin(a) * 14;
       this._addWater('puddle', px, pz, 3.2);
     }
     // the creek and its tributary (stream discs along the centre line; they carve the channel)
@@ -667,6 +762,20 @@ export class WorldData {
     put('pond', Math.round(10 * K), ['wetland'], [4, 8], { spacing: 18, depth: 0.3, maxSlope: 0.07, spread: 0.2, minH: 0.5, minW: 0.5 });
     put('tidepool', Math.round(W.tidepoolCount * K * 0.8), ['headland'], [2.6, 4.4], { spacing: 12, minH: 0.2, maxSlope: 0.1, spread: 0.24, depth: 0.2, minW: 0.3 });
     put('tidepool', Math.round(W.tidepoolCount * K * 0.15), ['beach', 'estuary'], [2.2, 3.4], { spacing: 25, minH: 0.2, maxSlope: 0.08, spread: 0.24, depth: 0.2, minW: 0.3 });
+    if (this.banded) {
+      // mud flats: puddles everywhere (the boardwalk runs over them); a few rare soaks out in the red outback
+      put('puddle', Math.round(30 * K), ['mudflat'], [2.4, 5.0], { spacing: 11, minH: 0.4, maxSlope: 0.06, spread: 0.18, minW: 0.5 });
+      put('puddle', Math.round(2 * K), ['desert'], [2.2, 3.2], { spacing: 90, maxSlope: 0.05, spread: 0.15 });
+      // the oasis: one still pond near the big red rock (palms are planted round it in areas.js)
+      for (let i = 0; i < 600 && !this.oasis; i++) {
+        const a = rnd() * 6.28, d = rnd.range(85, 150), x = ROCK.x + Math.cos(a) * d, z = ROCK.z + Math.sin(a) * d * 0.7;
+        if (this.biomes.weights(x, z)[B.desert] < 0.8 || this._slope(x, z, 8) > 0.06 || this._ringStats(x, z, 7).spread > 0.25 || this.creekDist(x, z) < 30) continue;
+        this.oasis = this._addWater('pond', x, z, 7, { depth: 0.35 });
+      }
+      // wasteland: level pools of purple and yellow sludge (never green), and nothing to drink
+      put('sludge', Math.round(9 * K), ['wasteland'], [3, 6.5], { spacing: 22, minH: 0.4, maxSlope: 0.06, spread: 0.2, depth: 0.25, minW: 0.6 });
+      for (const q of this.waters) if (q.kind === 'sludge') q.alt = ((q.x * 13.7 + q.z * 7.3) % 2 + 2) % 2 > 1 ? 1 : 0;
+    }
     // leaky taps in gardens, dripping seeps in the bush and on the headlands, pumps on the farm
     {
       const total = Math.round(W.dripCount * K);
@@ -689,7 +798,7 @@ export class WorldData {
     {
       let made = 0;
       const a = rnd() * 6.28;
-      const first = { x: this.start.x + Math.cos(a) * 24, z: this.start.z + Math.sin(a) * 24 };
+      const first = { x: this.home.x + Math.cos(a) * 24, z: this.home.z + Math.sin(a) * 24 };
       const list = [];
       if (!this.isRoad(first.x, first.z, 8)) list.push(first);
       const target = Math.round(W.sprinklerCount * K);
@@ -802,7 +911,12 @@ export class WorldData {
         }
       }
     }
-    return out;                      // no invisible walls: nothing clamps the octopus to the original map
+    if (this.banded) {                // the soft wall up in the foothills and past the outer reef (no damage, no UI: it simply holds)
+      const ox = out.x, oz = out.z, hit = out.hit;
+      this.clampToBounds(ox, oz, out);
+      out.hit = hit || out.x !== ox || out.z !== oz;
+    }
+    return out;
   }
 
 
@@ -829,6 +943,7 @@ export class WorldData {
     const reedsNear = (x, z, r) => { for (const q of this.decor.reeds) if (Math.abs(q.x - x) < r && Math.abs(q.z - z) < r) return true; return false; };
     for (let i = 0; i < tries; i++) {
       const x = rnd.range(-this.half + 30, this.half - 30), z = rnd.range(-this.half + 30, this.half - 30);
+      if (this.banded && (this.edgeOut(x, z) > -15 || z > EDGE.sea - 20)) continue;
       const w = this.biomes.weights(x, z)[id];
       if (w <= bw) continue;
       const h = this.heightAt(x, z);

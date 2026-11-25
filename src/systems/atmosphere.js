@@ -24,7 +24,7 @@ const DUSK = {
   suburb: C(0xf0b48a), town: C(0xd8b4c4), farm: C(0xf2c06a), bush: C(0xe09058),
   riverbank: C(0xe89878), wetland: C(0xc47a62), dunes: C(0xffc080), beach: C(0xff9a66),
   headland: C(0xc478a8), estuary: C(0xd88878), sea: C(0x5a78c0), desert: C(0xff5a32),
-  rainforest: C(0x5c4878),
+  rainforest: C(0x5c4878), mudflat: C(0xd8a08a), wasteland: C(0xb08ab8),
 };
 
 const HAZE = new THREE.Color(0xd9ad7c);

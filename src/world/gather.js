@@ -39,25 +39,25 @@ const SIZE = { crab: [0.9, 1.15], shrimp: [0.9, 1.2], snail: [0.85, 1.2], mussel
  * Adjust here (and GATHER_COUNT) to rebalance the world. Every kind should live in at least one biome; the unit test prints the result.
  */
 export const HABITAT = {
-  crab:      { biomes: ['beach', 'dunes', 'estuary', 'headland', 'wetland'] },
+  crab:      { biomes: ['beach', 'dunes', 'estuary', 'headland', 'wetland', 'mudflat'] },
   shrimp:    { biomes: ['headland', 'estuary', 'wetland', 'riverbank', 'bush', 'farm'] },
-  snail:     { biomes: ['wetland', 'riverbank', 'bush'] },
+  snail:     { biomes: ['wetland', 'riverbank', 'bush', 'mudflat'] },
   mussel:    { biomes: ['headland', 'beach', 'estuary'] },
   kelp:      { biomes: ['sea'] },
   lettuce:   { biomes: ['sea', 'headland', 'wetland', 'riverbank'] },
   sponge:    { biomes: ['sea'] },
   coral:     { biomes: ['sea'] },
   shellhalf: { biomes: ['beach', 'dunes', 'estuary', 'headland', 'sea'] },
-  pebble:    { biomes: ['riverbank', 'beach', 'dunes', 'headland', 'estuary'] },
+  pebble:    { biomes: ['riverbank', 'beach', 'dunes', 'headland', 'estuary', 'wasteland'] },
   moss:      { biomes: ['bush', 'riverbank', 'wetland', 'headland'] },
   coconut:   { biomes: ['suburb', 'beach', 'dunes'] },
-  cap:       { biomes: ['suburb', 'town', 'beach'] },
-  jar:       { biomes: ['suburb', 'town', 'beach'] },
+  cap:       { biomes: ['suburb', 'town', 'beach', 'wasteland'] },
+  jar:       { biomes: ['suburb', 'town', 'beach', 'wasteland'] },
   urchin:    { biomes: ['headland', 'sea'] },
-  worm:      { biomes: ['farm', 'suburb'] },
+  worm:      { biomes: ['farm', 'suburb', 'mudflat'] },
   beetle:    { biomes: ['bush', 'riverbank'] },
   spawn:     { biomes: ['wetland', 'riverbank', 'bush'] },
-  propagule: { biomes: ['wetland', 'estuary'] },
+  propagule: { biomes: ['wetland', 'estuary', 'mudflat'] },
   ochre:     { biomes: ['desert'] },                     // t241u: lumps of red ochre on the desert sand
   fungi:     { biomes: ['rainforest'] },                 // t241u: glowing ghost fungi on the rainforest floor
   anemone:   { biomes: ['sea'] },                      // reef flowers, offshore only

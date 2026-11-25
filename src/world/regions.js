@@ -39,6 +39,7 @@ export class Regions {
 
   /** make sure every far tile within r metres of (x, z) exists (at most `max` new tiles per call); returns the number generated */
   ensure(x, z, r, max = 1e9) {
+    if (this.w.banded) return 0;                                       // the banded world is bounded by its ranges: no far tiles
     const h = this.w.half;
     const x0 = Math.floor((x - r + h) / REGION), x1 = Math.floor((x + r + h) / REGION);
     const z0 = Math.floor((z - r + h) / REGION), z1 = Math.floor((z + r + h) / REGION);

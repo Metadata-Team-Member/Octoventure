@@ -14,7 +14,7 @@ const SPEC = {
   pearl:    { biomes: ['beach', 'estuary', 'headland'], mod: 5, cap: 2, pearl: true },
   glowfrog: { biomes: ['rainforest'], mod: 2, cap: 2, night: true },
   rainbloom:{ biomes: ['desert'], mod: 2, cap: 2, rain: true },
-  moonrace: { biomes: ['beach'], mod: 5, cap: 1, night: true },
+  moonrace: { biomes: ['beach', 'dunes'], mod: 2, cap: 1, night: true },   // (banded world: the beach is one narrow strip, so the race is likelier per spot)
   ring:     { biomes: ['bush', 'rainforest'], mod: 9, cap: 1 },
 };
 

@@ -17,6 +17,7 @@ export const ROOT = {
   suburb: 261.63, town: 293.66, farm: 196.0, bush: 220.0,
   riverbank: 246.94, wetland: 174.61, dunes: 329.63, beach: 392.0,
   headland: 220.0, estuary: 233.08, sea: 130.81, desert: 146.83, rainforest: 196.0,
+  mudflat: 164.81, wasteland: 155.56,
 };
 const PENT = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3];
 // How often the little tune speaks, and what the second drone is.
@@ -35,6 +36,8 @@ export const MOOD = {
   sea:        { fifth: 'sine',     ratio: 2,   wob: 0.10, depth: 0.18, dens: 0.28 },
   desert:     { fifth: 'sine',     ratio: 1.5, wob: 0.04, depth: 0.02, dens: 0.26 },
   rainforest: { fifth: 'triangle', ratio: 1.5, wob: 0.25, depth: 0.13, dens: 0.84 },
+  mudflat:    { fifth: 'sine',     ratio: 2,   wob: 0.14, depth: 0.08, dens: 0.34 },
+  wasteland:  { fifth: 'sine',     ratio: 2,   wob: 0.03, depth: 0.03, dens: 0.2 },
 };
 const SCALE = new Float32Array(N * 5);
 const RATIO = new Float32Array(N);

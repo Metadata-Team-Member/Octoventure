@@ -17,6 +17,7 @@ import { HUE_KINDS, LANDMARK_KINDS } from './props.js';
 import { buildGeoLib } from './geoLib.js';
 import { applyFade, applyBend } from './fade.js';
 import { seat, instanceSpec, geoHeight, waterDisc, discMatrix, fitDisc, ringMin } from './placement.js';
+import { EDGE } from './bands.js';
 
 export const FOG_COLOR = 0xcfe6f2;
 export const CHUNK = 100;
@@ -86,6 +87,7 @@ export class WorldView {
     this._initChunks();
     this._buildSea();
     this._buildLandmarks();
+    if (world.banded) { this._buildRanges(); this._buildFins(); this._buildSmoke(); }
     this._buildProps();
     this._buildRain();
     this._buildClouds();
@@ -148,6 +150,9 @@ export class WorldView {
       prop: L.propCache,
     };
     this.geo.water.rotateX(-Math.PI / 2);
+    this.geo.pad = this.track(new THREE.CircleGeometry(1, 9, 0.35, Math.PI * 2 - 0.7)); this.geo.pad.rotateX(-Math.PI / 2);   // a lily pad: a disc with a notch
+    this.sludgeMat = this.track(toonMat({ color: 0xffffff, roughness: 0.35, metalness: 0, transparent: true, opacity: 0.92, emissive: 0x1a0c22, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    this.padMat = this.track(toonMat({ color: 0x6f9a52, roughness: 0.8, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
     this.tcol = {};
     for (const k in TERRAIN) this.tcol[k] = new THREE.Color(TERRAIN[k].color);
     this.shadowKinds = new Set(['house0', 'house1', 'house2', 'shop', 'barn', 'silo', 'shed', 'bin', 'parkedcar', 'lamp', 'shack', 'hull', 'umbrella', 'cairn', 'slab', 'hollowlog', 'birdbath', 'trough']);
@@ -195,15 +200,21 @@ export class WorldView {
     for (let iz = pz - rr; iz <= pz + rr; iz++) for (let ix = px - rr; ix <= px + rr; ix++) {
       if (this.chunks.has(this._ck(ix, iz))) continue;
       const [cx, cz] = this._chunkCentre(ix, iz);
-      if (Math.hypot(cx - x, cz - z) < r) this._buildChunk(ix, iz);
+      if (Math.hypot(cx - x, cz - z) < r && this._chunkWanted(ix, iz)) this._buildChunk(ix, iz);
     }
   }
   _chunkCentre(ix, iz) { const h = this.world.half; return [-h + (ix + 0.5) * CHUNK, -h + (iz + 0.5) * CHUNK]; }
+  /** banded world: no chunks deep in the ranges or far out to sea (the backdrop covers them) */
+  _chunkWanted(ix, iz) {
+    const w = this.world; if (!w.banded) return true;
+    const [cx, cz] = this._chunkCentre(ix, iz);
+    return w.edgeOut(cx, cz) < 170 && cz < EDGE.sea + 270;
+  }
 
   _buildChunk(ix, iz) {
     const t0 = performance.now();
     const key = this._ck(ix, iz), h = this.world.half;
-    this._needRegions(ix, iz);
+    if (!this.world.banded) this._needRegions(ix, iz);
     const grp = new THREE.Group();
     const x0 = -h + ix * CHUNK, z0 = -h + iz * CHUNK;
     const [cx, cz] = this._chunkCentre(ix, iz);
@@ -245,7 +256,12 @@ export class WorldView {
     }
     if (b.water) {
       const colors = { puddle: 0x4aa8dc, pond: 0x2f8fc8, tidepool: 0x57c2d6, stream: 0x5ab6e6, drip: 0x58b0e0, trough: 0x5aa6c8, dam: 0x3d86a8, estuary: 0x4fa3c0, birdbath: 0x6cc0ea, bowl: 0x6cc0ea, aircon: 0x58b0e0, hose: 0x58b0e0, swamp: 0x3f7f78, creek: 0x4ea6d6 };
-      const list = b.water.w;
+      const list = b.water.w.filter((o) => o.kind !== 'sludge'), sludge = b.water.w.filter((o) => o.kind === 'sludge');
+      if (sludge.length) {                       // purple / mustard sludge: its own opaque-ish material so the colour is not tinted blue like water
+        const sm = new THREE.InstancedMesh(this.geo.water, this.sludgeMat, sludge.length);
+        sludge.forEach((o, i) => { const d = waterDisc(this.world, o); discMatrix(d, o.x, o.z, d.r, d.r, (o.x * 7.1 + o.z) % 6.28, _m); sm.setMatrixAt(i, _m); sm.setColorAt(i, _c.set(o.alt ? 0xd9b23a : 0x8d55c6)); });
+        sm.instanceMatrix.needsUpdate = true; if (sm.instanceColor) sm.instanceColor.needsUpdate = true; sm.computeBoundingSphere(); sm.renderOrder = 2; add(sm);
+      }
       const m = new THREE.InstancedMesh(this.geo.water, this.waterMat, Math.max(1, list.length));
       m.count = list.length;
       list.forEach((o, i) => {
@@ -255,6 +271,21 @@ export class WorldView {
       });
       m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; m.computeBoundingSphere();
       m.renderOrder = 2; add(m);
+      const pads = [];
+      for (const o of list) {
+        if (o.kind !== 'pond' || !o.carve) continue;
+        if (!this.world.banded || this.world.biomeAt(o.x, o.z) !== 'wetland') continue;
+        const d = waterDisc(this.world, o), n = 4 + Math.floor(((o.x * 13.7 + o.z * 3.1) % 1 + 1) % 1 * 6);
+        for (let k = 0; k < n; k++) {
+          const a = k * 2.399 + o.x, rr = d.r * (0.3 + 0.5 * (((k * 0.618 + o.z) % 1 + 1) % 1));
+          pads.push({ x: o.x + Math.cos(a) * rr, z: o.z + Math.sin(a) * rr, y: d.y0 + 0.025, s: 0.28 + 0.18 * ((k * 0.37) % 1), rot: a * 3 });
+        }
+      }
+      if (pads.length) {
+        const pm = new THREE.InstancedMesh(this.geo.pad, this.padMat, pads.length);
+        pads.forEach((p, i) => { _e.set(0, p.rot, 0); _q.setFromEuler(_e); _m.compose(_v.set(p.x, p.y, p.z), _q, _s.set(p.s, 1, p.s)); pm.setMatrixAt(i, _m); });
+        pm.instanceMatrix.needsUpdate = true; pm.computeBoundingSphere(); pm.renderOrder = 3; add(pm, FAR.reed);
+      }
     }
     for (const m of grp.userData.items) m.userData.cull = true;
     this.root.add(grp);
@@ -317,7 +348,7 @@ export class WorldView {
     // never leave the chunk under/around the player unbuilt
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const ix = pix + dx, iz = piz + dz;
-      if (!this.chunks.has(this._ck(ix, iz))) this._buildChunk(ix, iz);
+      if (!this.chunks.has(this._ck(ix, iz)) && this._chunkWanted(ix, iz)) this._buildChunk(ix, iz);
     }
     const cc = pix + ',' + piz;
     if (cc !== this._lastCC) {
@@ -327,7 +358,7 @@ export class WorldView {
       for (let iz = piz - rr; iz <= piz + rr; iz++) for (let ix = pix - rr; ix <= pix + rr; ix++) {
         if (this.chunks.has(this._ck(ix, iz))) continue;
         const [cx, cz] = this._chunkCentre(ix, iz); const d = Math.hypot(cx - px, cz - pz);
-        if (d < R + 30) this._queue.push({ ix, iz, d });
+        if (d < R + 30 && this._chunkWanted(ix, iz)) this._queue.push({ ix, iz, d });
       }
       this._queue.sort((a, b) => b.d - a.d);     // pop() takes the nearest
       // let go of chunks well behind the player so memory stays flat however far they roam
@@ -420,6 +451,92 @@ export class WorldView {
     }
     this.landmarkGroup = g;
     this.root.add(g);
+  }
+
+  // ------------------------------------------------------------ banded world: the mountain ranges (one instanced draw, fog-free and hazed like the landmarks)
+  _buildRanges() {
+    const w = this.world, peaks = [];
+    let seed = 7; const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const row = (d, step, hLo, hHi, rLo, rHi) => {
+      const push = (x, z) => { const hh = hLo + r() * (hHi - hLo); peaks.push({ x, z, h: hh, rad: rLo + r() * (rHi - rLo) }); };
+      for (let z = EDGE.north - d; z < EDGE.sea + 160; z += step * (0.8 + r() * 0.4)) { push(EDGE.west - d + (r() - 0.5) * 30, z); push(EDGE.east + d + (r() - 0.5) * 30, z); }
+      for (let x = EDGE.west - d + step; x < EDGE.east + d - step / 2; x += step * (0.8 + r() * 0.4)) push(x, EDGE.north - d + (r() - 0.5) * 30);
+    };
+    row(150, 95, 55, 85, 70, 95);
+    row(260, 120, 90, 150, 95, 135);
+    row(390, 150, 130, 190, 120, 170);
+    // one low-poly rounded peak with a snow cap (vertex colours), scaled per instance
+    const prof = [];
+    for (let i = 0; i <= 8; i++) { const t = i / 8; prof.push(new THREE.Vector2(Math.max(0.001, Math.pow(1 - t, 0.75) * (1 - 0.12 * t)), t)); }
+    const body = new THREE.LatheGeometry(prof, 10);
+    body.computeVertexNormals();
+    const pos = body.attributes.position, col = new Float32Array(pos.count * 3);
+    const rockC = new THREE.Color(0x5e6680), snowC = new THREE.Color(0xf4f6fb);
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i), wob = 0.06 * Math.sin(Math.atan2(pos.getZ(i), pos.getX(i)) * 3);
+      const c = y > 0.62 + wob ? snowC : rockC.clone().multiplyScalar(0.9 + 0.2 * y);
+      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    }
+    body.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    this.track(body);
+    const m = new THREE.InstancedMesh(body, this.landMat, peaks.length);
+    peaks.forEach((p, i) => {
+      const y0 = Math.min(w.heightAt(clamp(p.x, -w.half * 2, w.half * 2), p.z), 30) - 12;
+      _e.set(0, (p.x * 0.37 + p.z) % 6.28, 0); _q.setFromEuler(_e);
+      _m.compose(_v.set(p.x, y0, p.z), _q, _s.set(p.rad, p.h + 12, p.rad * (0.8 + 0.3 * ((p.x * 0.013) % 1 + 1) % 1)));
+      m.setMatrixAt(i, _m);
+    });
+    m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); m.frustumCulled = false;
+    this.ranges = m;
+    this.root.add(m);
+  }
+
+  // ------------------------------------------------------------ banded world: grey shark fins patrolling beyond the reef (they never come in)
+  _buildFins() {
+    const shape = new THREE.Shape();
+    shape.moveTo(-0.5, 0); shape.quadraticCurveTo(-0.05, 0.25, 0.25, 1.05); shape.quadraticCurveTo(0.25, 0.4, 0.55, 0); shape.lineTo(-0.5, 0);
+    const g = new THREE.ExtrudeGeometry(shape, { depth: 0.08, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 1, curveSegments: 5 });
+    g.translate(0, -0.12, -0.04); g.scale(1.4, 1.4, 1.4); this.track(g);
+    const mat = this.track(toonMat({ color: 0x737d88, roughness: 0.6 }));
+    this.fins = [];
+    for (let i = 0; i < 5; i++) this.fins.push({ cx: -500 + i * 250, cz: EDGE.sea + 25 + (i % 2) * 18, rx: 70 + i * 9, rz: 14 + (i % 3) * 5, sp: 0.045 + 0.01 * (i % 3), ph: i * 1.7 });
+    this.finMesh = new THREE.InstancedMesh(g, mat, this.fins.length);
+    this.finMesh.frustumCulled = false;
+    this.root.add(this.finMesh);
+    this._updateFins(0);
+  }
+  _updateFins(t) {
+    const w = this.world;
+    this.fins.forEach((f, i) => {
+      const a = f.ph + t * f.sp, x = f.cx + Math.cos(a) * f.rx, z = Math.max(EDGE.sea + 6, f.cz + Math.sin(a) * f.rz);
+      const dx = -Math.sin(a) * f.rx, dz = Math.cos(a) * f.rz;
+      _e.set(0, Math.atan2(dz, dx) * -1, 0); _q.setFromEuler(_e);
+      _m.compose(_v.set(x, w.seaLevel + 0.05 + 0.06 * Math.sin(t * 1.3 + i), z), _q, _s.setScalar(1));
+      this.finMesh.setMatrixAt(i, _m);
+    });
+    this.finMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  // ------------------------------------------------------------ banded world: soft smoke puffs from the factory chimneys
+  _buildSmoke() {
+    const st = this.world.smoke; if (!st?.length) return;
+    const g = this.track(new THREE.IcosahedronGeometry(1, 1));
+    const mat = this.track(toonMat({ color: 0xd8d0e0, roughness: 1 }));
+    this.puffs = [];
+    for (const s of st) for (let k = 0; k < 7; k++) this.puffs.push({ s, ph: k / 7 });
+    this.smokeMesh = new THREE.InstancedMesh(g, mat, this.puffs.length);
+    this.smokeMesh.frustumCulled = false;
+    this.root.add(this.smokeMesh);
+    this._updateSmoke(0);
+  }
+  _updateSmoke(t) {
+    this.puffs.forEach((p, i) => {
+      const u = (t * 0.09 + p.ph) % 1, sc = 0.9 + u * 2.6;
+      const shrink = u < 0.1 ? u / 0.1 : u > 0.8 ? (1 - u) / 0.2 : 1;
+      _m.compose(_v.set(p.s.x + u * 9 + Math.sin(u * 7 + i) * 0.8, p.s.y + 0.8 + u * 14, p.s.z - u * 3), _q.identity(), _s.setScalar(Math.max(0.001, sc * shrink)));
+      this.smokeMesh.setMatrixAt(i, _m);
+    });
+    this.smokeMesh.instanceMatrix.needsUpdate = true;
   }
 
   // ------------------------------------------------------------ fish (ambient life in the sea)
@@ -662,6 +779,12 @@ export class WorldView {
       this.sea.position.x = w.dir.x * c + w.perp.x * lat; this.sea.position.z = w.dir.z * c + w.perp.z * lat;
     }
     this._updateTransient();
+    if (playerPos && this.finMesh) {
+      const nearSea = playerPos.z > EDGE.sea - 260; this.finMesh.visible = nearSea; if (nearSea) this._updateFins(t);
+    }
+    if (playerPos && this.smokeMesh) {
+      const s = this.world.smoke[0], near = Math.hypot(playerPos.x - s.x, playerPos.z - s.z) < 420; this.smokeMesh.visible = near; if (near) this._updateSmoke(t);
+    }
     if (playerPos) {
       this._streamAndCull(dt, playerPos.x, playerPos.z);
       this._updateFish(dt, playerPos.x, playerPos.z);

@@ -13,6 +13,7 @@ export const WASH = {
   suburb: [158, 196, 120], town: [176, 172, 182], farm: [226, 200, 120], bush: [120, 168, 104], riverbank: [118, 178, 186],
   wetland: [104, 150, 120], dunes: [238, 214, 150], beach: [244, 226, 170], headland: [150, 158, 170], estuary: [120, 186, 190],
   sea: [96, 160, 206], desert: [222, 140, 96], rainforest: [72, 140, 88],
+  mudflat: [186, 162, 128], wasteland: [150, 128, 158],
 };
 const hash = (a, b) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
 
@@ -48,9 +49,11 @@ const DOODLE = {
   rock(c, x, y, s) { c.beginPath(); c.moveTo(x - s * 0.8, y + s * 0.4); c.quadraticCurveTo(x - s * 0.6, y - s * 0.5, x, y - s * 0.45); c.quadraticCurveTo(x + s * 0.7, y - s * 0.4, x + s * 0.8, y + s * 0.4); c.closePath(); c.stroke(); },
   cactus(c, x, y, s) { c.beginPath(); c.moveTo(x, y + s); c.lineTo(x, y - s * 0.6); c.moveTo(x, y); c.quadraticCurveTo(x - s * 0.5, y, x - s * 0.5, y - s * 0.4); c.moveTo(x, y + s * 0.2); c.quadraticCurveTo(x + s * 0.5, y + s * 0.2, x + s * 0.5, y - s * 0.3); c.stroke(); },
   fern(c, x, y, s) { c.beginPath(); c.moveTo(x, y + s); c.quadraticCurveTo(x + s * 0.4, y, x + s * 0.1, y - s * 0.8); c.stroke(); for (let i = 1; i < 5; i++) { const t = i / 5, px = x + s * 0.3 * Math.sin(t * 2.5), py = y + s - t * s * 1.7; c.beginPath(); c.moveTo(px, py); c.lineTo(px - s * 0.35 * (1 - t), py - s * 0.15); c.moveTo(px, py); c.lineTo(px + s * 0.35 * (1 - t), py - s * 0.15); c.stroke(); } },
+  puddle(c, x, y, s) { c.beginPath(); c.ellipse(x - s * 0.3, y, s * 0.55, s * 0.22, 0, 0, 6.28); c.stroke(); c.beginPath(); c.ellipse(x + s * 0.45, y + s * 0.35, s * 0.3, s * 0.13, 0, 0, 6.28); c.stroke(); },
+  chimney(c, x, y, s) { c.strokeRect(x - s * 0.7, y, s * 1.1, s * 0.6); c.strokeRect(x + s * 0.15, y - s * 0.8, s * 0.25, s * 0.8); for (let i = 0; i < 3; i++) { c.beginPath(); c.arc(x + s * (0.35 + i * 0.25), y - s * (1.0 + i * 0.25), s * (0.14 + i * 0.05), 0, 6.28); c.stroke(); } },
   jetty(c, x, y, s) { c.strokeRect(x - s * 0.8, y - s * 0.12, s * 1.6, s * 0.24); for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(x + i * s * 0.35, y + s * 0.12); c.lineTo(x + i * s * 0.35, y + s * 0.5); c.stroke(); } },
 };
-const BIOME_DOODLE = { suburb: 'house', town: 'house', farm: 'wheat', bush: 'tree', riverbank: 'reed', wetland: 'reed', dunes: 'dune', beach: 'palm', headland: 'rock', estuary: 'jetty', sea: 'wave', desert: 'cactus', rainforest: 'fern' };
+const BIOME_DOODLE = { suburb: 'house', town: 'house', farm: 'wheat', bush: 'tree', riverbank: 'reed', wetland: 'reed', dunes: 'dune', beach: 'palm', headland: 'rock', estuary: 'jetty', sea: 'wave', desert: 'cactus', rainforest: 'fern', mudflat: 'puddle', wasteland: 'chimney' };
 
 function shellDoodle(c, x, y, s) {      // a den: a little spiral shell
   c.fillStyle = '#f3dcc9'; c.beginPath(); c.ellipse(x, y, s, s * 0.8, 0, 0, 6.28); c.fill(); c.stroke();
