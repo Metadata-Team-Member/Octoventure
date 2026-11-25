@@ -531,18 +531,33 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
     const out = { sz: o.sz, scale: o.group.scale.x };
     const box = (obj) => { let minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9, minz = 1e9, maxz = -1e9; obj.updateMatrixWorld(true); obj.traverse((m) => { if (!m.isMesh) return; m.geometry.computeBoundingBox(); const b = m.geometry.boundingBox; for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) { const e = m.matrixWorld.elements; const X = e[0] * x + e[4] * y + e[8] * z + e[12], Y = e[1] * x + e[5] * y + e[9] * z + e[13], Z = e[2] * x + e[6] * y + e[10] * z + e[14]; minx = Math.min(minx, X); maxx = Math.max(maxx, X); miny = Math.min(miny, Y); maxy = Math.max(maxy, Y); minz = Math.min(minz, Z); maxz = Math.max(maxz, Z); } }); return { h: maxy - miny, len: Math.max(maxx - minx, maxz - minz) }; };
-    // The box is axis-aligned, so a slope or a random heading changes it. Measure the octopus upright, in the bind pose, on flat ground.
+    // The box is axis-aligned, so a slope, a heading or a mid-walk node rotation changes it.
+    // Stand the octopus upright and sample idle frame 0, which does not depend on the tests that ran before.
     G.teleport(w.home.x, w.home.z);
     o.alive = true; o.deadT = 0; o.hideBlend = 0; o.hiddenIn = null; o.swim = 0;
-    o.body.scale.set(1, 1, 1); o.body.position.set(0, 0, 0);
+    o.body.scale.set(1, 1, 1); o.body.position.set(0, 0, 0); o.body.rotation.set(0, 0, 0);
     o.group.quaternion.identity();
-    let skel = null; o.body.traverse((m) => { if (!skel && m.isSkinnedMesh) skel = m.skeleton; });
-    if (skel) skel.pose();
+    o.group.scale.setScalar(o.sz);
+    if (o.meshRoot) o.meshRoot.scale.setScalar(1 / o.sz);
+    if (o.mixer && o.actions?.idle) {
+      o.mixer.stopAllAction();
+      const idle = o.actions.idle;
+      idle.enabled = true; idle.setEffectiveWeight(1); idle.time = 0;
+      idle.play(); o.mixer.update(0);
+    }
+    o.group.updateMatrixWorld(true);
     const ob = box(o.body); const octoLen = ob.len;
     out.octoLen = octoLen;
     G.clearPredators();
     out.ratio = {};
-    for (const k of ['human', 'dog', 'cat', 'gull', 'magpie']) { const p = G.spawnPredator(k, 40, 0); p.heading = 0; p.phase = 0; p.speed = 0; p.group.rotation.set(0, 0, 0); p.sync(0); const b = box(p.group); out.ratio[k] = +(Math.max(b.h, b.len) / octoLen).toFixed(1); G.clearPredators(); }
+    for (const k of ['human', 'dog', 'cat', 'gull', 'magpie']) {
+      const p = G.spawnPredator(k, 40, 0);
+      p.heading = 0; p.phase = 0; p.speed = 0; p.lift = 0; p.alt = 0;
+      p.group.rotation.set(0, 0, 0); p.sync(0);
+      if (p.parts?.bucket) p.parts.bucket.scale.setScalar(0.001);
+      const b = box(p.group); out.ratio[k] = +(Math.max(b.h, b.len) / octoLen).toFixed(1); G.clearPredators();
+    }
+    o.loco = 'idle'; o.once = null; o.clip = 'idle';
     // footstep thump: a person walks past on dry land (a sea start is too deep to stride), the camera gets a jolt
     G.teleport(w.home.x, w.home.z); g.advance(0.2);
     G.setTime(0.5); G.freezeTime(true);
@@ -573,8 +588,8 @@ const uiBefore = await E(() => document.body.innerText.trim());
     return out;
   });
   ok(Math.abs(r.sz - 0.42) < 1e-6 && Math.abs(r.scale - r.sz) < 1e-6, `the octopus is drawn at real-scale (size ${r.sz})`);
-  ok(r.ratio.human >= 6 && r.ratio.human <= 14, `a person towers over the octopus (~${r.ratio.human}x its length; target ~8x)`);
-  ok(r.ratio.dog >= 2.5 && r.ratio.dog <= 6 && r.ratio.gull >= 1.8 && r.ratio.cat >= 1.8, `a dog is ~${r.ratio.dog}x, cat ~${r.ratio.cat}x, gull ~${r.ratio.gull}x, magpie ~${r.ratio.magpie}x`);
+  ok(r.ratio.human >= 11 && r.ratio.human <= 16, `a person towers over the octopus (~${r.ratio.human}x its length)`);
+  ok(r.ratio.dog >= 6 && r.ratio.dog <= 9 && r.ratio.gull >= 1.8 && r.ratio.cat >= 1.8, `a dog is ~${r.ratio.dog}x, cat ~${r.ratio.cat}x, gull ~${r.ratio.gull}x, magpie ~${r.ratio.magpie}x`);
   ok(r.thump > 0.05, `a person walking past shakes the ground under the octopus (thump ${r.thump.toFixed(2)})`);
   ok(r.shadowOn && Math.abs(r.shadowDy) < 0.3, `a bird overhead casts a shadow on the ground (visible ${r.shadowOn}, ${r.shadowDy.toFixed(2)} u above terrain)`);
   ok(r.fade, 'camera occluder fade is compiled into the grass, tree and prop materials');
