@@ -163,8 +163,10 @@ export function installDebugHooks(game) {
     /** stand 2.5 m in front of a climbable collider that has free ground on the far side, facing it; returns {c, dx, dz} */
     teleportToClimbable(kind) {
       const w = game.world;
+      // a fence hole is a squeeze, not a climb: skip any collider that has a tunnel mouth on it
+      const holed = (x, z) => w.tunnels.some((t) => Math.hypot(t.a.x - x, t.a.z - z) < 2.2 || Math.hypot(t.b.x - x, t.b.z - z) < 2.2);
       for (const c of w.colliders) {
-        if (!c.climb || (kind && c.kind !== kind)) continue;
+        if (!c.climb || (kind && c.kind !== kind) || holed(c.x, c.z)) continue;
         let dx = 0, dz = 1, depth;
         if (c.r !== undefined) { dx = 1; dz = 0; depth = c.r; } else if (c.hw >= c.hd) { depth = c.hd; } else { dx = 1; dz = 0; depth = c.hw; }
         const sx = c.x - dx * (depth + 2.5), sz = c.z - dz * (depth + 2.5), ex = c.x + dx * (depth + 2.5), ez = c.z + dz * (depth + 2.5);

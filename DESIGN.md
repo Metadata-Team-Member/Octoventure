@@ -335,7 +335,7 @@ The one world is now laid out in bands from south (+z, the start) to north, and 
 | Outback | -270 to -480 | mud flats with a boardwalk (west), red desert with the big red rock, termite mounds and an oasis (east) | 1.5 |
 | Wasteland | -480 to -900 | factory with smoking stacks, storm-drain outfall, purple and mustard sludge pools (never green) | 1.95 |
 
-The playable square is x -690 to 690 and z -690 (north) to 735 (sea edge). Mountains ring the west, east and north: low terrain foothills plus one instanced mesh of low-poly snow-capped peaks (about 140 peaks, 22k triangles, one draw, fog-free so they always read as the horizon). The edges hold through `clampToBounds` in `resolve` (no wall, no UI). Out at sea a soft return current past the reef turns the octopus back gently; five shark fins patrol just beyond it. A river runs from the ranges to the estuary. Bands blend over a short strip.
+The playable square is x -690 to 690 and z -690 (north) to 735 (sea edge). Mountains ring the west, east and north: soft terrain foothills with gum trees where the ranges rise out of the bands, and one merged mesh of rounded toon peaks (grey-blue and lavender rock, snow only on the taller ones, one draw, no shadows, its own material so the landmark haze does not wash them white). The edges hold through `clampToBounds` in `resolve` (no wall, no UI). Out at sea a soft return current past the reef turns the octopus back gently; five shark fins patrol just beyond it. A river runs from the ranges to the estuary, wandering a little wider, with soft banks. Band borders wave (a long curve in x, plus a little noise, about ±45 m) and blend over about 30 m, so they are not ruled lines. The shoreline bends into a western headland, a sandy bay and an eastern cove. Farm ground is rounded paddocks (pasture, plough and a thin gravel ribbon) with curved fence rings, not a 70 m checkerboard. Norfolk pines follow a curve along the foreshore, with uneven spacing, and the beach has a few clusters of rock pools, driftwood and dune grass. Mud flats have frogs, crabs by the puddles and small wading birds; the wasteland has rats, flies and a cockroach or two (the same cheap critter pools, retinted — the ant and the beetle are unchanged). Animals still never overlap.
 
 **Start.** A fresh game starts in the shallows beside the big shell (the future Octo house), heading north towards the beach. The old sea-arrival moment is now a homecoming: it plays when the octopus returns to the sea after it has been inland (band 2 or further).
 
@@ -343,7 +343,22 @@ The playable square is x -690 to 690 and z -690 (north) to 735 (sea edge). Mount
 
 **Save v10.** `MIGRATIONS[9]`: a v9 save keeps the satchel, effects, levels, badges, journal, shell and baby tallies; den decor and anything carried go back into the satchel; the old position, dens, explored map and taken-item list are cleared (the old map no longer exists), and the octopus starts fresh by the shell. A damaged position is rejected. A saved position outside the bands is clamped back inside.
 
-**Performance (`?mobile=1`, seed 2026, `scripts/perf.mjs`, average of two back-to-back runs against main on the same machine).** Across the nine shared biome spots the mean is 203 draw calls (main 212), 622k triangles (main 751k) and 99.5 ms a frame under software GL (main 98.1 ms, within noise). Mud flats and wasteland are the cheapest places (about 110 calls, 230k triangles). To get there: every shell now streams through the pool within ~120 m instead of all being drawn; pooled gatherables draw only up to their highest used slot; the yard places (gnomes, sheds, garden, playground) are grouped in 80 m cells skipped past the fog; on a phone small clutter props and water discs are skipped past 150 m. Per spot the beach (more clutter on a narrow strip) and the farm still draw more calls than main's spots of the same name.
+**Performance (`?mobile=1`, seed 2026, `scripts/perf.mjs`, N=20, software GL on this machine).** Phone view distance stops at the fog (`fogFar`, not past it). Yard clutter (gnomes, sheds, the playground) is kept to about 140 m, because the beach looks straight into the town and those cells were the extra draws. Small props, trees, beach bits and reef pieces in one chunk share a single mesh. Rain clouds and the sky deck are one instanced draw each. Landmarks of one kind share a draw. Critter ink outlines are skipped on a phone (the shapes stay). The mountain mesh is one draw and does not cast shadows. Draw calls, then triangles, then frame ms:
+
+| Spot | Pre-rebuild | Banded, before this pass | After |
+|---|---|---|---|
+| Beach | 140 / 622k / 272 | 302 / 645k / 366 | 135 / 415k / 267 |
+| Sea | 119 / 606k / 287 | 179 / 411k / 265 | 113 / 317k / 222 |
+| Farm | 226 / 672k / 304 | 190 / 684k / 326 | 131 / 342k / 206 |
+| Town | 212 / 796k / 331 | 237 / 726k / 356 | 127 / 502k / 268 |
+| Suburb | 201 / 784k / 325 | 214 / 779k / 390 | 114 / 447k / 240 |
+| Bush | 180 / 878k / 425 | 166 / 504k / 274 | 103 / 465k / 298 |
+| Desert | 282 / 650k / 281 | 112 / 246k / 158 | 90 / 218k / 164 |
+| Rainforest | 194 / 856k / 407 | 175 / 835k / 536 | 89 / 689k / 467 |
+| Mud flats | — | 119 / 217k / 144 | 74 / 166k / 131 |
+| Wasteland | — | 103 / 222k / 148 | 81 / 181k / 138 |
+
+Beach, sea, farm and town are back under the pre-rebuild draw counts. Calls and triangles fell at every other spot too. Bush and desert frame times wobbled a few percent on the software renderer (a second bush sample was 290 ms) while doing less work. Shells still stream within ~120 m; pooled gatherables draw only up to their highest used slot.
 
 **Tests.** `scripts/bands.mjs` (in `npm test`): band order south to north, each band's middle is its own biomes, the start is in the sea within 30 m of the shell, the edges hold, the ranges rise past them, v9 to v10 keeps what was earned, the new landmarks sit on the ground, sludge is only purple or yellow, and predator density and alertness rise northward.
 

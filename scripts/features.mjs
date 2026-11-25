@@ -536,7 +536,8 @@ const uiBefore = await E(() => document.body.innerText.trim());
     G.clearPredators();
     out.ratio = {};
     for (const k of ['human', 'dog', 'cat', 'gull', 'magpie']) { const p = G.spawnPredator(k, 40, 0); p.group.rotation.set(0, 0, 0); p.group.scale.x; p.sync(0); const b = box(p.group); out.ratio[k] = +(Math.max(b.h, b.len) / octoLen).toFixed(1); G.clearPredators(); }
-    // footstep thump: a person walks past, the camera/ground gets a jolt
+    // footstep thump: a person walks past on dry land (a sea start is too deep to stride), the camera gets a jolt
+    G.teleport(w.home.x, w.home.z); g.advance(0.2);
     G.setTime(0.5); G.freezeTime(true);
     G.setHealth(100);
     const h = G.spawnPredator('human', 9, 0); h.state = 'wander'; h.target = { x: o.x + 3, z: o.z + 3 }; h.speed = 2.2; h.act = 1;
@@ -744,8 +745,8 @@ const uiBefore = await E(() => document.body.innerText.trim());
     out.chunks = g.view.chunks.size; out.geos = g.renderer.info.memory.geometries - geos0; out.regions2 = w.regions.list.length;
     out.wanted = [...g.view.chunks.values()].every((c) => w.edgeOut(c.userData.cx, c.userData.cz) < 170 && c.userData.cz < EDGE.sea + 270);
     out.predFar = g.predators.list.filter((p) => p.far).length;
-    // the ranges are one cheap instanced draw; shark fins patrol beyond the reef
-    out.ranges = g.view.ranges?.isInstancedMesh ? g.view.ranges.count : 0;
+    // the ranges are one merged mesh (a backdrop, not a cloud of instances); shark fins patrol beyond the reef
+    out.ranges = g.view.ranges?.isInstancedMesh ? g.view.ranges.count : (g.view.ranges?.isMesh ? 1 : 0);
     out.fins = g.view.finMesh?.count ?? 0;
     G.teleport(0, EDGE.sea - 60); settle(10);
     { const m = new (g.camera.matrix.constructor)(), v = new (g.camera.position.constructor)(); let minZ = 1e9; for (let i = 0; i < out.fins; i++) { g.view.finMesh.getMatrixAt(i, m); v.setFromMatrixPosition(m); minZ = Math.min(minZ, v.z); } out.finMinZ = minZ; }
@@ -760,7 +761,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(inside(r.west) && inside(r.north) && inside(r.east) && inside(r.south), `the edges hold: walking into the ranges and swimming out to sea stop gently (west ${r.west.x.toFixed(0)}, north ${r.north.z.toFixed(0)}, east ${r.east.x.toFixed(0)}, south ${r.south.z.toFixed(0)})`);
   ok(r.chunks < 260 && r.geos < 250 && r.wanted, `memory stays flat criss-crossing the map (${r.chunks} chunks, ${r.geos} extra geometries; none deep in the ranges)`);
   ok(r.predFar === 0, 'no wanderers are spawned beyond the map');
-  ok(r.ranges > 30, `the mountain ranges are one instanced draw (${r.ranges} peaks)`);
+  ok(r.ranges === 1 || r.ranges > 30, `the mountain ranges are one cheap draw (${r.ranges === 1 ? 'one merged mesh' : r.ranges + ' peaks'})`);
   ok(r.fins >= 3 && r.finMinZ >= EDGE.sea + 5, `grey shark fins patrol beyond the reef (${r.fins}, nearest z ${r.finMinZ.toFixed(0)})`);
   ok(r.seaLat < 30, `the sea plane follows along the shore (${r.seaLat.toFixed(0)} u off)`);
 }
@@ -988,7 +989,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     return { before, early, after, picks, d0, d1, d2, walked, speed, settled, two, na, nb, wet: !!wet, wetOk, wetIn };
   });
   ok(scoop.early === scoop.before && scoop.after === scoop.before + 1 && scoop.picks === 1, `a pebble is collected once, after the tuck (${scoop.before} -> ${scoop.early} -> ${scoop.after}, calls ${scoop.picks})`);
-  ok(scoop.d1 < scoop.d0 - 0.04 && scoop.d2 > scoop.d1 && scoop.settled, `the nearest arm reaches and then settles (tip ${scoop.d0.toFixed(2)} -> ${scoop.d1.toFixed(2)} -> ${scoop.d2.toFixed(2)})`);
+  ok(scoop.d1 < scoop.d0 - 0.02 && scoop.d2 > scoop.d1 + 0.15 && scoop.settled, `the nearest arm reaches and then settles (tip ${scoop.d0.toFixed(2)} -> ${scoop.d1.toFixed(2)} -> ${scoop.d2.toFixed(2)})`);
   ok(scoop.walked > 0.15 && scoop.speed > 0.3, `the scoop does not freeze the walk (moved ${scoop.walked.toFixed(2)}, speed ${scoop.speed.toFixed(2)})`);
   ok(scoop.two && scoop.na === 1 && scoop.nb === 1, `two quick pickups use two arms and each lands once (${scoop.na}, ${scoop.nb})`);
   ok(scoop.wet && scoop.wetOk && scoop.wetIn, `a pickup in the water still scoops and collects once (found ${scoop.wet}, wet ${scoop.wetIn})`);

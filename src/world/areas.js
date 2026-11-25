@@ -4,7 +4,7 @@
 //  dew patches and landmarks. All randomness comes from world.rnd so a seed (or the daily seed)
 //  always reproduces the same world.
 // =====================================================================
-import { clamp, lerp, smoothstep as ss } from '../util/rng.js';
+import { clamp, lerp, smoothstep as ss, mulberry32 } from '../util/rng.js';
 import { B, BIOMES } from './biomes.js';
 import { FACTORY_STACKS } from './props.js';
 import { ISLETS, EDGE } from './bands.js';
@@ -252,6 +252,18 @@ function farm(ctx) {
     cells.set(cx + ',' + cz, { cx, cz, x, z });
   }
   const list = [...cells.values()];
+  // a soft fence on a wobbly ring (a gate leaves a gap). Not the old square 70 m grid.
+  const ring = (cx, cz, rad, gate) => {
+    const n = Math.max(12, Math.round(rad / 2.8));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      if (gate && a > 0.35 && a < 1.15) continue;
+      const wob = 1 + 0.18 * Math.sin(a * 2 + cx * 0.01) + 0.1 * Math.sin(a * 3.4 + cz * 0.017);
+      const x = cx + Math.cos(a) * rad * wob, z = cz + Math.sin(a) * rad * wob * 0.9;
+      if (w.waterAt(x, z) || w._blocked(x, z, 0.4) || w.isRoad(x, z, 0) || w.biomes.weights(x, z)[B.farm] < 0.55) continue;
+      prop('fence', x, z, { rot: a + Math.PI / 2 });
+    }
+  };
   // farmsteads
   const farmsteads = Math.min(list.length, Math.round(2 * K));
   const shuffled = list.slice().sort(() => rnd() - 0.5);
@@ -274,33 +286,27 @@ function farm(ctx) {
     // a pipe shortcut across the yard
     w.tunnels.push({ a: { x: c.x - 3, z: c.z + 20 }, b: { x: c.x + 22, z: c.z + 28 }, kind: 'pipe', wet: false });
     prop('pipe', c.x - 3, c.z + 20, { collide: false }); prop('pipe', c.x + 22, c.z + 28, { collide: false });
+    ring(c.x, c.z, 30, true);
   }
-  // paddocks: fenced cells with troughs; every cell edge shared by two fenced cells is only built once
-  const edges = new Set();
+  let paddocks = 0;
   for (const c of list) {
-    if (rnd() < 0.45) continue;
-    const x0 = c.cx * 70, z0 = c.cz * 70;
-    const sides = [['h', x0, z0], ['h', x0, z0 + 70], ['v', x0, z0], ['v', x0 + 70, z0]];
-    for (const [t, ex, ez] of sides) {
-      const key = t + ex + ',' + ez;
-      if (edges.has(key)) continue; edges.add(key);
-      for (let s = 3; s < 70; s += 6) {
-        if (s > 28 && s < 40 && ((c.cx + c.cz) & 1)) continue;          // a gap (gate) in half the paddocks
-        const x = t === 'h' ? ex + s : ex, z = t === 'h' ? ez : ez + s;
-        if (w.waterAt(x, z) || w._blocked(x, z, 0.4) || w.isRoad(x, z, 0)) continue;
-        prop('fence', x, z, { rot: t === 'h' ? 0 : Math.PI / 2 });
-      }
+    if (paddocks >= Math.round(5 * K)) break;
+    if (rnd() < 0.62) continue;
+    const rad = rnd.range(16, 30);
+    ring(c.x + rnd.range(-6, 6), c.z + rnd.range(-6, 6), rad, rnd() < 0.55);
+    if (rnd() < 0.7) {
+      const x = c.x + rnd.range(-10, 10), z = c.z + rnd.range(-10, 10);
+      if (!w._blocked(x, z, 3) && w._farFromWater(x, z, 8)) { w._addWater('trough', x, z, 1.8, { carve: false }); prop('trough', x, z, { collide: false }); }
     }
-    if (rnd() < 0.7) { const x = c.x + rnd.range(-20, 20), z = c.z + rnd.range(-20, 20); if (!w._blocked(x, z, 3) && w._farFromWater(x, z, 8)) { w._addWater('trough', x, z, 1.8, { carve: false }); prop('trough', x, z, { collide: false }); } }
-    // a sheep paddock: a small mob grazing inside the fence
-    if (w.banded && rnd() < 0.45) {
-      const mob = 3 + Math.floor(rnd() * 5);
+    if (w.banded && rnd() < 0.5) {
+      const mob = 3 + Math.floor(rnd() * 4);
       for (let k = 0, made = 0; k < mob * 6 && made < mob; k++) {
-        const x = c.x + rnd.range(-26, 26), z = c.z + rnd.range(-26, 26);
+        const x = c.x + rnd.range(-rad * 0.7, rad * 0.7), z = c.z + rnd.range(-rad * 0.6, rad * 0.6);
         if (w._blocked(x, z, 2.2) || w.waterAt(x, z) || w.isRoad(x, z, 1) || w.heightAt(x, z) < 0.6) continue;
         prop('sheep', x, z, { rot: rnd() * 6.28, tint: rnd.range(0.92, 1.05) }); made++;
       }
     }
+    paddocks++;
   }
 }
 
@@ -317,20 +323,26 @@ function landmarks(ctx) {
     if (!best || h > best.h) best = { x: p.x, z: p.z, h };
   }
   if (best) { prop('lighthouse', best.x, best.z, { y: best.h }); w.landmarks.push({ kind: 'lighthouse', x: best.x, z: best.z, y: best.h }); }
-  // Norfolk pines along the back of the beach and on the headland (tall - visible from far inland)
+  // Norfolk pines: a curve along the foreshore, spacing that isn't a ruler
   const bu = w.coastCentre('beach', 0);
-  for (const u0 of [bu, hu]) {
-    for (let k = -5; k <= 5; k++) {
-      const p = w.shorePoint(u0 + k * 38 + rnd.range(-8, 8), w.biomes.coastKinds(u0)[2] > 0.5 ? 0.82 : 0.885);
-      if (Math.abs(p.x) > w.half - 50 || Math.abs(p.z) > w.half - 50) continue;
-      const q = w.biomes.weights(p.x, p.z);
-      if (q[B.beach] + q[B.dunes] + q[B.headland] < 0.5 || w._blocked(p.x, p.z, 1.5)) continue;
-      const h = w.heightAt(p.x, p.z); if (h < 0.9) continue;
-      w.decor.trees.push({ x: p.x, z: p.z, y: h, kind: 'norfolk', scale: rnd.range(1.5, 2.2), rot: rnd() * 6.28, tint: rnd.range(0.9, 1.05) });
-      w._addCircle(p.x, p.z, 0.8, { kind: 'tree' });
-      w.landmarks.push({ kind: 'norfolk', x: p.x, z: p.z });
-    }
-  }
+  const pine = (u, inland) => {
+    const bend = Math.sin(u * 0.035) * 16 + Math.sin(u * 0.012 + 1.1) * 10;
+    const guess = w.shorePoint(u, inland);
+    const p = w.shorePoint(u, inland + bend / w.span - w.shoreShift(guess.x) / w.span);
+    if (Math.abs(p.x) > w.half - 50 || Math.abs(p.z) > w.half - 50) return;
+    const q = w.biomes.weights(p.x, p.z);
+    if (q[B.beach] + q[B.dunes] + q[B.headland] < 0.45 || w._blocked(p.x, p.z, 1.5)) return;
+    const h = w.heightAt(p.x, p.z); if (h < 0.7) return;
+    w.decor.trees.push({ x: p.x, z: p.z, y: h, kind: 'norfolk', scale: rnd.range(1.5, 2.2), rot: rnd() * 6.28, tint: rnd.range(0.9, 1.05) });
+    w._addCircle(p.x, p.z, 0.8, { kind: 'tree' });
+    w.landmarks.push({ kind: 'norfolk', x: p.x, z: p.z });
+  };
+  let u = bu - rnd.range(70, 100);
+  const beachN = 6 + Math.floor(rnd() * 3);
+  for (let k = 0; k < beachN; k++) { u += rnd.range(22, 46); pine(u, 0.875); }
+  u = hu - rnd.range(40, 70);
+  const headN = 4 + Math.floor(rnd() * 3);
+  for (let k = 0; k < headN; k++) { u += rnd.range(26, 52); pine(u, 0.81); }
   // water tower in town (another inland landmark)
   const t = w._spotB(['town'], { maxSlope: 0.08, tries: 200, minW: 0.7 });
   if (t && !w._blocked(t.x, t.z, 6)) { prop('watertower', t.x, t.z, {}); w.landmarks.push({ kind: 'watertower', x: t.x, z: t.z }); }
@@ -378,6 +390,25 @@ function scatterTrees(ctx) {
     const scale = (kind === 'bush' ? rnd.range(0.7, 1.4) : kind === 'gum' ? rnd.range(1.0, 1.8) : kind === 'grasstree' ? rnd.range(0.7, 1.1) : rnd.range(0.8, 1.7)) * (kind === 'bush' ? 1.3 : TREE_SCALE);   // real-scale perspective: trees are giants next to a 20 cm octopus
     trees.push({ x, z, y: h, kind, scale, rot: rnd() * 6.28, tint: rnd.range(0.82, 1.1) });
     if (kind !== 'bush') w._addCircle(x, z, (kind === 'mangrove' ? 0.7 : 0.5) * scale, { kind: 'tree' });
+  }
+  // gum foothills where the ranges rise out of the bands (own stream, so the rest of the scatter stays put)
+  if (w.banded) {
+    const gr = mulberry32((w.seed ^ 0x6f07) >>> 0);
+    let gums = 0;
+    const want = Math.round(26 * Math.sqrt(K));
+    for (let i = 0; i < want * 18 && gums < want; i++) {
+      const x = gr.range(-w.half + 8, w.half - 8), z = gr.range(EDGE.north - 8, 520);
+      const eo = w.edgeOut(x, z);
+      if (eo < -48 || eo > -8) continue;
+      if (w.tAt(x, z) > 0.92 || w.biomeAt(x, z) === 'sea') continue;
+      if (w._blocked(x, z, 1.2) || w.isRoad(x, z, 2)) continue;
+      const h = w.heightAt(x, z);
+      if (h < 1.4 || h > 16) continue;
+      const scale = gr.range(0.9, 1.55) * TREE_SCALE;
+      trees.push({ x, z, y: h, kind: 'gum', scale, rot: gr() * 6.28, tint: gr.range(0.86, 1.05) });
+      w._addCircle(x, z, 0.42 * scale, { kind: 'tree' });
+      gums++;
+    }
   }
 }
 
@@ -465,6 +496,55 @@ function riverside(ctx) {
   }
 }
 
+/** rock pools, driftwood and dune-grass clumps along the beach. Own random stream so nothing else moves. */
+function dressShore(ctx) {
+  const { w, prop } = ctx;
+  const rnd = mulberry32((w.seed ^ 0xc0a57) >>> 0);
+  const grass = w.decor.grass;
+  let pools = 0, wood = 0, clumps = 0;
+  for (let i = 0; i < 400 && (pools < 7 || wood < 5 || clumps < 8); i++) {
+    const x = rnd.range(-560, 560), z = rnd.range(300, 470);
+    const b = w.biomeAt(x, z), tt = w.tAt(x, z);
+    if (b !== 'beach' && b !== 'dunes' && b !== 'headland' && b !== 'estuary') continue;
+    if (w._blocked(x, z, 1.2)) continue;
+    const h = w.heightAt(x, z);
+    if (pools < 7 && (b === 'beach' || b === 'headland') && tt > 0.9 && tt < 0.98 && h > 0.15 && h < 1.4 && w._farFromWater(x, z, 8) && w._ringStats(x, z, 2.2).spread < 0.35) {
+      const pr = rnd.range(1.6, 2.6);
+      w._addWater('tidepool', x, z, pr, { depth: 0.16 });
+      // a smaller pool beside it, outside the big one's carve (a pool sat in that bowl clips the bank)
+      if (rnd() < 0.65) {
+        const sr = rnd.range(1.3, 1.9);
+        const ang = rnd() * 6.2832;
+        const dist = pr * 1.9 + sr;
+        const sx = x + Math.cos(ang) * dist, sz = z + Math.sin(ang) * dist;
+        const st = w._ringStats(sx, sz, Math.max(sr, 2.2));
+        if (st.spread < 0.14 && st.lo > 0.12 && st.hi < 2 && w._farFromWater(sx, sz, pr + sr) && !w._blocked(sx, sz, 1.2))
+          w._addWater('tidepool', sx, sz, sr, { depth: 0.2 });
+      }
+      pools++;
+      continue;
+    }
+    if (wood < 5 && (b === 'beach' || b === 'dunes') && h > 0.4 && h < 2.2 && tt > 0.86 && tt < 0.97) {
+      const a = rnd() * 6.28;
+      for (let k = 0; k < 2 + Math.floor(rnd() * 2); k++) {
+        const lx = x + Math.cos(a + k) * (1.2 + k * 1.4), lz = z + Math.sin(a + k) * (1.1 + k);
+        if (!w._blocked(lx, lz, 0.6) && w.heightAt(lx, lz) > 0.3) prop('log', lx, lz, { rot: a + k * 0.4, collide: false });
+      }
+      wood++;
+      continue;
+    }
+    if (clumps < 8 && (b === 'dunes' || b === 'beach') && h > 0.8 && tt < 0.93) {
+      const n = 5 + Math.floor(rnd() * 5);
+      for (let k = 0; k < n; k++) {
+        const gx = x + rnd.range(-4, 4), gz = z + rnd.range(-3, 3), gh = w.heightAt(gx, gz);
+        if (gh < 0.7) continue;
+        grass.push({ x: gx, z: gz, y: gh, s: rnd.range(0.9, 1.6) * GRASS_SCALE * 1.25, rot: rnd() * 6.28, dry: true, tint: rnd.range(0.85, 1.1), wet: false });
+      }
+      clumps++;
+    }
+  }
+}
+
 function coastBits(ctx) {
   const { w, rnd, K, prop } = ctx;
   const beach = w.decor.beach;
@@ -498,6 +578,7 @@ function coastBits(ctx) {
     if (tt < 0.86 || tt > 0.9) continue;
     prop('post', x, z, { rot: rnd() * 6.28, collide: false }); n++;
   }
+  dressShore(ctx);
   // estuary: the jetty, boats, crab pots, a fishing shack
   const eu = w.coast.estuaryU + 70;
   let landT = 0.9;
@@ -788,7 +869,10 @@ function bandedPlaces(ctx) {
   }
   const o = flatSpot(120, -560, 140, 8, 0.06);
   if (o) {
-    prop('outfall', o.x, o.z, { rot: 0 });
+    const hs = [[-5, 0], [5, 0], [0, -1.2], [0, 1.2], [0, 0]].map(([dx, dz]) => w.heightAt(o.x + dx, o.z + dz));
+    const y = hs.reduce((a, b) => a + b, 0) / hs.length;
+    w.addHousePad({ x: o.x, z: o.z + 0.9, w: 12, d: 5.4 }, y);   // level ground; seat() then sinks the rounded lip so no corner hovers
+    prop('outfall', o.x, o.z, { rot: 0, collide: false });
     w.landmarks.push({ kind: 'outfall', x: o.x, z: o.z });
     // the drain runs under the wasteland: a wet squeeze from the outfall mouth to a grate further north
     for (let i = 0; i < 40; i++) {
@@ -798,8 +882,9 @@ function bandedPlaces(ctx) {
       prop('drain', gx, gz, { collide: false });
       break;
     }
-    const px = o.x, pz = o.z + 10;
-    if (w._ringStats(px, pz, 5).spread < 0.35 && w._farFromWater(px, pz, 10)) { const q = w._addWater('sludge', px, pz, 5, { depth: 0.25 }); q.alt = 0; }
+    // south of the apron, clear of the pad's blend, so the sludge carve does not drop the ground under the pipe
+    const px = o.x, pz = o.z + 18;
+    if (w._ringStats(px, pz, 5).spread < 0.35 && w._farFromWater(px, pz, 12)) { const q = w._addWater('sludge', px, pz, 5, { depth: 0.25 }); q.alt = 0; }
   }
   // ---- a small old stone ruin out in the fields (a landmark, not a castle)
   for (let i = 0; i < 400; i++) {

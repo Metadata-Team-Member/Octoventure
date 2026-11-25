@@ -24,14 +24,14 @@ import { tint, merge, at } from '../world/models.js';
 import { separate } from '../util/separate.js';
 import antUrl from '../assets/models/ant.glb?url';
 
-const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank']);
+const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank', 'wasteland']);
 const ANT_B = new Set(['desert', 'bush', 'suburb', 'farm', 'town', 'dunes', 'rainforest']);
-const FLY_B = new Set(['wetland', 'riverbank', 'estuary', 'rainforest', 'farm']);
-const CRAB_B = new Set(['beach', 'dunes', 'estuary', 'headland']);
-const FROG_B = new Set(['wetland', 'rainforest', 'riverbank', 'estuary']);
+const FLY_B = new Set(['wetland', 'riverbank', 'estuary', 'rainforest', 'farm', 'wasteland']);
+const CRAB_B = new Set(['beach', 'dunes', 'estuary', 'headland', 'mudflat', 'wasteland']);
+const FROG_B = new Set(['wetland', 'rainforest', 'riverbank', 'estuary', 'mudflat']);
 const HERM_B = new Set(['beach', 'dunes', 'estuary']);
 const BUTT_B = new Set(['bush', 'rainforest', 'wetland', 'farm', 'suburb', 'riverbank', 'dunes']);
-const WREN_B = new Set(['bush', 'farm', 'suburb', 'wetland', 'rainforest', 'riverbank']);
+const WREN_B = new Set(['bush', 'farm', 'suburb', 'wetland', 'rainforest', 'riverbank', 'mudflat']);
 const NS = 10, NT = 6, PER = 22, NF = 8, NC = 8, NFR = 6, NH = 6, NB = 8, NW = 6, R_FAR = 46;
 const ANT_N = NT * PER;
 const ANT_NEAR = 4;                       // metres: skinned walk / idle. Trails spawn from 8 m, so a standing view does not pay for mixers.
@@ -45,7 +45,7 @@ const ANT_BUDGET = {
   leg_LF: 6, leg_LM: 6, leg_LH: 6, leg_RF: 6, leg_RM: 6, leg_RH: 6,
   p1: 10, p2: 8, p3: 4,
 };
-const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _zero = new THREE.Vector3(0, 0, 0);
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _zero = new THREE.Vector3(0, 0, 0), _c = new THREE.Color();
 
 const sph = (r, s = 6, t = 5) => new THREE.SphereGeometry(r, s, t);
 const eye = (x, y, z, r = 0.012) => at(tint(sph(r, 5, 4), 0x1a1a1a), x, y, z);
@@ -160,8 +160,8 @@ export class Critters {
     this.flyMesh = mk(flyGeo(), NF); this.crMesh = mk(crabGeo(), NC);
     this.frMesh = mk(frogGeo(), NFR); this.hmMesh = mk(hermitGeo(), NH);
     this.buMesh = mk(butterflyGeo(), NB); this.wrMesh = mk(wrenGeo(), NW);
-    this.lineMat = outlineMat(0x231a12);
-    this.hulls = [this.skMesh, this.flyMesh, this.crMesh, this.frMesh, this.hmMesh, this.buMesh, this.wrMesh].flatMap((m) => outline(m, this.lineMat));
+    this.lineMat = this.mobile ? null : outlineMat(0x231a12);
+    this.hulls = this.lineMat ? [this.skMesh, this.flyMesh, this.crMesh, this.frMesh, this.hmMesh, this.buMesh, this.wrMesh].flatMap((m) => outline(m, this.lineMat)) : [];
     this.sk = Array.from({ length: NS }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, run: 0, walk: 0, bask: 0, t: Math.random() * 5, cur: 0 }));
     this.tr = Array.from({ length: NT }, () => ({ on: false, x: 0, z: 0, a: 0, len: 3, hs: new Float32Array(9), ph: Math.random() }));
     this.fl = Array.from({ length: NF }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, g: 0, t: 0, h: 0 }));
@@ -243,7 +243,7 @@ export class Critters {
     if (k < NS) {
       const c = this.sk[k]; if (!far(c) && !(night > 0.6) && !(rain > 0.65)) return;
       c.on = false; if (night > 0.6 || rain > 0.65) return;
-      if (place(c, SKINK_B)) { c.h = Math.random() * 6.28; c.run = 0; c.walk = 0; c.bask = 1 + Math.random() * 3; c.cur = 0; }
+      if (place(c, SKINK_B)) { c.h = Math.random() * 6.28; c.run = 0; c.walk = 0; c.bask = 1 + Math.random() * 3; c.cur = 0; c.as = w.biomeAt(c.x, c.z) === 'wasteland' ? 'rat' : 'skink'; }
     } else if (k < NS + NT) {
       const c = this.tr[k - NS]; if (!far(c) && !(rain > 0.7)) return;
       c.on = false; if (rain > 0.7) return;
@@ -253,11 +253,15 @@ export class Critters {
     } else if (k < NS + NT + NF) {
       const c = this.fl[k - NS - NT]; if (!far(c) && !(night > 0.6) && !(rain > 0.7)) return;
       c.on = false; if (night > 0.6 || rain > 0.7) return;
-      if (place(c, FLY_B)) { c.ax = c.x; c.az = c.z; c.g = c.y; c.y = c.g + 1; c.t = 0; c.tx = c.x; c.tz = c.z; c.ty = c.y; }
+      if (place(c, FLY_B)) { c.ax = c.x; c.az = c.z; c.g = c.y; c.y = c.g + 1; c.t = 0; c.tx = c.x; c.tz = c.z; c.ty = c.y; c.as = w.biomeAt(c.x, c.z) === 'wasteland' ? 'fly' : 'dragonfly'; }
     } else if (k < NS + NT + NF + NC) {
       const c = this.cr[k - NS - NT - NF]; if (!far(c) && c.dig < 1) return;
-      c.on = false; if (!place(c, CRAB_B)) return;
+      c.on = false;
+      const mud = w.biomeAt(o.x, o.z) === 'mudflat';
+      if (!place(c, CRAB_B, mud ? { nearWater: true } : {}) && mud) place(c, CRAB_B);
+      if (!c.on) return;
       c.h = Math.random() * 6.28; c.dir = Math.random() < 0.5 ? -1 : 1; c.t = 0; c.run = 0; c.dig = 0; c.cur = 0;
+      c.as = w.biomeAt(c.x, c.z) === 'wasteland' ? 'cockroach' : 'ghostcrab';
     } else if (k < NS + NT + NF + NC + NFR) {
       const c = this.fr[k - NS - NT - NF - NC]; if (!far(c)) return;
       const s = this.spot(o, FROG_B, { nearWater: Math.random() < 0.7 }) || this.spot(o, FROG_B, { wet: true }) || this.spot(o, FROG_B);
@@ -274,7 +278,11 @@ export class Critters {
     } else {
       const c = this.wr[k - NS - NT - NF - NC - NFR - NH - NB]; if (!far(c) && !(night > 0.6) && !(rain > 0.8)) return;
       c.on = false; if (night > 0.6) return;
-      if (place(c, WREN_B)) { c.g = c.y; c.h = Math.random() * 6.28; c.hop = 0; c.fly = 0; c.t = Math.random() * 2; c.tx = c.x; c.tz = c.z; c.ty = c.y; }
+      const mudW = w.biomeAt(o.x, o.z) === 'mudflat';
+      if (!place(c, WREN_B, mudW ? { nearWater: true } : {}) && mudW) place(c, WREN_B);
+      if (!c.on) return;
+      c.as = w.biomeAt(c.x, c.z) === 'mudflat' ? 'wader' : 'wren';
+      c.g = c.y; c.h = Math.random() * 6.28; c.hop = 0; c.fly = 0; c.t = Math.random() * 2; c.tx = c.x; c.tz = c.z; c.ty = c.y;
     }
   }
 
@@ -318,9 +326,12 @@ export class Critters {
       }
       const wig = sp > 0 ? Math.sin(this.T * 30) * 0.25 : 0;
       const flat = c.bask > 0 && sp === 0 ? 0.72 : 1;
-      pose(this.skMesh, i, c.x, c.y, c.z, c.h + wig, 1, flat, 1);
+      const rat = c.as === 'rat';
+      pose(this.skMesh, i, c.x, c.y, c.z, c.h + wig, rat ? 0.85 : 1, (rat ? 0.62 : 1) * flat, rat ? 1.25 : 1);
+      this.skMesh.setColorAt(i, _c.set(rat ? 0x6b5346 : 0xffffff));
     }
     this.skMesh.instanceMatrix.needsUpdate = true;
+    if (this.skMesh.instanceColor) this.skMesh.instanceColor.needsUpdate = true;
 
     // ---- ant trails: nest-to-food march; they pack up in heavy rain.
     // Scale is 1: the glb is already 1.2 cm. +Z is forward. Nearby ants play
@@ -411,9 +422,12 @@ export class Critters {
       const k = 1 - Math.exp(-(s.close ? 7 : 4) * dt), px = c.x, pz = c.z;
       c.x += (c.tx - c.x) * k; c.z += (c.tz - c.z) * k; c.y += (c.ty - c.y) * k;
       if (Math.abs(c.x - px) + Math.abs(c.z - pz) > 1e-3) c.h = Math.atan2(c.x - px, c.z - pz);
-      pose(this.flyMesh, i, c.x, c.y + Math.sin(this.T * 3 + i) * 0.04, c.z, c.h, 1, 1, 1, 0, Math.sin(this.T * 48 + i) * 0.12);
+      const fly = c.as === 'fly';
+      pose(this.flyMesh, i, c.x, c.y + Math.sin(this.T * 3 + i) * 0.04, c.z, c.h, fly ? 0.45 : 1, fly ? 0.45 : 1, fly ? 0.45 : 1, 0, Math.sin(this.T * 48 + i) * 0.12);
+      this.flyMesh.setColorAt(i, _c.set(fly ? 0x3a332c : 0xffffff));
     }
     this.flyMesh.instanceMatrix.needsUpdate = true;
+    if (this.flyMesh.instanceColor) this.flyMesh.instanceColor.needsUpdate = true;
 
     // ---- ghost crabs: sideways scuttles, a curious sidle, then a dash and down a burrow
     for (let i = 0; i < NC; i++) {
@@ -433,9 +447,12 @@ export class Critters {
         if (!w.waterAt?.(nx, nz) && !w._blocked?.(nx, nz, 0.15)) { c.x = nx; c.z = nz; c.y = w.heightAt(nx, nz); } else c.dir = -c.dir;
       }
       const bob = sp > 0 ? Math.abs(Math.sin(this.T * 38 + i)) * 0.012 : 0, sink = c.dig * 0.14;
-      pose(this.crMesh, i, c.x, c.y + bob - sink, c.z, c.h);
+      const roach = c.as === 'cockroach';
+      pose(this.crMesh, i, c.x, c.y + bob - sink, c.z, c.h, roach ? 0.7 : 1, roach ? 0.32 : 1, roach ? 1.25 : 1);
+      this.crMesh.setColorAt(i, _c.set(roach ? 0x4a3828 : 0xffffff));
     }
     this.crMesh.instanceMatrix.needsUpdate = true;
+    if (this.crMesh.instanceColor) this.crMesh.instanceColor.needsUpdate = true;
 
     // ---- frogs: sit at the water's edge, hop, plop in when startled (more lively in the rain and at dusk)
     const frogEager = (rain > 0.25 || night > 0.45) ? 1.6 : 1;
@@ -523,9 +540,12 @@ export class Critters {
         if (Math.hypot(c.x - c.tx, c.z - c.tz) < 0.25) { c.fly = 0; c.y = c.g; c.t = 0.4 + Math.random(); }
       } else { c.g = w.heightAt(c.x, c.z); c.y = c.g; }
       const bob = c.fly > 0 ? Math.sin(this.T * 28 + i) * 0.02 : 0;
-      pose(this.wrMesh, i, c.x, c.y + bob, c.z, c.h);
+      const wade = c.as === 'wader';
+      pose(this.wrMesh, i, c.x, c.y + bob, c.z, c.h, wade ? 0.9 : 1, wade ? 1.45 : 1, wade ? 0.85 : 1);
+      this.wrMesh.setColorAt(i, _c.set(wade ? 0xd5d0c4 : 0xffffff));
     }
     this.wrMesh.instanceMatrix.needsUpdate = true;
+    if (this.wrMesh.instanceColor) this.wrMesh.instanceColor.needsUpdate = true;
   }
 
   /** how many of each are out right now (tests) */
@@ -539,7 +559,7 @@ export class Critters {
   }
   /** kinds of harmless critters currently visible within r metres of the octopus (for the field journal) */
   kindsNear(o, r = 16) {
-    const out = new Set(), hit = (arr, id, ok) => { for (const c of arr || []) if (c.on && (!ok || ok(c)) && Math.hypot(c.x - o.x, c.z - o.z) < r) out.add(id); };
+    const out = new Set(), hit = (arr, id, ok) => { for (const c of arr || []) if (c.on && (!ok || ok(c)) && Math.hypot(c.x - o.x, c.z - o.z) < r) out.add(c.as || id); };
     hit(this.sk, 'skink'); hit(this.tr, 'ant'); hit(this.fl, 'dragonfly'); hit(this.cr, 'ghostcrab', (c) => c.dig < 1);
     hit(this.fr, 'frog'); hit(this.hm, 'hermit', (c) => c.hide < 1); hit(this.bu, 'butterfly'); hit(this.wr, 'wren');
     return out;
@@ -590,6 +610,6 @@ export class Critters {
     if (this.antInst) this.scene.remove(this.antInst);
     for (const s of this.antSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); }
     this.antMat?.dispose();
-    this.mat.dispose(); this.lineMat.dispose();
+    this.mat.dispose(); this.lineMat?.dispose();
   }
 }
