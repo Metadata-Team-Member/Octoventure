@@ -12,10 +12,13 @@ import { toonMat } from '../world/toon.js';
 import { buildGatherGeos } from '../world/gatherModels.js';
 import { seat, instanceSpec, geoHeight } from '../world/placement.js';
 import { installBeetleFromUrl, beetleTemplate } from '../world/beetleModel.js';
+import { installCrabFromUrl, crabTemplate } from '../world/crabModel.js';
 import { crossFadeGait } from '../world/toonGlb.js';
 import beetleUrl from '../assets/models/beetle.glb?url';
+import crabUrl from '../assets/models/crab.glb?url';
 
 await installBeetleFromUrl(beetleUrl);
+await installCrabFromUrl(crabUrl);
 
 const _m = new THREE.Matrix4(), _a = new THREE.Matrix4(), _b = new THREE.Matrix4(), _zero = new THREE.Matrix4().makeScale(0, 0, 0);
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _fwd = new THREE.Vector3();
@@ -24,6 +27,9 @@ const CRITTER = { crab: 26, shrimp: 22 };
 const BEETLE_NEAR = 4;          // metres: skinned idle / the short scuttle. Farther beetles stay the instanced stand-in.
 const BEETLE_SCUTTLE = 1.15;    // inside the touch radius the legs walk; a couple of centimetres, then it settles
 const BEETLE_FADE = 0.15;
+const CRAB_NEAR = 8;            // metres: past the flee alarm (5.5) so the sideways walk is visible before it bolts
+const CRAB_SNAP = 2.4;          // one pinch when the octopus gets this close (and again when it is scooped)
+const CRAB_FADE = 0.12;
 const TAU = Math.PI * 2;
 const hash = (id) => { let h = 2166136261; for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; };
 
@@ -42,6 +48,7 @@ export class Gatherer {
       m.instanceMatrix.needsUpdate = true; m.visible = false; m.count = 0; this.meshes[k] = m; this.free[k] = Array.from({ length: POOL }, (_, j) => POOL - 1 - j);
     }
     this._mountBeetles(mobile);
+    this._mountCrabs(mobile);
     // critter pools
     this.pool = { crab: [], shrimp: [] };
     for (const k in CRITTER) for (let i = 0; i < CRITTER[k]; i++) { const m = new THREE.Mesh(this.geos[k], this.mat); m.visible = false; m.frustumCulled = false; this.root.add(m); this.pool[k].push(m); }
@@ -90,6 +97,7 @@ export class Gatherer {
   fit(kind) { let top = 0; for (const a of this.active) if (a.kind === kind && a.slot >= top) top = a.slot + 1; this.meshes[kind].count = top; }
   release(g) {
     if (g.kind === 'beetle') this._hideBeetle(g);
+    if (g.kind === 'crab') this._hideCrab(g);
     if (g.slot < 0) return;
     if (CRITTER[g.kind]) {
       const i = this.live.indexOf(g); if (i >= 0) this.live.splice(i, 1);
@@ -118,12 +126,13 @@ export class Gatherer {
 
   /** where a critter stands: on the ground (the lowest of a few probes, so the legs touch) */
   placeCritter(g, dt) {
-    const w = this.world, m = g.mesh, s = g.s, r = 0.09 * s;
+    const w = this.world, m = g.mesh, s = g.s, r = (g.kind === 'crab' ? 0.12 : 0.09) * s;
     const y = Math.min(w.heightAt(g.cx, g.cz), w.heightAt(g.cx + r, g.cz), w.heightAt(g.cx - r, g.cz), w.heightAt(g.cx, g.cz + r), w.heightAt(g.cx, g.cz - r));
-    const bob = g.mode ? Math.abs(Math.sin(this.clock * 24 + g.t)) * 0.012 * s : 0;
+    const bob = g.mode && !g._skin ? Math.abs(Math.sin(this.clock * 24 + g.t)) * 0.012 * s : 0;
     m.position.set(g.cx, y + bob - 0.003, g.cz);
     if (g.kind === 'crab') {
-      m.rotation.set(0, g.face, g.mode ? Math.sin(this.clock * 26 + g.t) * 0.06 : 0);       // the body rocks as the legs work
+      const rock = g._skin ? 0 : (g.mode ? Math.sin(this.clock * 26 + g.t) * 0.06 : 0);
+      m.rotation.set(0, g.face, rock);       // the stand-in rocks; the clip owns the skinned body
     } else {
       m.rotation.set(g.mode ? -0.18 - Math.sin(this.clock * 30 + g.t) * 0.1 : 0, g.face, 0);   // tail flicks when darting
     }
@@ -164,8 +173,9 @@ export class Gatherer {
         const nx = g.cx + vx * sp * dt, nz = g.cz + vz * sp * dt;
         if (this.moveOk(g, nx, nz)) {
           g.cx = nx; g.cz = nz;
-          // a crab walks sideways: its body is square to the line of travel; a shrimp swims head first
-          const want = Math.atan2(vx, vz) + (crab ? Math.PI / 2 : 0);
+          // a crab walks sideways along local +X (the walk clip). yaw - PI/2 points +X along travel;
+          // +PI/2 would scuttle the other way. a shrimp swims head first.
+          const want = Math.atan2(vx, vz) + (crab ? -Math.PI / 2 : 0);
           let da = (want - g.face) % TAU; if (da > Math.PI) da -= TAU; if (da < -Math.PI) da += TAU;
           g.face += da * Math.min(1, dt * 12);
         } else if (g.mode === 1) g.hd += 2.1;
@@ -182,6 +192,7 @@ export class Gatherer {
     for (const g of this.live) if (g.face === undefined) g.face = g.hd;
     this.updateCritters(dt, o);
     this.updateBeetles(dt, o);
+    this.updateCrabs(dt, o);
     // ---- touch
     if (o.alive && !o.tunnel && !o.carried) {
       const R = 0.35 + 1.3 * (o.sz ?? 0.42), R2 = R * R, reach = o.inWater ? 3 : 2;
@@ -207,14 +218,22 @@ export class Gatherer {
       const lift = Math.sin(e * Math.PI) * 0.1 * (1 - e);
       const px = a.p.x + (tx - a.p.x) * ee, pz = a.p.z + (tz - a.p.z) * ee, py = a.p.y + (ty - a.p.y) * ee + lift;
       const sc = Math.max(0.001, 1 - ee);
-      if (a.crit) { a.mesh.position.set(px, py, pz); a.mesh.scale.setScalar(a.s * sc); a.mesh.rotation.y += dt * 9; }
+      if (a.crit) {
+        a.mesh.position.set(px, py, pz); a.mesh.scale.setScalar(a.s * sc); a.mesh.rotation.y += dt * 9;
+        if (a.skin) a.slot.mixer.update(dt);
+      }
       else {
         _a.makeTranslation(px, py, pz).multiply(_b.makeScale(sc, sc, sc)).multiply(_m.makeTranslation(-a.p.x, -a.p.y, -a.p.z)).multiply(a.base);
         a.mesh.matrix.copy(_a);
       }
       if (e >= 1) {
         if (!a.gave) { a.gave = true; this.onPick?.(a.item); }
-        this.root.remove(a.mesh); if (a.crit) { a.mesh.visible = false; a.mesh.scale.setScalar(a.s); this.pool[a.kind].push(a.mesh); this.root.add(a.mesh); } this.anims.splice(i, 1);
+        if (a.skin) this._parkCrab(a.slot);
+        else {
+          this.root.remove(a.mesh);
+          if (a.crit) { a.mesh.visible = false; a.mesh.scale.setScalar(a.s); this.pool[a.kind].push(a.mesh); this.root.add(a.mesh); }
+        }
+        this.anims.splice(i, 1);
       }
     }
   }
@@ -224,9 +243,23 @@ export class Gatherer {
     if (CRITTER[g.kind]) {
       const m = g.mesh; at.copy(m.position);
       const i = this.live.indexOf(g); if (i >= 0) this.live.splice(i, 1);
-      const pi = this.pool[g.kind].indexOf(m); if (pi >= 0) this.pool[g.kind].splice(pi, 1);       // flying-to-you critter leaves the pool until done
-      g.mesh = null; g.slot = -1;
-      this.anims.push({ mesh: m, crit: true, kind: g.kind, p: at, t: 0, s: g.s, item: g, gave: false });
+      const pi = this.pool[g.kind].indexOf(m); if (pi >= 0) this.pool[g.kind].splice(pi, 1);
+      g.mesh = null; g.slot = -1; g._skin = 0;
+      if (g.kind === 'crab' && this.crabReady) {
+        let slot = this.crabSlots.find((s) => s.live && s.item === g);
+        if (!slot) slot = this.crabSlots.find((s) => !s.live && !s.tucking) || this.crabSlots.find((s) => !s.tucking);
+        if (!slot) this.anims.push({ mesh: m, crit: true, kind: g.kind, p: at, t: 0, s: g.s, item: g, gave: false });
+        else {
+          if (slot.live && slot.item && slot.item !== g && slot.item.mesh && !slot.item.got) { slot.item.mesh.visible = true; slot.item._skin = 0; }
+          slot.item = g; slot.id = g.id; slot.tucking = true; slot.live = false;
+          this._startCrabSnap(slot);
+          slot.root.position.copy(m.position); slot.root.rotation.copy(m.rotation); slot.root.scale.setScalar(g.s); slot.root.visible = true;
+          m.visible = false; m.scale.setScalar(g.s); this.pool.crab.push(m); this.root.add(m);
+          this.anims.push({ mesh: slot.root, crit: true, skin: true, slot, kind: g.kind, p: at, t: 0, s: g.s, item: g, gave: false });
+        }
+      } else {
+        this.anims.push({ mesh: m, crit: true, kind: g.kind, p: at, t: 0, s: g.s, item: g, gave: false });
+      }
     } else {
       const base = this.seatMatrix(g, new THREE.Matrix4()); at.setFromMatrixPosition(base); at.y += 0.05;
       const mesh = new THREE.Mesh(this.geos[g.kind], g.kind === 'jar' ? this.jarMat : this.mat); mesh.matrixAutoUpdate = false; mesh.frustumCulled = false; mesh.matrix.copy(base); this.root.add(mesh);
@@ -372,9 +405,149 @@ export class Gatherer {
       cap: this.beetleCap || 0, simulating: this._beetleSim || 0, idle, walk, active, far, samples,
     };
   }
+  /** Nearby shore crabs swap the stand-in mesh for a skinned clone (one draw, not two). */
+  _mountCrabs(mobile) {
+    const tpl = crabTemplate();
+    const walkClip = tpl.clips.find((a) => a.name === 'walk');
+    const idleClip = tpl.clips.find((a) => a.name === 'idle');
+    const snapClip = tpl.clips.find((a) => a.name === 'snap');
+    this.crabReady = !!(walkClip && idleClip && snapClip);
+    this.crabError = this.crabReady ? '' : 'missing clips';
+    this.crabClips = tpl.clips.map((a) => a.name);
+    this.crabDur = { walk: walkClip?.duration || 0, idle: idleClip?.duration || 0, snap: snapClip?.duration || 0 };
+    this.crabTris = tpl.geo.index ? tpl.geo.index.count / 3 : tpl.geo.attributes.position.count / 3;
+    this.crabFarTris = tpl.farGeo.attributes.position.count / 3;
+    this.crabCap = mobile ? 4 : 8;
+    this.crabSlots = [];
+    this._crabSim = 0;
+    this._crabSnaps = 0;
+    if (!this.crabReady) return;
+    for (let i = 0; i < this.crabCap; i++) {
+      const root = SkeletonUtils.clone(tpl.scene);
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = this.mat; o.frustumCulled = false; o.castShadow = false; o.receiveShadow = false;
+        o.userData.noOutline = true;
+      });
+      root.visible = false; root.position.y = -999; root.matrixAutoUpdate = true;
+      this.root.add(root);
+      const mixer = new THREE.AnimationMixer(root);
+      const walk = mixer.clipAction(walkClip), idle = mixer.clipAction(idleClip), snap = mixer.clipAction(snapClip);
+      walk.setLoop(THREE.LoopRepeat, Infinity); idle.setLoop(THREE.LoopRepeat, Infinity);
+      snap.setLoop(THREE.LoopOnce, 1); snap.clampWhenFinished = true;
+      const slot = { root, mixer, walk, idle, snap, id: -1, item: null, live: false, moving: null, phase: 0, snapping: false, snapCool: 0, tucking: false };
+      mixer.addEventListener('finished', (e) => { if (e.action === snap) slot.snapping = false; });
+      this.crabSlots.push(slot);
+    }
+  }
+  _parkCrab(slot) {
+    if (!slot) return;
+    slot.live = false; slot.item = null; slot.id = -1; slot.moving = null; slot.snapping = false; slot.tucking = false;
+    slot.root.visible = false; slot.root.position.y = -999; slot.root.scale.set(1, 1, 1);
+    slot.mixer.stopAllAction();
+  }
+  _hideCrab(g) {
+    const slot = this.crabSlots?.find((s) => s.live && (s.item === g || s.id === g.id));
+    if (slot) this._parkCrab(slot);
+    g._skin = 0;
+  }
+  _startCrabSnap(slot) {
+    slot.snapping = true; this._crabSnaps = (this._crabSnaps || 0) + 1;
+    const prev = slot.moving === true ? slot.walk : slot.moving === false ? slot.idle : null;
+    slot.snap.reset(); slot.snap.setLoop(THREE.LoopOnce, 1); slot.snap.clampWhenFinished = true; slot.snap.enabled = true;
+    slot.snap.play(); slot.snap.setEffectiveWeight(1);
+    if (prev && prev.isRunning()) prev.crossFadeTo(slot.snap, 0.08, false);
+    else { slot.walk.stop(); slot.idle.stop(); }
+    slot.moving = null;
+  }
+  updateCrabs(dt, o) {
+    if (!this.crabReady) return;
+    const near2 = CRAB_NEAR * CRAB_NEAR;
+    const near = [];
+    for (const g of this.live) {
+      if (g.kind !== 'crab' || g.got || !g.mesh) continue;
+      const dx = g.cx - o.x, dz = g.cz - o.z;
+      g._d2 = dx * dx + dz * dz;
+      if (g._d2 <= near2) near.push(g);
+    }
+    near.sort((a, b) => a._d2 - b._d2);
+    const chosen = near.slice(0, this.crabCap);
+    const pick = new Set(chosen);
+    for (const slot of this.crabSlots) {
+      if (slot.tucking || !slot.live) continue;
+      const g = slot.item;
+      if (!g || g.got || !pick.has(g)) {
+        if (g && g.mesh && !g.got) { g.mesh.visible = true; g._skin = 0; }
+        this._parkCrab(slot);
+      }
+    }
+    for (const g of chosen) {
+      let slot = this.crabSlots.find((s) => s.live && s.item === g);
+      if (!slot) {
+        slot = this.crabSlots.find((s) => !s.live && !s.tucking);
+        if (!slot) continue;
+        slot.live = true; slot.item = g; slot.id = g.id; slot.moving = null; slot.snapping = false;
+        slot.snapCool = 0.2; slot.phase = hash(g.id) * 0.5;
+      }
+      if (slot.snapCool > 0) slot.snapCool -= dt;
+      const moving = g.mode === 1 || g.mode === 2;
+      const d = Math.sqrt(g._d2);
+      if (!slot.snapping && d < CRAB_SNAP && o.alive && slot.snapCool <= 0) {
+        this._startCrabSnap(slot); slot.snapCool = 3.2;
+      } else if (!slot.snapping) {
+        if (slot.snap.getEffectiveWeight() > 0) slot.snap.stop();
+        crossFadeGait(slot, moving, CRAB_FADE);
+      }
+      const m = g.mesh;
+      slot.root.position.copy(m.position); slot.root.rotation.copy(m.rotation); slot.root.scale.copy(m.scale); slot.root.visible = true;
+      m.visible = false; g._skin = 1;
+      slot.mixer.update(dt);
+    }
+    this._crabSim = this.crabSlots.reduce((n, s) => n + ((s.live || s.tucking) ? 1 : 0), 0);
+  }
+  /** For tests: clips, who is simulating, and whether a crab sits on heightAt at its gather scale. */
+  crabProbe(o) {
+    let idle = 0, walk = 0, snapping = 0;
+    for (const s of this.crabSlots || []) {
+      if (s.tucking || s.snapping) snapping++;
+      else if (!s.live) continue;
+      else if (s.moving) walk++; else idle++;
+    }
+    let active = 0, far = 0, doubled = 0;
+    const samples = [];
+    for (const g of this.live) {
+      if (g.kind !== 'crab' || g.got || !g.mesh) continue;
+      active++;
+      const slot = this.crabSlots.find((s) => s.live && s.item === g);
+      const skinned = !!slot;
+      const d = o ? Math.hypot(g.cx - o.x, g.cz - o.z) : 99;
+      if (!skinned) far++;
+      if (skinned && g.mesh.visible && slot.root.visible) doubled++;
+      if (samples.length < 10) {
+        const src = skinned ? slot.root : g.mesh;
+        const lx = Math.cos(g.face || 0), lz = -Math.sin(g.face || 0);
+        samples.push({
+          id: g.id, scale: src.scale.x, s: g.s, y: src.position.y, ground: this.world.heightAt(g.cx, g.cz),
+          skinned, moving: !!(slot && slot.moving), snapping: !!(slot && slot.snapping),
+          mode: g.mode, d, face: g.face || 0, cx: g.cx, cz: g.cz, lx, lz,
+          meshOn: !!g.mesh.visible, skinOn: skinned ? !!slot.root.visible : false,
+        });
+      }
+    }
+    const tuck = (this.anims || []).filter((a) => a.skin);
+    return {
+      ready: !!this.crabReady, error: this.crabError || '', clips: (this.crabClips || []).slice(),
+      dur: { ...(this.crabDur || {}) }, tris: this.crabTris || 0, farTris: this.crabFarTris || 0,
+      cap: this.crabCap || 0, simulating: this._crabSim || 0, snaps: this._crabSnaps || 0,
+      idle, walk, snapping, active, far, doubled, tucking: tuck.length,
+      snapOnce: (this.crabSlots || []).every((s) => s.snap && s.snap.loop === THREE.LoopOnce && s.snap.clampWhenFinished),
+      samples,
+    };
+  }
   dispose() {
     for (let i = 0; i < this.anims.length; i++) { const a = this.anims[i]; if (!a.gave) { a.gave = true; this.onPick?.(a.item); } }
     for (const s of this.beetleSlots || []) s.mixer?.stopAllAction();
+    for (const s of this.crabSlots || []) s.mixer?.stopAllAction();
     this.scene.remove(this.root); for (const k in this.geos) this.geos[k].dispose(); this.mat.dispose(); this.jarMat.dispose(); for (const k in this.meshes) this.meshes[k].dispose();
   }
 }
