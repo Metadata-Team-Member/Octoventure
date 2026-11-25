@@ -5,6 +5,8 @@
 // authored sRGB, so callers pass the hex from the Blender script, not material.color).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { toonMat } from './toon.js';
+
 
 /** Largest triangles per bone / material part. Load time only. `keepLow` retains each bone's lowest triangle (feet). `keepSpan` keeps the extremes so the silhouette stays the real length. */
 export function decimateSkinned(geo, bones, budget, { keepLow = false, keepSpan = false } = {}) {
@@ -125,4 +127,26 @@ export function crossFadeGait(slot, moving, fade = 0.15) {
     prev.crossFadeTo(next, fade, false);
   }
   slot.moving = moving;
+}
+
+/**
+ * Keep every skinned primitive (do not merge). Swap the glTF PBR for one shared
+ * toonMat per material name. Hexes are the authored sRGB values — GLTFLoader
+ * linearises baseColorFactor, so those glTF colours are not used.
+ */
+export function assignToonMaterials(gltf, hexByName, fallback = 0xffffff) {
+  const mats = {};
+  gltf.scene.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    const name = o.material?.name || 'body';
+    if (!mats[name]) mats[name] = toonMat({ color: hexByName[name] ?? fallback });
+    const prev = o.material;
+    o.material = mats[name];
+    o.name = name;
+    if (prev && prev !== mats[name]) prev.dispose?.();
+    o.frustumCulled = false;
+    o.castShadow = false;
+    o.receiveShadow = false;
+  });
+  return { scene: gltf.scene, mats, clips: gltf.animations };
 }

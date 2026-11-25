@@ -33,8 +33,8 @@ export class Abilities {
     // ---- shield: top shell (convex up) and bottom shell (convex down), a hinge at the back
     this.shield = new THREE.Group(); this.shield.visible = false; this.group.add(this.shield);
     this.shTop = new THREE.Group(); this.shBot = new THREE.Group();
-    this.topMesh = new THREE.Mesh(flip(geos.shellhalf), this.mat); this.topMesh.scale.set(5.4, 11, 5.4); this.shTop.add(this.topMesh);
-    this.botMesh = new THREE.Mesh(geos.shellhalf, this.mat); this.botMesh.scale.set(5.4, 4.2, 5.4); this.shBot.add(this.botMesh);
+    this.topMesh = new THREE.Mesh(flip(geos.shellhalf), this.mat); this.topMesh.scale.set(4.2, 3.2, 4.2); this.shTop.add(this.topMesh);
+    this.botMesh = new THREE.Mesh(geos.shellhalf, this.mat); this.botMesh.scale.set(4.2, 1.6, 4.2); this.shBot.add(this.botMesh);
     this.shield.add(this.shTop, this.shBot);
     // ---- jar
     this.jar = new THREE.Mesh(geos.jar, this.glass); this.jar.visible = false; this.jar.rotation.y = Math.PI / 2; this.group.add(this.jar);
@@ -43,14 +43,14 @@ export class Abilities {
     this.fronds = [];
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 + 0.3, pv = new THREE.Group(), f = new THREE.Mesh(geos.kelp, this.mat);
-      pv.position.set(Math.cos(a) * 0.3, 1.5, Math.sin(a) * 0.3 - 0.2); pv.rotation.y = -a; f.scale.set(1.9, 0.85, 1.9); f.userData.a = a; pv.add(f);
+      pv.position.set(Math.cos(a) * 0.22, 0.28, Math.sin(a) * 0.22 - 0.04); pv.rotation.y = -a; f.scale.set(0.55, 0.32, 0.55); f.userData.a = a; pv.add(f);
       this.kelp.add(pv); this.fronds.push(f);
     }
-    const lc = new THREE.Mesh(geos.lettuce, this.mat); lc.position.set(0, 1.1, -0.1); lc.scale.setScalar(2.3); this.kelp.add(lc);
+    const lc = new THREE.Mesh(geos.lettuce, this.mat); lc.position.set(0, 0.22, -0.04); lc.scale.setScalar(1.15); this.kelp.add(lc);
     // ---- mimic: sponge and coral growing from the back
     this.mimic = new THREE.Group(); this.mimic.visible = false; this.group.add(this.mimic);
-    const sp = new THREE.Mesh(geos.sponge, this.mat); sp.position.set(0.32, 1.6, -0.4); sp.scale.setScalar(1.7);
-    const co = new THREE.Mesh(geos.coral, this.mat); co.position.set(-0.28, 1.62, -0.35); co.scale.setScalar(1.9);
+    const sp = new THREE.Mesh(geos.sponge, this.mat); sp.position.set(0.1, 0.16, -0.1); sp.scale.setScalar(0.7);
+    const co = new THREE.Mesh(geos.coral, this.mat); co.position.set(-0.08, 0.16, -0.08); co.scale.setScalar(0.75);
     this.mimic.add(sp, co);
     // ---- dens: ring of pebbles + shell roof (world objects)
     this.denRoot = new THREE.Group(); game.scene.add(this.denRoot);
@@ -183,7 +183,7 @@ export class Abilities {
     if (sOn) {
       const c = o.shieldClosed, open = 1 - c;
       // closed: the top half rests on the bottom half (rim to rim) around the body; carried: a small half on the back
-      this.shTop.position.set(0, lerp(1.25, 0.5, c), lerp(-0.55, 0, c));
+      this.shTop.position.set(0, lerp(0.42, 0.16, c), lerp(-0.18, 0, c));
       this.shTop.rotation.x = -open * 0.8; this.shTop.scale.setScalar(lerp(0.42, 1, c) * blink);
       this.shBot.position.set(0, -0.01, 0); this.shBot.scale.setScalar(Math.max(0.001, c * blink));
       this.shield.position.y = 0;
@@ -191,7 +191,7 @@ export class Abilities {
     // jar
     const jOn = B.jar > 0 || o.jarF > 0.02;
     this.jar.visible = jOn;
-    if (jOn) { const k = o.jarF * (B.jar > 0 && B.jar < 3 ? 0.6 + 0.4 * Math.sin(t * 14) : 1); this.jar.scale.setScalar(Math.max(0.001, 5.2 * k)); this.jar.position.y = 0; }
+    if (jOn) { const k = o.jarF * (B.jar > 0 && B.jar < 3 ? 0.6 + 0.4 * Math.sin(t * 14) : 1); this.jar.scale.setScalar(Math.max(0.001, 2.3 * k)); this.jar.position.y = 0.02; }
     // kelp
     const kOn = o.kelpF > 0.02;
     this.kelp.visible = kOn;

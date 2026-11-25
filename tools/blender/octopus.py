@@ -1,4 +1,4 @@
-"""Build the Octoventure blue-ringed octopus hero and export public/models/octopus.glb.
+"""Build the Octoventure blue-ringed octopus hero and export src/assets/models/octopus.glb.
 
 Run:
     /opt/blender/blender -b --python tools/blender/octopus.py
@@ -41,7 +41,7 @@ import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 ROOT = Path(__file__).resolve().parents[2]
-GLB_PATH = ROOT / "public" / "models" / "octopus.glb"
+GLB_PATH = ROOT / "src" / "assets" / "models" / "octopus.glb"
 PREVIEW_REPO = ROOT / "tools" / "blender" / "octopus-preview.png"
 PREVIEW_REPO_SIDE = ROOT / "tools" / "blender" / "octopus-preview-side.png"
 PREVIEW_REPO_SWIM = ROOT / "tools" / "blender" / "octopus-swim.png"

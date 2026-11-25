@@ -26,6 +26,7 @@ import { seat, instanceSpec, geoHeight, probesOf } from '../src/world/placement.
 import { buildGeoLib } from '../src/world/geoLib.js';
 import { beetleTemplate } from '../src/world/beetleModel.js';
 import { crabTemplate } from '../src/world/crabModel.js';
+import { octopusTemplate, OCTO_HEX } from '../src/world/octopusModel.js';
 import { Predator, humanCanStep, HUMAN_WADE } from '../src/entities/predators.js';
 import { flapInsideLocal, flapOutside, flapAllows, FLAP_STEP, FLAP_COOL } from '../src/systems/places.js';
 
@@ -369,6 +370,19 @@ for (const seed of [1, 42, 2026]) {
   }
   ok(crabs.length > 0 && cBad === 0, `crabs keep SIZE 0.9–1.15 around the real mesh (${crabs.length}, bad scale ${cBad})`);
   ok(cHover < 0.0315 && cBury < 0.08, `crab feet sit on the ground (worst hover ${cHover.toFixed(4)} u, bury ${cBury.toFixed(4)} u)`);
+  const ot = octopusTemplate();
+  const onames = ot.clips.map((c) => c.name).sort().join();
+  ok(onames === 'bite,celebrate,idle,ink,scoop,swim,swimIdle,threat,venomBite,walk', `the octopus glb has the locomotion and one-shot clips (${onames})`);
+  const odur = Object.fromEntries(ot.clips.map((c) => [c.name, c.duration]));
+  ok(Math.abs(odur.idle - 3) < 0.02 && Math.abs(odur.walk - 1) < 0.02 && Math.abs(odur.swim - 1.167) < 0.02 && Math.abs(odur.swimIdle - 3) < 0.02, `octopus idle/swimIdle are 3 s, walk 1 s, swim ~1.17 s`);
+  ok(Math.abs(odur.bite - 0.417) < 0.02 && Math.abs(odur.venomBite - 0.75) < 0.02 && Math.abs(odur.ink - 0.5) < 0.02 && Math.abs(odur.scoop - 0.5) < 0.02 && Math.abs(odur.celebrate - 0.833) < 0.02 && Math.abs(odur.threat - 1) < 0.02, 'one-shots match the authored lengths');
+  const oMeshes = [];
+  ot.scene.traverse((o) => { if (o.isSkinnedMesh) oMeshes.push(o); });
+  ok(oMeshes.length === 9 && oMeshes.every((m) => m.material.type === 'MeshToonMaterial'), `the octopus keeps ${oMeshes.length} separate toon parts`);
+  const oTris = oMeshes.reduce((n, m) => n + (m.geometry.index ? m.geometry.index.count / 3 : 0), 0);
+  ok(oTris > 13000 && oTris < 16000, `the octopus glb is about 14k triangles (${oTris})`);
+  const bodyHex = new THREE.Color(OCTO_HEX.body), ringHex = new THREE.Color(OCTO_HEX.rings);
+  ok(ot.mats.body.color.equals(bodyHex) && ot.mats.rings.color.equals(ringHex) && ot.mats.belly && ot.mats.ringEdge && ot.mats.ringCore && ot.mats.eye && ot.mats.beak && ot.mats.sucker && ot.mats.highlight, 'toon colours are the authored sRGB hexes, not the linearised glTF ones');
   // far regions: items with their own prefix, deterministic per tile
   const C = new WorldData(2026), r1 = C.regions.generate(6, 1), C2 = new WorldData(2026), r2 = C2.regions.generate(6, 1);
   ok(r1.gather.length > 5 && r1.gather.length === r2.gather.length && r1.gather.every((g, i) => g.id === r2.gather[i].id && g.x === r2.gather[i].x), `far tiles hold gatherables too (${r1.gather.length}), reproducible`);

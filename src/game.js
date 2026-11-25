@@ -538,7 +538,7 @@ void main(){
     if (this.threat > 0.5) { S.chased = true; S.calmT = 0; }
     else if (S.chased && this.threat < 0.04) { S.calmT += dt; if (S.calmT > 3) { S.chased = false; S.calmT = 0; L.did('escape'); } }
     for (const e of L.drain()) {
-      if (e.type === 'level') { this.shimmer.burst('level'); this.audio.levelUp(); this.applyPerks(); }
+      if (e.type === 'level') { this.shimmer.burst('level'); this.octopus.playOnce('celebrate'); this.audio.levelUp(); this.applyPerks(); }
       else if (e.type === 'badge') { this.freshBadges.add(e.id); this.shimmer.burst('badge'); this.audio.badge(); }
     }
   }
@@ -551,6 +551,7 @@ void main(){
     const charge = o.inkCharges > 0;                                   // a full ink sac: squirt anywhere, as often as it holds
     if (!charge && (o.inkCool > 0 || !(o.waterKind || w.isShallow(o.x, o.z)))) return false;
     if (charge) o.inkCharges--; else o.inkCool = A.inkCooldown;
+    o.playOnce('ink');
     this.fx.ink(o.x, o.y + 0.3, o.z);
     this.audio.ink();
     return true;
@@ -564,6 +565,7 @@ void main(){
     const o = this.octopus;
     if (o.nipCool > 0 || o.tunnel || o.carried || !o.alive) return false;
     o.nipCool = BITE.nipCooldown; o.nipT = 1; o.nipHard = 0;
+    o.playOnce('bite');
     const p = this.predators.nearest(o, BITE.nipRange * (o.sz / 0.42));
     this.audio.snap(!!p);
     if (!p) return false;
@@ -586,10 +588,11 @@ void main(){
     if (o.biteCool > 0 || o.tunnel || o.carried || !o.alive) return false;
     const V = o.venomReady;
     const p = this.predators.nearest(o, A.biteRange * (V ? FX.venomRange : 1));
-    if (!p) { if (o.nipT <= 0) { o.nipT = 1; o.nipHard = 0.3; this.audio.snap(false); } return false; }     // nothing in reach: a snap at the air, venom kept
+    if (!p) { if (o.nipT <= 0) { o.nipT = 1; o.nipHard = 0.3; this.audio.snap(false); } o.playOnce('venomBite'); return false; }     // nothing in reach: a snap at the air, venom kept
     const dose = o.lethalDose && (TIER[p.kind] ?? 2) < PEOPLE;
     o.venomReady = false;
     o.biteCool = BITE.venomCooldown; o.biteFlash = 1; o.nipT = 1; o.nipHard = 0.6; o.shake = Math.max(o.shake, 0.55);
+    o.playOnce('venomBite');
     this.fx.venom(o.x, o.y, o.z, p.x - o.x, p.z - o.z);
     this.audio.bite();
     if (lethal(p.kind, this.levels.level, dose)) { if (dose) o.lethalDose = false; this.killPredator(p, true); }

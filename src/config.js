@@ -14,7 +14,7 @@ export const CONFIG = {
 
   // ---- Octopus -----------------------------------------------------
   octopus: {
-    size: 0.42,            // body scale. A blue-ringed octopus is ~20 cm: the model is 1.5 u long, so at 0.42 one unit ~ 33 cm and the whole world towers over it (see DESIGN.md)
+    size: 0.42,            // movement, camera and collision. The glb is already 20 cm (world scale 1); do not apply this to the mesh. 1 u ~ 32 cm.
     maxHealth: 100,
     walkSpeed: 7.0,        // speeds are for the unscaled body; Octopus multiplies them by `size` so it covers ground at 'octopus pace'
     sprintSpeed: 11.0,

@@ -531,11 +531,18 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
     const out = { sz: o.sz, scale: o.group.scale.x };
     const box = (obj) => { let minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9, minz = 1e9, maxz = -1e9; obj.updateMatrixWorld(true); obj.traverse((m) => { if (!m.isMesh) return; m.geometry.computeBoundingBox(); const b = m.geometry.boundingBox; for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) { const e = m.matrixWorld.elements; const X = e[0] * x + e[4] * y + e[8] * z + e[12], Y = e[1] * x + e[5] * y + e[9] * z + e[13], Z = e[2] * x + e[6] * y + e[10] * z + e[14]; minx = Math.min(minx, X); maxx = Math.max(maxx, X); miny = Math.min(miny, Y); maxy = Math.max(maxy, Y); minz = Math.min(minz, Z); maxz = Math.max(maxz, Z); } }); return { h: maxy - miny, len: Math.max(maxx - minx, maxz - minz) }; };
+    // The box is axis-aligned, so a slope or a random heading changes it. Measure the octopus upright, in the bind pose, on flat ground.
+    G.teleport(w.home.x, w.home.z);
+    o.alive = true; o.deadT = 0; o.hideBlend = 0; o.hiddenIn = null; o.swim = 0;
+    o.body.scale.set(1, 1, 1); o.body.position.set(0, 0, 0);
+    o.group.quaternion.identity();
+    let skel = null; o.body.traverse((m) => { if (!skel && m.isSkinnedMesh) skel = m.skeleton; });
+    if (skel) skel.pose();
     const ob = box(o.body); const octoLen = ob.len;
     out.octoLen = octoLen;
     G.clearPredators();
     out.ratio = {};
-    for (const k of ['human', 'dog', 'cat', 'gull', 'magpie']) { const p = G.spawnPredator(k, 40, 0); p.group.rotation.set(0, 0, 0); p.group.scale.x; p.sync(0); const b = box(p.group); out.ratio[k] = +(Math.max(b.h, b.len) / octoLen).toFixed(1); G.clearPredators(); }
+    for (const k of ['human', 'dog', 'cat', 'gull', 'magpie']) { const p = G.spawnPredator(k, 40, 0); p.heading = 0; p.phase = 0; p.speed = 0; p.group.rotation.set(0, 0, 0); p.sync(0); const b = box(p.group); out.ratio[k] = +(Math.max(b.h, b.len) / octoLen).toFixed(1); G.clearPredators(); }
     // footstep thump: a person walks past on dry land (a sea start is too deep to stride), the camera gets a jolt
     G.teleport(w.home.x, w.home.z); g.advance(0.2);
     G.setTime(0.5); G.freezeTime(true);
@@ -577,6 +584,87 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.catLine && r.critterLines >= 3 && r.peekLine, 'creatures, critters and babies are outlined too');
   ok(r.octoCalls <= 30, `the octopus is cheap to draw: ${r.octoCalls} visible meshes incl. outlines (was ~226 meshes)`);
   ok(r.tone === 7 /* Neutral */, 'neutral tone mapping keeps the curated palette (ACES greyed the toon colours)');
+}
+
+// ================================================================ the octopus glb
+{
+  const r = await E(() => {
+    const G = window.__game, g = G.game, o = g.octopus, w = g.world;
+    const clips = Object.keys(o.actions || {}).sort();
+    const dist = (c, hex) => Math.hypot(c.r - ((hex >> 16) & 255) / 255, c.g - ((hex >> 8) & 255) / 255, c.b - (hex & 255) / 255);
+    G.teleport(w.home.x, w.home.z);
+    o.alive = true; o.health = 100; o.inkCharges = 0; o.camoBlend = 0; o.mimicF = 0; o.speed = 0; o.moving = false; o.swim = 0;
+    o.once = null; o.loco = null;
+    G.releaseKey('KeyW');
+    G.advance(0.6);
+    const idle = o.clip;
+    G.pressKey('KeyW');
+    G.advance(0.45);
+    const walk = o.clip;
+    const walked = o.speed;
+    G.releaseKey('KeyW');
+    g.levels.events.length = 0;
+    G.teleportToBiome('sea');
+    o.speed = 0; o.moving = false;
+    for (let i = 0; i < 12 && o.swim < 0.85; i++) { o.x += w.dir.x * 6; o.z += w.dir.z * 6; G.teleport(o.x, o.z); G.advance(0.35); }
+    if (o.once) { o.actions[o.once].stop(); o.once = null; o.loco = null; }
+    g.levels.events.length = 0;
+    o.speed = 0; o.moving = false;
+    G.advance(0.35);
+    if (o.clip === 'celebrate' || o.clip === 'threat') { o.actions[o.clip].stop(); o.once = null; o.loco = null; G.advance(0.2); }
+    const swimIdle = o.clip;
+    const deep = o.swim;
+    G.pressKey('KeyW');
+    G.advance(0.45);
+    if (o.clip === 'celebrate') { o.actions.celebrate.stop(); o.once = null; o.loco = null; G.advance(0.25); }
+    const swim = o.clip;
+    G.releaseKey('KeyW');
+    G.teleport(w.home.x, w.home.z);
+    o.nipCool = 0; o.biteCool = 0; o.inkCool = 0; o.inkCharges = 0; o.alive = true;
+    G.advance(0.3);
+    G.nipNow();
+    const bite = o.clip;
+    G.advance(0.7);
+    o.biteCool = 0;
+    G.biteNow();
+    const venom = o.clip;
+    G.advance(1);
+    G.teleportToOcean(8);
+    o.inkCool = 0; o.camoWanted = false;
+    G.advance(0.4);
+    const inked = G.inkNow();
+    const ink = o.clip;
+    o.scoopToward(o.x + Math.sin(o.heading) * 0.3, o.y, o.z + Math.cos(o.heading) * 0.3);
+    const scoop = o.clip;
+    const lv = G.levels.level;
+    G.giveXP(400);
+    G.advance(0.08);
+    const cele = o.clip;
+    const leveled = G.levels.level > lv;
+    G.teleport(w.home.x, w.home.z);
+    o.health = 100; o.energy = 100; o.inkCharges = 0; o.camoLocked = false; o.mimicF = 0; o.once = null;
+    G.releaseKey('KeyW');
+    G.pressKey('Space');
+    G.advance(0.9);
+    const before = { r: o.mat.color.r, g: o.mat.color.g, b: o.mat.color.b };
+    const beforeB = { r: o.bellyMat.color.r, g: o.bellyMat.color.g, b: o.bellyMat.color.b };
+    // colour sampled above is already the camouflaged one if Space was down the whole time.
+    // Compare it with a fresh uncamouflaged paint of the same spot.
+    o.camoWanted = false; o.camoBlend = 0;
+    G.releaseKey('Space');
+    o.animate(0.016);
+    const plain = { r: o.mat.color.r, g: o.mat.color.g, b: o.mat.color.b };
+    const plainB = { r: o.bellyMat.color.r, g: o.bellyMat.color.g, b: o.bellyMat.color.b };
+    const ground = o.camoColor;
+    const gap = (c) => Math.hypot(c.r - ground.r * 0.92, c.g - ground.g * 0.92, c.b - ground.b * 0.92);
+    o.camoBlend = 0;
+    return { clips, idle, walk, walked, swimIdle, deep, swim, bite, venom, inked, ink, scoop, cele, leveled, closer: gap(before) < gap(plain) * 0.6, belly: gap(beforeB) < gap(plainB) * 0.6 };
+  });
+  ok(r.clips.join() === 'bite,celebrate,idle,ink,scoop,swim,swimIdle,threat,venomBite,walk', `the octopus glb loaded (${r.clips.join('+')})`);
+  ok(r.idle === 'idle' && r.walk === 'walk' && r.walked > 0.3, `land still is idle and moving is walk (${r.idle}, ${r.walk})`);
+  ok(r.deep > 0.5 && r.swimIdle === 'swimIdle' && r.swim === 'swim', `deep water still is swimIdle and moving is swim (${r.swimIdle}, ${r.swim}, swim ${r.deep.toFixed(2)})`);
+  ok(r.bite === 'bite' && r.venom === 'venomBite' && r.inked && r.ink === 'ink' && r.scoop === 'scoop' && r.cele === 'celebrate' && r.leveled, `bite, venomBite, ink, scoop and celebrate all fire (${r.bite}, ${r.venom}, ${r.ink}, ${r.scoop}, ${r.cele})`);
+  ok(r.closer && r.belly, 'camouflage tints the body and the belly toward the ground');
 }
 
 // ================================================================ no ground marks (t246u: removed, they read as car tracks)
@@ -930,26 +1018,18 @@ const uiBefore = await E(() => document.body.innerText.trim());
     G.pressKey('KeyW');
     g.advance(0.05);
     const early = G.inv.count('pebble');
-    const sc = o.scoops[0].on ? o.scoops[0] : o.scoops[1];
-    const arm = sc ? sc.arm : 0;
-    const tip = (i) => {
-      const seg = o.tentacles[i].segs[11].position;
-      o.group.updateMatrixWorld(true);
-      const e = o.group.matrixWorld.elements;
-      const x = e[0] * seg.x + e[4] * seg.y + e[8] * seg.z + e[12];
-      const z = e[2] * seg.x + e[6] * seg.y + e[10] * seg.z + e[14];
-      return Math.hypot(x - it.x, z - it.z);
-    };
-    const d0 = tip(arm);
+    const p0 = o.tipSample();
     const x0 = o.x, z0 = o.z;
-    g.advance(0.16);
-    const d1 = tip(arm);
+    g.advance(0.2);
+    const p1 = o.tipSample();
+    const moved = Math.hypot(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
     const walked = Math.hypot(o.x - x0, o.z - z0);
     const speed = o.speed;
-    g.advance(0.4);
+    g.advance(0.45);
     G.releaseKey('KeyW');
     const after = G.inv.count('pebble');
-    const d2 = tip(arm);
+    const p2 = o.tipSample();
+    const back = Math.hypot(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
     const settled = !o.scoops[0].on && !o.scoops[1].on;
     // a second item, at once, on another arm — both collected once
     const a = G.teleportToGather('shellhalf', 0);
@@ -986,10 +1066,10 @@ const uiBefore = await E(() => document.body.innerText.trim());
     }
     g.gather.onPick = prev;
     G.releaseKey('KeyW');
-    return { before, early, after, picks, d0, d1, d2, walked, speed, settled, two, na, nb, wet: !!wet, wetOk, wetIn };
+    return { before, early, after, picks, moved, back, walked, speed, settled, two, na, nb, wet: !!wet, wetOk, wetIn };
   });
   ok(scoop.early === scoop.before && scoop.after === scoop.before + 1 && scoop.picks === 1, `a pebble is collected once, after the tuck (${scoop.before} -> ${scoop.early} -> ${scoop.after}, calls ${scoop.picks})`);
-  ok(scoop.d1 < scoop.d0 - 0.02 && scoop.d2 > scoop.d1 + 0.15 && scoop.settled, `the nearest arm reaches and then settles (tip ${scoop.d0.toFixed(2)} -> ${scoop.d1.toFixed(2)} -> ${scoop.d2.toFixed(2)})`);
+  ok(scoop.moved > 0.04 && scoop.back > 0.04 && scoop.settled, `the front arm scoops and then settles (moved ${scoop.moved.toFixed(3)}, back ${scoop.back.toFixed(3)})`);
   ok(scoop.walked > 0.15 && scoop.speed > 0.3, `the scoop does not freeze the walk (moved ${scoop.walked.toFixed(2)}, speed ${scoop.speed.toFixed(2)})`);
   ok(scoop.two && scoop.na === 1 && scoop.nb === 1, `two quick pickups use two arms and each lands once (${scoop.na}, ${scoop.nb})`);
   ok(scoop.wet && scoop.wetOk && scoop.wetIn, `a pickup in the water still scoops and collects once (found ${scoop.wet}, wet ${scoop.wetIn})`);
