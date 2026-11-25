@@ -65,10 +65,11 @@ CARAPACE_WIDTH_CM = 5.5
 EXPORT_WIDTH = CARAPACE_WIDTH_CM * CM  # 0.17325 world units
 
 # Warm coral-orange shell, cream belly, darker speckles.
-SHELL = (0xFF / 255, 0x4E / 255, 0x1C / 255, 1.0)       # #FF4E1C
-SPECKLE = (0xC2 / 255, 0x32 / 255, 0x14 / 255, 1.0)     # #C23214
+SHELL = (0xFF / 255, 0x5C / 255, 0x28 / 255, 1.0)       # #FF5C28
+SPECKLE = (0xD0 / 255, 0x38 / 255, 0x18 / 255, 1.0)     # #D03818
 CREAM = (0xF8 / 255, 0xE8 / 255, 0xCC / 255, 1.0)       # #F8E8CC
-LEG = (0xF0 / 255, 0x46 / 255, 0x22 / 255, 1.0)         # #F04622
+CREAM_TIP = (0xF6 / 255, 0xD7 / 255, 0xA0 / 255, 1.0)  # #F6D7A0 warm cream, not grey
+LEG = (0xF4 / 255, 0x58 / 255, 0x28 / 255, 1.0)         # #F45828
 EYE = (0x1A / 255, 0x1A / 255, 0x1A / 255, 1.0)         # #1A1A1A
 HIGHLIGHT = (1.0, 1.0, 1.0, 1.0)
 
@@ -275,10 +276,15 @@ def on_ellipsoid(center, half, direction, embed=1.0):
 
 
 def build_meshes(mats):
-    """Return (parts, bones). Face and claws point Blender -Y."""
-    # Carapace 5.5 cm wide, ~4.0 cm long, a low rounded dome.
-    body_c = Vector((0.0, 0.05, 1.40)) * CM
-    body_s = Vector((2.75, 2.00, 1.05)) * CM
+    """Return (parts, bones). Face and claws point Blender -Y.
+
+    A cute, wide shore crab: short arms hold puffy almost-closed claws
+    up in front of the face, and eight bent legs splay symmetrically
+    from the sides of the carapace.
+    """
+    # 5.5 cm wide, a touch wider than long, raised so bent legs can sit under it.
+    body_c = Vector((0.0, 0.0, 1.55)) * CM
+    body_s = Vector((2.75, 1.85, 1.10)) * CM
     parts = []
 
     carapace = add_uv_sphere("carapace", 1.0, 16, 8, body_c, scale=body_s)
@@ -286,148 +292,170 @@ def build_meshes(mats):
     assign_group(carapace, "body")
     parts.append(carapace)
 
-    # Cream underside, slightly smaller, tucked under the shell.
-    belly_c = Vector((0.0, 0.08, 0.88)) * CM
-    belly_s = Vector((2.20, 1.65, 0.55)) * CM
+    # Cream underside, wide enough to show as a rim under the shell.
+    belly_c = Vector((0.0, 0.04, 0.98)) * CM
+    belly_s = Vector((2.52, 1.68, 0.58)) * CM
     belly = add_uv_sphere("belly", 1.0, 10, 6, belly_c, scale=belly_s)
     set_material(belly, mats["cream"])
     assign_group(belly, "body")
     parts.append(belly)
 
-    # Soft darker speckles on the carapace, mirrored, as smooth discs.
     speckles = [
-        ((0.50,  0.10, 0.90), 0.40),
-        ((0.65, -0.40, 0.58), 0.28),
-        ((-0.50,  0.10, 0.90), 0.40),
-        ((-0.65, -0.40, 0.58), 0.28),
+        ((0.52,  0.05, 0.88), 0.38),
+        ((0.62, -0.48, 0.55), 0.26),
+        ((-0.52,  0.05, 0.88), 0.38),
+        ((-0.62, -0.48, 0.55), 0.26),
     ]
     for i, (direction, rad_cm) in enumerate(speckles):
         surface = on_ellipsoid(body_c, body_s, direction, 1.0)
         normal = ellipsoid_normal(body_c, body_s, surface)
         disc = add_surface_disc(
             f"speckle_{i}", surface, normal, rad_cm * CM,
-            thickness=0.26, segments=12, rings=2, inset=0.12,
+            thickness=0.26, segments=10, rings=2, inset=0.12,
         )
         set_material(disc, mats["speckle"])
         assign_group(disc, "body")
         parts.append(disc)
 
-    # A tiny mouth / rostrum at the front.
-    mouth = add_uv_sphere("mouth", 0.22 * CM, 7, 5, Vector((0.0, -1.85, 1.15)) * CM, scale=Vector((0.35, 0.28, 0.18)) * CM)
+    mouth = add_uv_sphere(
+        "mouth", 0.20 * CM, 6, 4,
+        Vector((0.0, -1.80, 1.25)) * CM,
+        scale=Vector((0.40, 0.28, 0.18)) * CM,
+    )
     set_material(mouth, mats["cream"])
     assign_group(mouth, "body")
     parts.append(mouth)
 
-    # Eye stalks and big friendly eyes with catchlights.
+    # Big cute eyes on short upright stalks, wide apart at the front.
     eye_bones = {}
     for side, name in ((1, "eye_L"), (-1, "eye_R")):
-        base = Vector((side * 0.72, -1.58, 2.00)) * CM
-        tip = Vector((side * 0.86, -1.82, 2.42)) * CM
-        stalk = add_cylinder_between(name + "_stalk", base, tip, 0.14 * CM, verts=8)
+        base = Vector((side * 1.20, -1.48, 2.40)) * CM
+        tip = Vector((side * 1.28, -1.52, 2.90)) * CM
+        stalk = add_cylinder_between(name + "_stalk", base, tip, 0.16 * CM, verts=6)
         set_material(stalk, mats["shell"])
         assign_group(stalk, name)
         parts.append(stalk)
-        eye = add_uv_sphere(name, 0.32 * CM, 8, 6, tip)
+        eye_r = 0.48 * CM
+        eye = add_uv_sphere(name, eye_r, 8, 6, tip)
         set_material(eye, mats["eye"])
         assign_group(eye, name)
         parts.append(eye)
-        direction = Vector((side * 0.35, -0.7, 0.45)).normalized()
-        surface = tip + direction * (0.32 * CM)
-        hl = add_uv_sphere(name + "_hl", 0.10 * CM, 6, 4, surface - direction * (0.03 * CM))
+        # Catchlight on the front of the eye, slightly toward the midline.
+        direction = Vector((-side * 0.15, -0.85, 0.35)).normalized()
+        surface = tip + direction * eye_r
+        hl = add_uv_sphere(name + "_hl", 0.14 * CM, 6, 4, surface - direction * (0.02 * CM))
         set_material(hl, mats["highlight"])
         assign_group(hl, name)
         parts.append(hl)
         eye_bones[name] = (base, tip)
 
-    # Two claws: the crab's right (Blender -X, facing -Y) is slightly larger.
-    claws = []
-    # name, side_x, scale, bone names
+    # Short folded arms, puffy almost-closed claws held up in front of the face.
+    # The crab's right (Blender -X, facing -Y) is slightly larger.
+    claw_bones = {}
     claw_plan = [
         ("claw_L",  1, 1.00, "claw_L", "claw_L_pin"),
-        ("claw_R", -1, 1.22, "claw_R", "claw_R_pin"),
+        ("claw_R", -1, 1.16, "claw_R", "claw_R_pin"),
     ]
-    claw_bones = {}
     for name, side, sc, bone, pin_bone in claw_plan:
-        shoulder = Vector((side * 2.05, -1.55, 1.25)) * CM
-        palm = Vector((side * 2.55, -2.85, 1.35)) * CM
-        # Shoulder bead, weighted to the body so the arm stays seated.
-        coxa = add_uv_sphere(name + "_coxa", 0.36 * sc * CM, 8, 5, shoulder)
+        shoulder = Vector((side * 2.15, -1.50, 1.55)) * CM
+        palm = Vector((side * 1.80, -2.50, 2.30)) * CM
+        coxa = add_uv_sphere(name + "_coxa", 0.38 * sc * CM, 6, 4, shoulder)
         set_material(coxa, mats["shell"])
         assign_group(coxa, "body")
         parts.append(coxa)
-        arm = add_cylinder_between(name + "_arm", shoulder, palm, 0.22 * sc * CM, verts=8)
+        arm = add_cylinder_between(name + "_arm", shoulder, palm, 0.30 * sc * CM, verts=6)
         set_material(arm, mats["shell"])
         assign_group(arm, bone)
         parts.append(arm)
-        palm_r = 0.52 * sc * CM
-        palm_obj = add_uv_sphere(name + "_palm", palm_r, 10, 7, palm)
+        palm_r = 0.68 * sc * CM
+        palm_obj = add_uv_sphere(
+            name + "_palm", palm_r, 8, 6, palm,
+            scale=Vector((1.15, 1.05, 0.90)),
+        )
         set_material(palm_obj, mats["shell"])
         assign_group(palm_obj, bone)
         parts.append(palm_obj)
-        # Two clearly separated pincers with a mid kink, so they read as a claw.
-        for tag, z_sign, group in (("up", 1.0, bone), ("lo", -1.0, pin_bone)):
-            a = palm + Vector((side * 0.02, -0.12, z_sign * 0.26 * sc)) * CM
-            mid = palm + Vector((side * 0.08, -0.80 * sc, z_sign * 0.20 * sc)) * CM
-            b = palm + Vector((side * 0.04, -1.45 * sc, z_sign * 0.06 * sc)) * CM
-            for tag2, p0, p1 in (("a", a, mid), ("b", mid, b)):
-                pin = add_cylinder_between(f"{name}_{tag}_{tag2}", p0, p1, 0.15 * sc * CM, verts=6)
-                set_material(pin, mats["shell"])
-                assign_group(pin, group)
-                parts.append(pin)
-            tip = add_uv_sphere(f"{name}_{tag}_tip", 0.14 * sc * CM, 7, 5, b)
-            set_material(tip, mats["cream"])
+
+        # Fixed upper and movable lower finger. Opening faces inward
+        # so both tips read from the front; mostly closed at rest.
+        fingers = [
+            # tag, x_base, y_base, z_base, x_tip, y_tip, z_tip, rad, group
+            ("up", -0.06, -0.40,  0.24, -0.22, -1.05,  0.10, 0.26, bone),
+            ("lo",  0.16, -0.38, -0.14, -0.08, -1.00,  0.02, 0.22, pin_bone),
+        ]
+        lo_tip = None
+        for tag, xb, yb, zb, xt, yt, zt, rad, group in fingers:
+            a = palm + Vector((side * xb * sc, yb * sc, zb * sc)) * CM
+            b = palm + Vector((side * xt * sc, yt * sc, zt * sc)) * CM
+            finger = add_cylinder_between(f"{name}_{tag}", a, b, rad * sc * CM, verts=6)
+            set_material(finger, mats["shell"])
+            assign_group(finger, group)
+            parts.append(finger)
+            kn = add_uv_sphere(f"{name}_{tag}_kn", (rad + 0.04) * sc * CM, 6, 4, a)
+            set_material(kn, mats["shell"])
+            assign_group(kn, group)
+            parts.append(kn)
+            tip = add_uv_sphere(f"{name}_{tag}_tip", 0.22 * sc * CM, 6, 4, b)
+            set_material(tip, mats["cream_tip"])
             assign_group(tip, group)
             parts.append(tip)
+            if tag == "lo":
+                lo_tip = b
         claw_bones[bone] = (shoulder, palm)
-        claw_bones[pin_bone] = (palm, palm + Vector((0.0, -1.45 * sc, -0.06 * sc)) * CM)
-        claws.append((bone, pin_bone, side, sc))
+        claw_bones[pin_bone] = (palm, lo_tip)
 
-    # Eight walking legs, four each side, seated with coxa joints.
-    foot_r = 0.22 * CM
-    leg_r = 0.15 * CM
-    coxa_r = 0.22 * CM
-    # name, side, hip_y_cm, foot_x_cm, foot_y_cm
+    # Eight bent walking legs, four per side, splayed outward from the hips.
+    foot_r = 0.24 * CM
+    thigh_r = 0.19 * CM
+    shin_r = 0.16 * CM
+    coxa_r = 0.24 * CM
+    knee_r = 0.20 * CM
+    # name, side, hip_y, knee_x, knee_y, knee_z, foot_x, foot_y  (cm)
     leg_plan = [
-        ("leg_L1",  1, -1.15,  3.35, -1.55),
-        ("leg_L2",  1, -0.30,  3.70, -0.35),
-        ("leg_L3",  1,  0.50,  3.60,  0.70),
-        ("leg_L4",  1,  1.30,  3.15,  1.70),
-        ("leg_R1", -1, -1.15,  3.35, -1.55),
-        ("leg_R2", -1, -0.30,  3.70, -0.35),
-        ("leg_R3", -1,  0.50,  3.60,  0.70),
-        ("leg_R4", -1,  1.30,  3.15,  1.70),
+        ("leg_L1",  1, -1.25, 3.20, -1.85, 2.05, 3.90, -2.25),
+        ("leg_L2",  1, -0.42, 3.50, -0.55, 2.18, 4.30, -0.70),
+        ("leg_L3",  1,  0.42, 3.50,  0.55, 2.18, 4.30,  0.70),
+        ("leg_L4",  1,  1.25, 3.20,  1.85, 2.05, 3.90,  2.25),
+        ("leg_R1", -1, -1.25, 3.20, -1.85, 2.05, 3.90, -2.25),
+        ("leg_R2", -1, -0.42, 3.50, -0.55, 2.18, 4.30, -0.70),
+        ("leg_R3", -1,  0.42, 3.50,  0.55, 2.18, 4.30,  0.70),
+        ("leg_R4", -1,  1.25, 3.20,  1.85, 2.05, 3.90,  2.25),
     ]
     bones_legs = []
-    for name, side, hip_y, foot_x, foot_y in leg_plan:
-        # Aim at the underside edge of the carapace.
-        aim = Vector((side * 2.40, hip_y, 0.85)) * CM
-        direction = aim - body_c
-        if direction.length < 1e-9:
-            direction = Vector((side, 0.0, -0.4))
-        direction.normalize()
-        # Sit slightly inside the carapace so the coxa stays embedded.
-        hip = body_c + direction * (min(body_s.x, body_s.z) * 0.95)
-        # Nudge onto the lower side rather than the top of the dome.
-        hip = Vector((hip.x, hip.y, min(hip.z, 1.05 * CM)))
-        # Recompute from a lower aim so hips are under the rim, not on top.
-        hip = Vector((side * 2.15, hip_y, 0.95)) * CM
-        foot = Vector((side * foot_x, foot_y, 0.0)) * CM
-        foot_c = Vector((foot.x, foot.y, foot_r))
+    for name, side, hip_y, knee_x, knee_y, knee_z, foot_x, foot_y in leg_plan:
+        hip = Vector((side * 2.20, hip_y, 1.10)) * CM
+        knee = Vector((side * knee_x, knee_y, knee_z)) * CM
+        foot_c = Vector((side * foot_x, foot_y, 0.24)) * CM
         coxa = add_uv_sphere(name + "_coxa", coxa_r, 6, 4, hip)
         set_material(coxa, mats["leg"])
         assign_group(coxa, "body")
         parts.append(coxa)
-        toward = (foot_c - hip).normalized()
-        shin_end = foot_c - toward * (foot_r * 0.55)
-        tube = add_cylinder_between(name, hip, shin_end, leg_r, verts=6)
-        set_material(tube, mats["leg"])
-        assign_group(tube, name)
-        parts.append(tube)
-        foot_obj = add_uv_sphere(name + "_foot", foot_r, 7, 4, foot_c)
+        toward_k = (knee - hip).normalized()
+        thigh = add_cylinder_between(name + "_th", hip, knee - toward_k * (knee_r * 0.35), thigh_r, verts=6)
+        set_material(thigh, mats["leg"])
+        assign_group(thigh, name)
+        parts.append(thigh)
+        kn = add_uv_sphere(name + "_knee", knee_r, 6, 4, knee)
+        set_material(kn, mats["leg"])
+        assign_group(kn, name)
+        parts.append(kn)
+        shin_name = name + "_shin"
+        toward_f = (foot_c - knee).normalized()
+        shin = add_cylinder_between(
+            name + "_sh",
+            knee + toward_f * (knee_r * 0.35),
+            foot_c - toward_f * (foot_r * 0.45),
+            shin_r, verts=6,
+        )
+        set_material(shin, mats["leg"])
+        assign_group(shin, shin_name)
+        parts.append(shin)
+        foot_obj = add_uv_sphere(name + "_foot", foot_r, 6, 4, foot_c)
         set_material(foot_obj, mats["leg"])
-        assign_group(foot_obj, name)
+        assign_group(foot_obj, shin_name)
         parts.append(foot_obj)
-        bones_legs.append((name, "body", hip, foot_c))
+        bones_legs.append((name, "body", hip, knee))
+        bones_legs.append((shin_name, name, knee, foot_c))
 
     root_tail = Vector((0.0, 0.0, 0.25)) * CM
     bones = [
@@ -523,8 +551,8 @@ def key_euler(pb, frame, euler, interpolation="BEZIER"):
 def animate_walk(arm):
     """In-place sideways scuttle along local +X, 0.5 s loop.
 
-    Two alternating groups of four legs, plus a slight body bob and a
-    little claw bounce, so the gait reads even at a glance.
+    Alternating groups of four bent legs, with the shin folding a
+    little on the swing so the feet stay clear of the ground.
     """
     action = ensure_action(arm, "walk", WALK_FRAMES)
     bpy.context.view_layer.objects.active = arm
@@ -532,44 +560,42 @@ def animate_walk(arm):
 
     group_a = ("leg_L1", "leg_L3", "leg_R2", "leg_R4")
     group_b = ("leg_L2", "leg_L4", "leg_R1", "leg_R3")
-    lift = math.radians(22)
-    # Reach along +X: the sign flips with the side so both sides step the same way.
-    reach = math.radians(16)
 
     def side_of(name):
         return 1 if "_L" in name else -1
 
-    def pose_for(name, phase):
+    def thigh_pose(name, phase):
         s = side_of(name)
-        # Local Z swings the foot along the body; local X lifts.
-        # Local Y (along the bone) is unused. A signed Z combined with a
-        # little extra X-adjacent reach sends the foot along +X.
         if phase == "plant_lead":
-            return (0.0, 0.0, s * reach * 0.7)
+            return (math.radians(-5), 0.0, s * math.radians(8))
         if phase == "plant_trail":
-            return (0.0, 0.0, -s * reach * 0.7)
+            return (math.radians(-5), 0.0, -s * math.radians(8))
         if phase == "swing_mid":
-            return (lift, 0.0, s * reach)
+            return (math.radians(16), 0.0, s * math.radians(12))
         return (0.0, 0.0, 0.0)
 
-    # For a +X scuttle, "lead" is toward +X. Signs were chosen so a first
-    # preview can be judged; the fix pass can invert them if needed.
+    def shin_pose(phase):
+        if phase == "swing_mid":
+            return (math.radians(18), 0.0, 0.0)
+        if phase in ("plant_lead", "plant_trail"):
+            return (math.radians(-4), 0.0, 0.0)
+        return (0.0, 0.0, 0.0)
+
     keys_a = {0: "plant_lead", 6: "plant_trail", 9: "swing_mid", 12: "plant_lead"}
     keys_b = {0: "plant_trail", 3: "swing_mid", 6: "plant_lead", 12: "plant_trail"}
-    for name in group_a:
-        pb = arm.pose.bones[name]
-        for fr, phase in keys_a.items():
-            key_euler(pb, fr, pose_for(name, phase))
-    for name in group_b:
-        pb = arm.pose.bones[name]
-        for fr, phase in keys_b.items():
-            key_euler(pb, fr, pose_for(name, phase))
+    for name, keys in ((group_a, keys_a), (group_b, keys_b)):
+        for bone in name:
+            pb = arm.pose.bones[bone]
+            shin = arm.pose.bones[bone + "_shin"]
+            for fr, phase in keys.items():
+                key_euler(pb, fr, thigh_pose(bone, phase))
+                key_euler(shin, fr, shin_pose(phase))
 
     pb = arm.pose.bones["body"]
     key_euler(pb, 0, (0, 0, 0))
-    key_euler(pb, 3, (math.radians(3), 0, math.radians(2)))
+    key_euler(pb, 3, (math.radians(2), 0, math.radians(2)))
     key_euler(pb, 6, (0, 0, 0))
-    key_euler(pb, 9, (math.radians(3), 0, math.radians(-2)))
+    key_euler(pb, 9, (math.radians(2), 0, math.radians(-2)))
     key_euler(pb, 12, (0, 0, 0))
 
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -590,34 +616,34 @@ def animate_idle(arm):
 
     twitch("eye_L", [
         (0, (0, 0, 0)),
-        (12, (math.radians(10), 0, math.radians(8))),
-        (28, (math.radians(-6), 0, math.radians(-4))),
+        (12, (math.radians(8), 0, math.radians(6))),
+        (28, (math.radians(-5), 0, math.radians(-4))),
         (48, (0, 0, 0)),
     ])
     twitch("eye_R", [
         (0, (0, 0, 0)),
-        (16, (math.radians(-8), 0, math.radians(-6))),
-        (32, (math.radians(9), 0, math.radians(5))),
+        (16, (math.radians(-6), 0, math.radians(-5))),
+        (32, (math.radians(7), 0, math.radians(4))),
         (48, (0, 0, 0)),
     ])
-    # Larger claw (claw_R) waves; its pincher opens and closes a little.
+    # Short arm waves a little; the movable finger opens and closes slightly.
     twitch("claw_R", [
         (0, (0, 0, 0)),
-        (14, (math.radians(-12), 0, math.radians(10))),
-        (26, (math.radians(-6), 0, math.radians(16))),
-        (38, (math.radians(-10), 0, math.radians(8))),
+        (14, (math.radians(-8), 0, math.radians(8))),
+        (26, (math.radians(-4), 0, math.radians(12))),
+        (38, (math.radians(-6), 0, math.radians(6))),
         (48, (0, 0, 0)),
     ])
     twitch("claw_R_pin", [
         (0, (0, 0, 0)),
-        (14, (math.radians(16), 0, 0)),
-        (26, (math.radians(-8), 0, 0)),
-        (38, (math.radians(10), 0, 0)),
+        (14, (math.radians(12), 0, 0)),
+        (26, (math.radians(-6), 0, 0)),
+        (38, (math.radians(8), 0, 0)),
         (48, (0, 0, 0)),
     ])
     twitch("claw_L_pin", [
         (0, (0, 0, 0)),
-        (24, (math.radians(8), 0, 0)),
+        (24, (math.radians(6), 0, 0)),
         (48, (0, 0, 0)),
     ])
 
@@ -634,12 +660,12 @@ def animate_snap(arm):
     pb = arm.pose.bones["claw_R"]
     pin = arm.pose.bones["claw_R_pin"]
     key_euler(pb, 0, (0, 0, 0))
-    key_euler(pb, 3, (math.radians(-8), 0, math.radians(6)))
-    key_euler(pb, 6, (math.radians(-4), 0, math.radians(2)))
+    key_euler(pb, 3, (math.radians(-6), 0, math.radians(5)))
+    key_euler(pb, 6, (math.radians(-3), 0, math.radians(2)))
     key_euler(pb, 10, (0, 0, 0))
     key_euler(pin, 0, (0, 0, 0))
-    key_euler(pin, 2, (math.radians(22), 0, 0))   # open
-    key_euler(pin, 5, (math.radians(-18), 0, 0))  # snap shut
+    key_euler(pin, 2, (math.radians(20), 0, 0))   # open
+    key_euler(pin, 5, (math.radians(-14), 0, 0))  # snap shut
     key_euler(pin, 10, (0, 0, 0))
     bpy.ops.object.mode_set(mode="OBJECT")
     push_nla(arm, action, "snap")
@@ -690,7 +716,7 @@ def render_preview(arm, look_at=None):
         vs.look = "None"
     except Exception:
         pass
-    vs.exposure = 0.0
+    vs.exposure = 0.25
     vs.gamma = 1.0
 
     scene.render.engine = "BLENDER_WORKBENCH"
@@ -727,7 +753,7 @@ def render_preview(arm, look_at=None):
         shading.background_color = (0.95, 0.92, 0.86)
 
     cam_data = bpy.data.cameras.new("PreviewCam")
-    cam_data.lens = 50
+    cam_data.lens = 45
     cam_data.clip_start = 0.001
     cam_data.clip_end = 10
     cam = bpy.data.objects.new("PreviewCam", cam_data)
@@ -773,8 +799,8 @@ def render_preview(arm, look_at=None):
         print("preview:", path)
 
     # 3/4 from the front-right, and a true side view (along +X).
-    view_34 = ((11.5, -13.5, 7.2), (0.0, -0.4, 1.15))
-    view_side = ((14.8, 1.2, 4.6), (0.0, -0.8, 1.15))
+    view_34 = ((3.6, -10.2, 7.8), (0.0, -0.25, 1.35))
+    view_side = ((11.5, 0.15, 3.8), (0.0, -0.25, 1.3))
     PREVIEW_REPO.parent.mkdir(parents=True, exist_ok=True)
     PREVIEW_WORKSPACE.parent.mkdir(parents=True, exist_ok=True)
     _shot(PREVIEW_REPO, *view_34, "idle", 0)
@@ -783,7 +809,9 @@ def render_preview(arm, look_at=None):
     shutil.copy2(PREVIEW_SIDE, PREVIEW_REPO_SIDE)
     for fr in (0, 3, 6, 9):
         _shot(Path(f"/tmp/crab-walk-side-{fr}.png"), *view_side, "walk", fr)
+        _shot(Path(f"/tmp/crab-walk-34-{fr}.png"), *view_34, "walk", fr)
     _shot(Path("/tmp/crab-snap.png"), *view_34, "snap", 5)
+    _shot(Path("/tmp/crab-top.png"), (0.3, -0.8, 16.5), (0.0, -0.2, 0.0), "idle", 0)
 
     for name in ("PreviewCam", "Key", "Fill"):
         obj = bpy.data.objects.get(name)
@@ -873,8 +901,8 @@ def inspect_glb(path, expected_length):
         "nodes": [n.get("name") for n in gltf.get("nodes", [])],
     }
     print("GLB inspect:", json.dumps(report, indent=2))
-    if tris == 0 or tris > 2500:
-        raise SystemExit(f"triangle count {tris} out of range (1–2500)")
+    if tris == 0 or tris > 2800:
+        raise SystemExit(f"triangle count {tris} out of range (1–2800)")
     missing = [n for n in ("walk", "idle", "snap") if n not in anims]
     if missing:
         # Some exporters prefix or suffix the action name; show what we got.
@@ -903,6 +931,7 @@ def main():
         "shell": set_coat(make_mat("CrabShell", SHELL, roughness=0.38, metallic=0.0), 0.30, 0.18),
         "speckle": make_mat("CrabSpeckle", SPECKLE, roughness=0.55, metallic=0.0),
         "cream": make_mat("CrabCream", CREAM, roughness=0.72, metallic=0.0),
+        "cream_tip": make_mat("CrabCreamTip", CREAM_TIP, roughness=0.62, metallic=0.0),
         "leg": make_mat("CrabLeg", LEG, roughness=0.60, metallic=0.0),
         "eye": make_mat("CrabEye", EYE, roughness=0.18, metallic=0.0),
         "highlight": make_mat("CrabHighlight", HIGHLIGHT, roughness=0.25, metallic=0.0, emission=0.35),
@@ -911,7 +940,7 @@ def main():
     mesh = join_objects("Crab", parts)
     tris = triangle_count(mesh)
     print(f"joined mesh triangles: {tris}")
-    if tris > 2500:
+    if tris > 2800:
         raise SystemExit(f"too many triangles: {tris}")
     arm = build_armature(bones)
     bind(mesh, arm)
