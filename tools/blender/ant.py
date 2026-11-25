@@ -43,6 +43,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GLB_PATH = ROOT / "public" / "models" / "ant.glb"
 PREVIEW_REPO = ROOT / "tools" / "blender" / "ant-preview.png"
 PREVIEW_WORKSPACE = Path("/workspace/ant-preview.png")
+PREVIEW_SIDE = Path("/workspace/ant-preview-side.png")
 
 # 1 cm at octopus scale (20 cm = 0.63 u).
 CM = 0.0315
@@ -279,14 +280,14 @@ def build_meshes(mats):
         antenna_tips[bone] = (pts[0], tip_c)
 
     # Six short chunky legs, three each side, feet on the ground.
-    # Hip on the thorax; foot slightly out, front legs a little forward,
-    # hind legs a little back. Foot sphere centre is at radius height so
-    # the underside sits on z = 0.
+    # Each hip is a small coxa sphere seated slightly inside the thorax
+    # surface (weighted to the thorax bone) so the legs stay attached in
+    # rest and through the walk cycle. Tube and foot thickness are unchanged.
+    # Foot sphere centre is at radius height so the underside sits on z = 0.
     foot_r = 0.045 * CM
-    hip_z = 0.195 * CM
-    hip_x = 0.10 * CM
     leg_r = 0.034 * CM
-    # name, side(+x left), hip_y_cm, foot_x_cm, foot_y_cm
+    coxa_r = 0.046 * CM
+    # name, side(+x left), aim_y_cm (old hip aim), foot_x_cm, foot_y_cm
     leg_plan = [
         ("leg_LF",  1, -0.34,  0.22, -0.46),
         ("leg_LM",  1, -0.24,  0.26, -0.24),
@@ -297,12 +298,20 @@ def build_meshes(mats):
     ]
     bones_legs = []
     for name, side, hip_y, foot_x, foot_y in leg_plan:
-        hip = Vector((side * hip_x / CM, hip_y, hip_z / CM)) * CM
-        # rewrite cleanly
-        hip = Vector((side * 0.10, hip_y, 0.195)) * CM
+        aim = Vector((side * 0.10, hip_y, 0.195)) * CM
+        direction = aim - thorax_c
+        if direction.length < 1e-9:
+            direction = Vector((side, 0.0, 0.0))
+        direction.normalize()
+        # Slightly inside the thorax so the coxa stays embedded at walk extremes.
+        hip = thorax_c + direction * (thorax_r * 0.82)
         foot = Vector((side * foot_x, foot_y, 0.0)) * CM
         foot_c = Vector((foot.x, foot.y, foot_r))
-        # Tube stops at the top of the foot so they don't z-fight.
+        coxa = add_uv_sphere(name + "_coxa", coxa_r, 6, 3, hip)
+        set_material(coxa, mats["body"])
+        assign_group(coxa, "thorax")
+        parts.append(coxa)
+        # Tube starts at the hip (inside the coxa) and stops at the top of the foot.
         toward = (foot_c - hip).normalized()
         shin_end = foot_c - toward * (foot_r * 0.55)
         tube = add_cylinder_between(name, hip, shin_end, leg_r, verts=6)
@@ -604,15 +613,6 @@ def render_preview(arm, look_at=None):
     add_light("Key", "SUN", (3, -4, 6), 2.0, (1.0, 0.97, 0.92))
     add_light("Fill", "AREA", (-4, -2, 3), 40.0, (0.85, 0.9, 1.0))
 
-    # Rest pose for the still preview.
-    scene.frame_set(0)
-    if arm.animation_data:
-        arm.animation_data.action = bpy.data.actions.get("idle")
-
-    PREVIEW_REPO.parent.mkdir(parents=True, exist_ok=True)
-    bpy.ops.render.render(write_still=True)
-
-    # Composite the transparent render onto a cream backdrop.
     def _composite_cream(src, dst):
         import subprocess
         script = (
@@ -623,11 +623,37 @@ def render_preview(arm, look_at=None):
         ) % (str(src), str(dst))
         subprocess.check_call(["/usr/bin/python3", "-c", script])
 
-    _composite_cream(PREVIEW_REPO, PREVIEW_REPO)
+    def _aim(loc, look):
+        cam.location = Vector(loc) * CM
+        direction = Vector(look) * CM - cam.location
+        cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+
+    def _shot(path, loc, look, action_name="idle", frame=0):
+        _aim(loc, look)
+        scene.frame_set(frame)
+        if arm.animation_data:
+            arm.animation_data.action = bpy.data.actions.get(action_name)
+            # Re-apply so the pose updates after switching actions.
+            scene.frame_set(frame)
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        scene.render.filepath = str(path)
+        bpy.ops.render.render(write_still=True)
+        _composite_cream(path, path)
+        print("preview:", path)
+
+    # Same 3/4 camera as before, rest pose.
+    view_34 = ((3.4, -2.4, 1.25), (0.0, -0.10, 0.28))
+    view_side = ((4.4, -0.12, 1.15), (0.0, -0.10, 0.28))
+    PREVIEW_REPO.parent.mkdir(parents=True, exist_ok=True)
     PREVIEW_WORKSPACE.parent.mkdir(parents=True, exist_ok=True)
+    _shot(PREVIEW_REPO, *view_34, "idle", 0)
     import shutil
     shutil.copy2(PREVIEW_REPO, PREVIEW_WORKSPACE)
-    print("preview:", PREVIEW_REPO, PREVIEW_WORKSPACE)
+    _shot(PREVIEW_SIDE, *view_side, "idle", 0)
+    # Walk extremes, side-on, for a gap check (not committed).
+    for fr in (0, 3, 6, 9):
+        _shot(Path(f"/tmp/ant-walk-side-{fr}.png"), *view_side, "walk", fr)
 
     # Don't export the camera or lights.
     for name in ("PreviewCam", "Key", "Fill"):
