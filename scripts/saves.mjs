@@ -49,7 +49,7 @@ let before;
     const s = G.teleportToShell(0); G.teleport(s.x, s.z); g.advance(0.2);
     const b = G.teleportToBaby(0); G.teleport(b.x, b.z); g.advance(0.3);
     // a den, a few effects
-    G.teleport(g.world.start.x, g.world.start.z); g.advance(0.2);       // a dry, open spot for the den
+    G.teleport(g.world.home.x, g.world.home.z); g.advance(0.2);         // a dry, open spot for the den (the start is in the sea)
     G.give('pebble', 3); G.give('shellhalf', 1); G.craft('den'); G.use('den');
     G.use('wrap'); G.give('shrimp', 2); G.craft('inksac'); G.use('inksac');
     G.setTime(0.71); G.setWeather('rain'); g.env.kind = 'rain'; g.env.rain = 0.6; g.env.timer = 123;
@@ -59,9 +59,9 @@ let before;
   });
   await page.keyboard.press('Tab'); await sleep(300);
   const s = await saved();
-  ok(!!s && s.v === 9 && s.seed === seed1, 'opening the satchel saves the game (versioned)');
+  ok(!!s && s.v === 10 && s.seed === seed1, 'opening the satchel saves the game (versioned)');
   ok(s && Math.abs(s.octo.x - before.pos.x) < 0.1 && Math.abs(s.octo.z - before.pos.z) < 0.1 && Math.abs(s.octo.health - before.health) < 0.3, 'the save holds position and health');
-  ok(s && s.got.includes(before.id) && s.shells.o.length === 1 && s.babies.length === 1 && s.dens.length === 1 && s.fx.ink === 3 && s.inv.counts.crab === 2, `it holds ${s && JSON.stringify({ got: s.got.includes(before.id), so: s.shells.o.length, b: s.babies.length, d: s.dens.length, ink: s.fx.ink, crab: s.inv.counts.crab })} what was taken, the shell, the baby, the den, the ink and the satchel`);// what was taken, the shell, the baby, the den, the ink and the satchel');
+  ok(s && s.got.includes(before.id) && s.shells.o.length + s.shells.r.length === 1 && s.babies.length === 1 && s.dens.length === 1 && s.fx.ink === 3 && s.inv.counts.crab === 2, `it holds ${s && JSON.stringify({ got: s.got.includes(before.id), so: s.shells.o.length + s.shells.r.length, b: s.babies.length, d: s.dens.length, ink: s.fx.ink, crab: s.inv.counts.crab })} what was taken, the shell, the baby, the den, the ink and the satchel`);// what was taken, the shell, the baby, the den, the ink and the satchel');
   ok(s && s.explored.length > 0 && s.env.kind === 'rain' && Math.abs(s.env.t - before.t) < 0.01, 'and explored cells, time of day and weather');
   ok(s && !JSON.stringify(s).match(/https?:|@|navigator|userAgent/), 'no personal data in the save');
   await page.keyboard.press('Tab'); await sleep(300);
@@ -78,7 +78,7 @@ let before;
   const a = await E((id) => {
     const G = window.__game, g = G.game, o = g.octopus;
     const it = g.gather.items().find((q) => q.id === id);
-    const shellsGot = g.world.shells.filter((s) => !s.reg && s.got).length;
+    const shellsGot = g.world.shells.filter((s) => s.got).length;
     const babyFound = g.world.babies.filter((b) => b.found).length;
     return { state: G.state, pos: { x: o.x, z: o.z }, health: o.health, inv: g.inv.toJSON(), den: g.abilities.dens.length, hide: g.world.hides.filter((h) => h.kind === 'den').length, buff: { ...o.buff }, ink: o.inkCharges, shells: g.progress.shells, armor: o.armor, babies: g.progress.babies, babyFound, shellsGot, t: g.env.t, kind: g.env.kind, taken: it?.got, slot: it?.slot, explored: g.explored.size, run: g.runTime };
   }, before.id);
@@ -142,7 +142,7 @@ let before;
   ok(p.state === 'playing' && Math.hypot(p.x - p.sx, p.z - p.sz) < 1 && Math.hypot(p.x - 120.5, p.z + 33.25) > 5, 'the old position is gone: the octopus begins at a start point of the one world');
   ok(p.crab === 2 && p.kelp === 3 && p.shield === 1 && p.ink === 2 && p.venom === true && p.kelpBuff > 30 && p.babies === 2 && p.shells === 3 && p.dens === 0 && p.run > 800, 'but the satchel, effects, babies, shells and clock were kept');
   await E(() => { const g = window.__game.game; g.setPaused(true); });
-  const v2 = await saved(); ok(v2 && v2.v === 9 && v2.fresh !== true && Number.isFinite(v2.octo.x), 'the next autosave is a normal current-version save with a position');
+  const v2 = await saved(); ok(v2 && v2.v === 10 && v2.fresh !== true && Number.isFinite(v2.octo.x), 'the next autosave is a normal current-version save with a position');
 }
 
 // ================================================================ damaged / future saves, new start, death
@@ -177,7 +177,7 @@ let before;
   await page.waitForFunction(() => document.getElementById('loading').hidden && window.__game.state === 'playing');
   await E(() => { const g = window.__game.game; g.setPaused(false); g.saveNow('t'); });
   const has = await E((k) => localStorage.getItem(k) !== null, KEY);
-  await E(() => { const G = window.__game; G.setHealth(1); G.game.octopus.damage(50, 'dry', { ignoreCamo: true }); G.advance(3); });
+  await E(() => { const G = window.__game; G.teleport(G.game.world.home.x, G.game.world.home.z); G.advance(0.2); G.setHealth(1); G.game.octopus.damage(50, 'dry', { ignoreCamo: true }); G.advance(3); });
   const dead = await E((k) => ({ state: window.__game.state, key: localStorage.getItem(k) }), KEY);
   ok(has && dead.state === 'dead' && dead.key === null, `dying ends the run: the save is cleared (had one: ${has}, state ${dead.state}, key ${dead.key ? 'kept' : 'cleared'})`);
 }

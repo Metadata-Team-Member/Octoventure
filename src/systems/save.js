@@ -15,7 +15,7 @@ import { Journal } from './journal.js';
 
 export const SAVE_KEY = 'octo.save.v2';
 export const LEGACY_KEYS = ['octo.save.v1'];          // older games kept their save here; it is carried forward on first load, then removed
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 const WEATHER_KINDS = ['clear', 'heatwave', 'rain', 'storm'];
 const BUFFS = ['shield', 'jar', 'kelp', 'mimic', 'feast', 'tonic'];
 const MAX_TRAIL = 1200;
@@ -65,6 +65,25 @@ export const MIGRATIONS = {
     };
     const lv = o.lv && typeof o.lv === 'object' ? { ...o.lv, st } : o.lv;
     return { ...o, v: 9, lv };
+  },
+  // v10: the world was rebuilt as bands from the sea (south) to the ranges (north), so the old map is gone again. Keep what the
+  // octopus IS and has earned (satchel, effects, health, levels, badges, journal, shell and baby tallies, clock and weather) and
+  // drop what was tied to the old map (position, picked-up spots, dens, explored cells, trail). Den decorations and anything
+  // being carried go back into the satchel. `fresh` = begin by the big shell in the sea.
+  9: (o) => {
+    const p = o.octo, okN = (n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 1e6;
+    if (!o.fresh && (!p || typeof p !== 'object' || !okN(p.x) || !okN(p.z))) throw new Error('not a v9 save');   // a damaged save stays refused
+    const inv0 = o.inv && typeof o.inv === 'object' ? o.inv : {};
+    const counts = { ...(inv0.counts && typeof inv0.counts === 'object' ? inv0.counts : {}) };
+    const back = [...(Array.isArray(o.decor) ? o.decor.map((d) => d && d.id) : []), o.carry];
+    for (const id of back) if (typeof id === 'string' && ALL_ITEMS.includes(id)) counts[id] = Math.min(999, (Number(counts[id]) || 0) + 1);
+    return {
+      ...o, v: 10, fresh: true,
+      octo: { heading: o.octo?.heading, health: o.octo?.health, energy: o.octo?.energy },
+      shells: { n: o.shells?.n, o: [], r: [] },
+      babies: (Array.isArray(o.babies) ? o.babies : []).slice(0, 2000).map((_, i) => 'm' + i),
+      inv: { ...inv0, counts }, dens: [], decor: [], carry: null, got: [], explored: [], trail: [],
+    };
   },
   2: (o) => ({ ...o, v: 3, lv: { xp: 0, b: [], st: { cells: Array.isArray(o.explored) ? o.explored.length : 0, babies: Array.isArray(o.babies) ? o.babies.length : 0, sea: !!o.sea, shells: Number(o.shells?.n) || 0 } } }),
 };
@@ -173,7 +192,11 @@ export function snapshot(game) {
 /** put a (validated) save into a game whose world was just built from save.seed */
 export function applySave(game, s) {
   const o = game.octopus, w = game.world;
-  if (!s.fresh) { o.x = s.octo.x; o.z = s.octo.z; o.y = w.heightAt(o.x, o.z); o.heading = s.octo.heading; game.input.yaw = s.octo.heading + Math.PI; }
+  if (!s.fresh) {
+    o.x = s.octo.x; o.z = s.octo.z;
+    if (w.banded) { const c = w.resolve(o.x, o.z, 0.3); if (c.x !== o.x || c.z !== o.z) { o.x = c.x; o.z = c.z; } }   // never outside the ranges or the sea edge
+    o.y = w.heightAt(o.x, o.z); o.heading = s.octo.heading; game.input.yaw = s.octo.heading + Math.PI;
+  }
   o.health = s.octo.health; o.energy = s.octo.energy;
   game.runTime = s.run;
   game.progress.shells = s.shells.n; game.progress.rescued = new Set(s.babies); game.progress.seaReached = s.sea;

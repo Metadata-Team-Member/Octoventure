@@ -6,6 +6,8 @@
 // =====================================================================
 import { clamp, lerp, smoothstep as ss } from '../util/rng.js';
 import { B, BIOMES } from './biomes.js';
+import { FACTORY_STACKS } from './props.js';
+import { ISLETS, EDGE } from './bands.js';
 
 export const HOUSE_VARIANTS = [
   { w: 9, d: 8, h: 4.6 }, { w: 11, d: 9, h: 5.2 }, { w: 8, d: 7.5, h: 4.2 },
@@ -20,6 +22,7 @@ const COLLIDE = {
   barn: ['box', 7.2, 4.7, 0], silo: ['circle', 3.0], haybale: ['circle', 1.0, 0, 1.5], windmill: ['circle', 0.7], shop: null, parkedcar: ['box', 1.3, 2.9, 1.9],
   lamp: ['circle', 0.25], pylon: ['circle', 0.4], lighthouse: ['circle', 3.4], crabpot: ['circle', 0.55], shack: ['box', 3.2, 2.6, 0], hull: ['circle', 1.6],
   watertower: ['circle', 2.0], cairn: ['circle', 0.7],
+  octoshell: ['circle', 3.1], hoist: ['circle', 0.2], letterbox: ['circle', 0.25], sheep: ['circle', 1.15], factory: ['box', 11.2, 7.2, 0], outfall: ['box', 4.5, 0.8, 0], coralhead: ['circle', 1.0],
 };
 
 export function placeAreas(w) {
@@ -46,6 +49,8 @@ export function placeAreas(w) {
   ctx.mix = (x, z) => BIOMES[w.biomes.sample(x, z, rnd())];            // ecotones: pick a biome in proportion to its weight here (see BiomeField.sample)
   const freeSpot = (x, z, pad = 1) => !w._blocked(x, z, pad);
 
+  // ---- 0. banded world: the start shell and reef city, the outback, the wasteland (first, so their late carves come before anything is seated)
+  if (w.banded) bandedPlaces(ctx);
   // ---- 1. buildings, yards, streets, farms ---------------------------------------------------
   suburb(ctx); town(ctx); farm(ctx);
   // ---- 2. the natural landscape ----------------------------------------------------------------
@@ -150,6 +155,11 @@ function yard(ctx, cx, cz, yw, yd, door, V) {
   if (rnd() < 0.55) { const x = cx + rnd.range(-yw * 0.5, yw * 0.5), z = cz - rnd.range(0, yd * 0.5); if (!w._blocked(x, z, 1.5)) { prop('birdbath', x, z, {}); w._addWater('birdbath', x, z, 1.15, { carve: false }); } }
   if (rnd() < 0.65) { const x = door.x - 2.4, z = door.z + V.d / 2 + 1.4; w._addWater('bowl', x, z, 0.95, { carve: false }); prop('bowl', x, z, { collide: false }); }
   if (rnd() < 0.4) { const x = door.x + V.w / 2 + 1.2, z = door.z + 1.5; if (w._farFromWater(x, z, 5)) { w._addWater('hose', x, z, 1.7, { depth: 0.06 }); w.taps.push({ type: 'tap', x, z, rot: 0 }); } }
+  // an Aussie backyard: a Hills Hoist out the back, a letterbox by the front gate
+  if (w.banded) {
+    if (rnd() < 0.75) { const x = cx + rnd.range(-yw * 0.35, yw * 0.35), z = cz - yd * 0.6; if (!w._blocked(x, z, 3.4) && !w.waterAt(x, z)) prop('hoist', x, z, { rot: rnd() * 6.28 }); }
+    { const x = doorX + 3.4, z = front - 0.9; if (!w._blocked(x, z, 0.6) && !w.isRoad(x, z, 0.5) && !w.waterAt(x, z)) prop('letterbox', x, z, { rot: 0 }); }
+  }
 }
 
 function addBin(ctx, x, z) {
@@ -237,6 +247,7 @@ function farm(ctx) {
   for (let cx = Math.floor(-w.half / 70); cx < w.half / 70; cx++) for (let cz = Math.floor(-w.half / 70); cz < w.half / 70; cz++) {
     const x = cx * 70 + 35, z = cz * 70 + 35;
     if (Math.abs(x) > w.half - 80 || Math.abs(z) > w.half - 80) continue;
+    if (w.banded && (w.edgeOut(x, z) > -45 || w.tAt(x, z) > 0.72)) continue;   // (banded: not in the ranges, not on the coast slope)
     if (w.biomes.weights(x, z)[B.farm] < 0.7) continue;
     cells.set(cx + ',' + cz, { cx, cz, x, z });
   }
@@ -281,6 +292,15 @@ function farm(ctx) {
       }
     }
     if (rnd() < 0.7) { const x = c.x + rnd.range(-20, 20), z = c.z + rnd.range(-20, 20); if (!w._blocked(x, z, 3) && w._farFromWater(x, z, 8)) { w._addWater('trough', x, z, 1.8, { carve: false }); prop('trough', x, z, { collide: false }); } }
+    // a sheep paddock: a small mob grazing inside the fence
+    if (w.banded && rnd() < 0.45) {
+      const mob = 3 + Math.floor(rnd() * 5);
+      for (let k = 0, made = 0; k < mob * 6 && made < mob; k++) {
+        const x = c.x + rnd.range(-26, 26), z = c.z + rnd.range(-26, 26);
+        if (w._blocked(x, z, 2.2) || w.waterAt(x, z) || w.isRoad(x, z, 1) || w.heightAt(x, z) < 0.6) continue;
+        prop('sheep', x, z, { rot: rnd() * 6.28, tint: rnd.range(0.92, 1.05) }); made++;
+      }
+    }
   }
 }
 
@@ -321,7 +341,7 @@ export const TREE_RULES = {
   suburb:    { p: 0.12, kinds: [['oak', 0.55], ['bush', 0.35], ['palm', 0.1]] },
   town:      { p: 0.025, kinds: [['oak', 0.5], ['bush', 0.5]] },
   farm:      { p: 0.035, kinds: [['gum', 0.6], ['oak', 0.2], ['bush', 0.2]] },
-  bush:      { p: 0.5,  kinds: [['gum', 0.68], ['pine', 0.08], ['bush', 0.24]] },
+  bush:      { p: 0.5,  kinds: [['gum', 0.56], ['banksia', 0.12], ['grasstree', 0.1], ['pine', 0.04], ['bush', 0.18]] },
   riverbank: { p: 0.35, kinds: [['willow', 0.4], ['gum', 0.35], ['bush', 0.25]] },
   wetland:   { p: 0.38, kinds: [['paperbark', 0.7], ['bush', 0.3]] },
   dunes:     { p: 0.05, kinds: [['bush', 1]] },
@@ -330,6 +350,8 @@ export const TREE_RULES = {
   estuary:   { p: 0.05, kinds: [['mangrove', 0.6], ['paperbark', 0.4]] },
   desert:    { p: 0.02, kinds: [['bush', 0.75], ['gum', 0.25]] },                 // mulga scrub and the odd ghost gum
   rainforest:{ p: 0.85, kinds: [['gum', 0.4], ['oak', 0.25], ['palm', 0.15], ['pine', 0.05], ['bush', 0.15]] },   // tall canopy, bangalow palms, understorey
+  mudflat:   { p: 0.025, kinds: [['paperbark', 0.5], ['bush', 0.5]] },               // a few paperbarks on the drier humps
+  wasteland: { p: 0.004, kinds: [['gum', 1]] },                                    // a few pale, scraggly survivors (no lush green out here)
 };
 function scatterTrees(ctx) {
   const { w, rnd, K, G } = ctx;
@@ -340,6 +362,7 @@ function scatterTrees(ctx) {
   const startTrees = trees.length;
   while (trees.length - startTrees < target && tries++ < target * 22) {
     const x = rnd.range(-w.half + edge, w.half - edge), z = rnd.range(-w.half + edge, w.half - edge);
+    if (w.banded && w.edgeOut(x, z) > 80) continue;                               // the far slopes are the painted ranges
     const b = ctx.mix(x, z);
     const rule = TREE_RULES[b];
     if (!rule || rnd() > rule.p) continue;
@@ -352,7 +375,7 @@ function scatterTrees(ctx) {
     if (Math.hypot(x - w.start.x, z - w.start.z) < 7 || w.isRoad(x, z, 2.2) || w.inLot(x, z, 2) || w._blocked(x, z, 1.2)) continue;
     const h = w.heightAt(x, z);
     if (h < (kind === 'mangrove' ? 0.12 : 0.9)) continue;
-    const scale = (kind === 'bush' ? rnd.range(0.7, 1.4) : kind === 'gum' ? rnd.range(1.0, 1.8) : rnd.range(0.8, 1.7)) * (kind === 'bush' ? 1.3 : TREE_SCALE);   // real-scale perspective: trees are giants next to a 20 cm octopus
+    const scale = (kind === 'bush' ? rnd.range(0.7, 1.4) : kind === 'gum' ? rnd.range(1.0, 1.8) : kind === 'grasstree' ? rnd.range(0.7, 1.1) : rnd.range(0.8, 1.7)) * (kind === 'bush' ? 1.3 : TREE_SCALE);   // real-scale perspective: trees are giants next to a 20 cm octopus
     trees.push({ x, z, y: h, kind, scale, rot: rnd() * 6.28, tint: rnd.range(0.82, 1.1) });
     if (kind !== 'bush') w._addCircle(x, z, (kind === 'mangrove' ? 0.7 : 0.5) * scale, { kind: 'tree' });
   }
@@ -361,12 +384,14 @@ function scatterTrees(ctx) {
 function scatterRocks(ctx) {
   const { w, rnd, K, G } = ctx;
   const target = Math.round(G.rockCount * K);
-  const P = { suburb: 0.002, town: 0, farm: 0.02, bush: 0.07, riverbank: 0.15, wetland: 0, dunes: 0.01, beach: 0.02, headland: 0.5, estuary: 0.01, desert: 0.05, rainforest: 0.06 };
+  const P = { suburb: 0.002, town: 0, farm: 0.02, bush: 0.07, riverbank: 0.15, wetland: 0, dunes: 0.01, beach: 0.02, headland: 0.5, estuary: 0.01, desert: 0.05, rainforest: 0.06, mudflat: 0.008, wasteland: 0.05 };
   let tries = 0, n = 0;
   while (n < target && tries++ < target * 40) {
     const x = rnd.range(-w.half + 30, w.half - 30), z = rnd.range(-w.half + 30, w.half - 30);
+    const eo = w.banded ? w.edgeOut(x, z) : -1;
+    if (eo > 90) continue;
     const b = ctx.mix(x, z);
-    let p = P[b] ?? 0;
+    let p = eo > 10 ? 0.25 : P[b] ?? 0;                                               // boulders on the foothills
     if (b === 'bush' && w.baseType(x, z) === 'rock') p = 0.5;
     if (b === 'headland' && w.tAt(x, z) > 0.96) p = 0.12;
     if (rnd() > p) continue;
@@ -388,7 +413,7 @@ function scatterRocks(ctx) {
 function scatterGround(ctx) {
   const { w, rnd, K, G } = ctx;
   const grass = w.decor.grass, flowers = w.decor.flowers;
-  const P = { lawn: 0.9, grass: 1, pasture: 1, litter: 0.38, scrub: 0.5, dunegrass: 0.8, dune: 0.15, swamp: 0.3, mud: 0.12, bank: 0.4, gravel: 0.05, forest: 0.6, headland: 0.1, rock: 0.04, spinifex: 0.9, redsand: 0.12, gibber: 0.05, fern: 1, mossy: 0.7 };
+  const P = { lawn: 0.9, grass: 1, pasture: 1, litter: 0.38, scrub: 0.5, dunegrass: 0.8, dune: 0.15, swamp: 0.3, mud: 0.12, bank: 0.4, gravel: 0.05, forest: 0.6, headland: 0.1, rock: 0.04, spinifex: 0.9, redsand: 0.12, gibber: 0.05, fern: 1, mossy: 0.7, cracked: 0.06, ash: 0.1, slag: 0.03, alpine: 0.35 };
   let tries = 0;
   const gt = Math.round(G.grassCount * K);
   while (grass.length < gt && tries++ < gt * 8) {
@@ -398,7 +423,8 @@ function scatterGround(ctx) {
     if (w.isRoad(x, z, 1) || w.inLot(x, z, 1)) continue;
     const h = w.heightAt(x, z);
     if (h < 0.9) continue;
-    const dry = tp === 'spinifex' || tp === 'redsand' || tp === 'gibber' || tp === 'scrub' || tp === 'dune' || tp === 'dunegrass' || tp === 'pasture' && rnd() < 0.4 || tp === 'litter';
+    if (w.banded && w.edgeOut(x, z) > 70) continue;
+    const dry = tp === 'spinifex' || tp === 'redsand' || tp === 'gibber' || tp === 'scrub' || tp === 'dune' || tp === 'dunegrass' || tp === 'pasture' && rnd() < 0.4 || tp === 'litter' || tp === 'ash' || tp === 'cracked' || tp === 'slag' || tp === 'alpine';
     grass.push({ x, z, y: h, s: rnd.range(0.7, 1.5) * GRASS_SCALE * (tp === 'dune' || tp === 'dunegrass' ? 1.4 : tp === 'spinifex' ? 1.3 : tp === 'fern' ? 1.35 : 1), rot: rnd() * 6.28, dry, tint: rnd.range(0.8, 1.15), wet: tp === 'swamp' });
   }
   tries = 0;
@@ -418,7 +444,7 @@ function riverside(ctx) {
   const reeds = w.decor.reeds;
   // reeds around the water (ponds heavy, streams light) - all biomes
   for (const q of w.waters) {
-    if (q.kind === 'sprinkler' || q.kind === 'drip' || q.kind === 'birdbath' || q.kind === 'bowl' || q.kind === 'hose' || q.kind === 'aircon' || q.kind === 'trough') continue;
+    if (q.kind === 'sprinkler' || q.kind === 'drip' || q.kind === 'birdbath' || q.kind === 'bowl' || q.kind === 'hose' || q.kind === 'aircon' || q.kind === 'trough' || q.kind === 'sludge') continue;
     if (q.kind === 'stream' && rnd() < 0.7) continue;
     const n = q.kind === 'pond' || q.kind === 'dam' ? 12 : q.kind === 'stream' || q.kind === 'estuary' ? 1 : 3;
     for (let i = 0; i < n; i++) {
@@ -533,7 +559,7 @@ function underwater(ctx) {
 // ------------------------------------------------------------------------------------------------ hides, tunnels, shells, babies
 function hidesAndTunnels(ctx) {
   const { w, rnd, K, prop } = ctx;
-  const plan = [['tin', ['town', 'suburb', 'beach', 'estuary'], 12, 0.7], ['shellhide', ['beach', 'estuary', 'headland'], 12, 0.65], ['slab', ['headland', 'bush', 'riverbank'], 10, 0.6], ['hollowlog', ['bush', 'wetland'], 8, 0.7]];
+  const plan = [['tin', ['town', 'suburb', 'beach', 'estuary', 'wasteland'], 12, 0.7], ['shellhide', ['beach', 'estuary', 'headland'], 12, 0.65], ['slab', ['headland', 'bush', 'riverbank'], 10, 0.6], ['hollowlog', ['bush', 'wetland'], 8, 0.7]];
   for (const [kind, names, count, minW] of plan) {
     let n = 0;
     for (let i = 0; i < count * K * 25 && n < count * K; i++) {
@@ -617,6 +643,17 @@ function shellsAndBabies(ctx) {
     const s = w._spotB(['farm', 'bush', 'riverbank', 'suburb', 'wetland', 'dunes', 'beach'], { maxSlope: 0.3, tries: 6, minW: 0.4, minH: 0.3, notRoad: true });
     if (s && corridor(s) && !w._blocked(s.x, s.z, 0.6)) take({ x: s.x, z: s.z, kind: 'grass' }, 45);
   }
+  if (w.banded) {                     // banded world: a few little ones hide in every land band, right up to the wasteland
+    const LAND = [null, null, ['suburb', 'town', 'farm'], ['bush', 'wetland', 'rainforest', 'riverbank'], ['mudflat', 'desert'], ['wasteland']];
+    for (let bi = 2; bi < LAND.length; bi++) {
+      const inBand = () => w.babies.filter((b) => w.bandAt(b.x, b.z) === bi).length;
+      for (const s of spots) { if (inBand() >= 2) break; if (w.bandAt(s.x, s.z) === bi) take(s, 60); }
+      for (let i = 0; i < 600 && inBand() < 2; i++) {
+        const s = w._spotB(LAND[bi], { maxSlope: 0.3, tries: 6, minW: 0.5, minH: 0.3, notRoad: true });
+        if (s && w.bandAt(s.x, s.z) === bi && !w._blocked(s.x, s.z, 0.6) && !w.waterAt(s.x, s.z)) take({ x: s.x, z: s.z, kind: 'grass' }, 60);
+      }
+    }
+  }
   for (const s of spots) { if (w.babies.length >= want) break; take(s, 60); }
   for (let i = 0; i < 800 && w.babies.length < want; i++) {
     const s = w._spotB(['farm', 'bush', 'riverbank', 'wetland', 'dunes', 'beach', 'headland'], { maxSlope: 0.3, tries: 6, minW: 0.4, minH: 0.3, notRoad: true });
@@ -636,4 +673,143 @@ function dew(ctx) {
     if (w._blocked(s.x, s.z, 0.5)) continue;
     w.seasonal.push({ kind: 'dew', gate: 'dew', x: s.x, z: s.z, r: rnd.range(2.2, 3.4) }); n++;
   }
+}
+
+// ------------------------------------------------------------------------------------------------ banded world places
+/**
+ * The places that make each band its own: the big shell and the little reef city where every game begins, reefs round the
+ * islets, the oasis by the big red rock, a boardwalk over the mud flats, and the wasteland's old factory and storm drain.
+ */
+function bandedPlaces(ctx) {
+  const { w, rnd, prop } = ctx;
+  const reef = w.decor.reef, sg = w.decor.seagrass;
+  const seaFloor = (x, z, lo, hi) => { const d = w.seaLevel - w.heightAt(x, z); return w.tAt(x, z) > 1.0 && d > lo && d < hi; };
+  // ---- the big shell (the future Octo house) and the reef city around it
+  const sh = w.shell;
+  if (sh) {
+    const p = prop('octoshell', sh.x, sh.z, { rot: Math.PI * 0.85 });
+    w.landmarks.push({ kind: 'octoshell', x: sh.x, z: sh.z });
+    w.hides.push({ x: sh.x, z: sh.z, r: 3.6, kind: 'shellhide' });
+    void p;
+    const city = { x: sh.x + 6, z: sh.z + 30 };
+    w.reefCity = { x: city.x, z: city.z, r: 34 };
+    let arches = 0;
+    for (let i = 0; i < 80 && arches < 3; i++) {
+      const a = rnd() * 6.28, d = rnd.range(10, 30), x = city.x + Math.cos(a) * d, z = city.z + Math.sin(a) * d;
+      if (!seaFloor(x, z, 1.0, 4.5) || w._blocked(x, z, 4.5) || Math.hypot(x - w.start.x, z - w.start.z) < 9) continue;
+      prop('arch', x, z, { rot: rnd() * 6.28, collide: false });
+      w._addCircle(x + Math.cos(a) * 0, z, 0.1, { kind: 'rock' });
+      arches++;
+    }
+    let heads = 0;
+    for (let i = 0; i < 200 && heads < 12; i++) {
+      const a = rnd() * 6.28, d = rnd.range(6, 36), x = city.x + Math.cos(a) * d, z = city.z + Math.sin(a) * d;
+      if (!seaFloor(x, z, 0.8, 4.5) || w._blocked(x, z, 2.2) || Math.hypot(x - w.start.x, z - w.start.z) < 7) continue;
+      prop('coralhead', x, z, { rot: rnd() * 6.28, s: rnd.range(0.8, 1.3) }); heads++;
+    }
+    for (let i = 0; i < 300; i++) {
+      const a = rnd() * 6.28, d = rnd.range(4, 44), x = city.x + Math.cos(a) * d, z = city.z + Math.sin(a) * d;
+      if (!seaFloor(x, z, 0.6, 5)) continue;
+      const h = w.heightAt(x, z);
+      if (i % 3) reef.push({ x, z, y: h, kind: 'coral', s: rnd.range(0.6, 1.4), rot: rnd() * 6.28, hue: rnd() });
+      else sg.push({ x, z, y: h, s: rnd.range(0.8, 1.5), rot: rnd() * 6.28 });
+    }
+  }
+  // ---- reefs round the islets
+  for (const isl of ISLETS) {
+    for (let i = 0; i < 70; i++) {
+      const a = rnd() * 6.28, d = isl.r * rnd.range(0.85, 1.7), x = isl.x + Math.cos(a) * d, z = isl.z + Math.sin(a) * d / 1.25;
+      if (!seaFloor(x, z, 0.6, 6)) continue;
+      const coral = rnd() < 0.6, h = w.heightAt(x, z);
+      reef.push({ x, z, y: h, kind: coral ? 'coral' : 'rock', s: coral ? rnd.range(0.7, 1.6) : rnd.range(0.8, 2.2), rot: rnd() * 6.28, hue: rnd() });
+      if (!coral) w._addCircle(x, z, 0.8, { kind: 'rock' });
+    }
+    for (let i = 0; i < 6; i++) {           // a few boulders on the islet itself
+      const a = rnd() * 6.28, d = isl.r * rnd.range(0, 0.4), x = isl.x + Math.cos(a) * d, z = isl.z + Math.sin(a) * d;
+      const h = w.heightAt(x, z); if (h < 0.7) continue;
+      const size = rnd.range(0.8, 2.2);
+      w.decor.rocks.push({ x, z, y: h, size, rot: rnd() * 6.28, sy: rnd.range(0.55, 0.9), tint: rnd.range(0.85, 1.05), dark: true });
+      w._addCircle(x, z, size * 0.85, { kind: 'rock' });
+    }
+  }
+  // ---- the oasis: palms round the pond near the big red rock
+  if (w.oasis) {
+    const o = w.oasis;
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * 6.28 + rnd.range(-0.2, 0.2), d = o.r + rnd.range(2.5, 6), x = o.x + Math.cos(a) * d, z = o.z + Math.sin(a) * d;
+      const h = w.heightAt(x, z); if (h < 0.9 || w._blocked(x, z, 1.2) || w.waterAt(x, z)) continue;
+      const scale = rnd.range(0.9, 1.5) * TREE_SCALE;
+      w.decor.trees.push({ x, z, y: h, kind: 'palm', scale, rot: rnd() * 6.28, tint: rnd.range(0.9, 1.08) });
+      w._addCircle(x, z, 0.5 * scale, { kind: 'tree' });
+    }
+    w.landmarks.push({ kind: 'oasis', x: o.x, z: o.z });
+  }
+  // ---- a boardwalk across the mud flats (planks lie on the mud, posts beside them)
+  {
+    const path = [[-630, -300], [-470, -352], [-330, -318], [-200, -392], [-120, -446]];
+    const walk = [];
+    for (let k = 0; k < path.length - 1; k++) {
+      const [ax, az] = path[k], [bx, bz] = path[k + 1], len = Math.hypot(bx - ax, bz - az), n = Math.floor(len / 4.2), rot = Math.atan2(bx - ax, bz - az);
+      for (let i = 0; i < n; i++) {
+        const x = lerp(ax, bx, (i + 0.5) / n), z = lerp(az, bz, (i + 0.5) / n);
+        if (w.biomes.weights(x, z)[B.mudflat] < 0.5 || w.waterAt(x, z) || w._blocked(x, z, 1.4) || w.creekDist(x, z) < 8) continue;
+        prop('plank', x, z, { rot, collide: false });
+        if (i % 2 === 0) for (const sd of [-1, 1]) { const px = x + Math.cos(rot) * sd * 1.7, pz = z - Math.sin(rot) * sd * 1.7; if (!w.waterAt(px, pz)) prop('post', px, pz, { collide: false }); }
+        walk.push({ x, z });
+      }
+    }
+    w.boardwalk = walk;
+  }
+  // ---- the wasteland: an old factory with two smoking chimneys, and a storm-drain outfall with a sludge pool
+  const flatSpot = (cx, cz, R, pad, slope) => {
+    for (let i = 0; i < 600; i++) {
+      const x = cx + rnd.range(-R, R), z = cz + rnd.range(-R * 0.6, R * 0.6);
+      if (w.biomes.weights(x, z)[B.wasteland] < 0.85 || w.edgeOut(x, z) > -30) continue;
+      if (w._slope(x, z, pad) > slope || w._blocked(x, z, pad) || w.creekDist(x, z) < pad + 14) continue;
+      if (w.waters.some((q) => Math.hypot(q.x - x, q.z - z) < q.r + pad + 4)) continue;
+      return { x, z };
+    }
+    return null;
+  };
+  const f = flatSpot(-170, -585, 130, 14, 0.05);
+  if (f) {
+    const hs = [[-11, -7], [11, -7], [-11, 7], [11, 7], [0, 0]].map(([dx, dz]) => w.heightAt(f.x + dx, f.z + dz));
+    const y = hs.reduce((a, b) => a + b, 0) / hs.length;
+    w.addHousePad({ x: f.x, z: f.z, w: 24, d: 16 }, y);          // a levelled yard, so the hall sits flat on its slab (nothing floats, nothing is buried)
+    prop('factory', f.x, f.z, { rot: 0, y, collide: false, extra: { fixedY: true } });
+    w._addBox(f.x, f.z, 11.2, 7.2, { kind: 'factory', y });
+    w.landmarks.push({ kind: 'factory', x: f.x, z: f.z, y });
+    w.smoke = FACTORY_STACKS.map(([dx, dy, dz]) => ({ x: f.x + dx, y: y + dy, z: f.z + dz }));
+    for (let i = 0; i < 6; i++) {                  // rusty drums (tins) and rubble round the yard
+      const a = rnd() * 6.28, d = rnd.range(14, 24), x = f.x + Math.cos(a) * d, z = f.z + Math.sin(a) * d;
+      if (w._blocked(x, z, 1.2) || w.waterAt(x, z)) continue;
+      prop('tin', x, z, { rot: rnd() * 6.28, collide: false }); w.hides.push({ x, z, r: 1.1, kind: 'tin' });
+    }
+  }
+  const o = flatSpot(120, -560, 140, 8, 0.06);
+  if (o) {
+    prop('outfall', o.x, o.z, { rot: 0 });
+    w.landmarks.push({ kind: 'outfall', x: o.x, z: o.z });
+    // the drain runs under the wasteland: a wet squeeze from the outfall mouth to a grate further north
+    for (let i = 0; i < 40; i++) {
+      const a = -Math.PI / 2 + rnd.range(-0.7, 0.7), d = rnd.range(40, 70), gx = o.x + Math.cos(a) * d, gz = o.z + Math.sin(a) * d;
+      if (w.edgeOut(gx, gz) > -25 || w._blocked(gx, gz, 1) || w.waterAt(gx, gz) || w._slope(gx, gz, 1.5) > 0.15) continue;
+      w.tunnels.push({ a: { x: o.x, z: o.z + 2.6 }, b: { x: gx, z: gz }, kind: 'drain', wet: true });
+      prop('drain', gx, gz, { collide: false });
+      break;
+    }
+    const px = o.x, pz = o.z + 10;
+    if (w._ringStats(px, pz, 5).spread < 0.35 && w._farFromWater(px, pz, 10)) { const q = w._addWater('sludge', px, pz, 5, { depth: 0.25 }); q.alt = 0; }
+  }
+  // ---- a small old stone ruin out in the fields (a landmark, not a castle)
+  for (let i = 0; i < 400; i++) {
+    const x = -360 + rnd.range(-120, 120), z = 50 + rnd.range(-60, 60);
+    if (w.biomes.weights(x, z)[B.farm] < 0.85 || w._slope(x, z, 6) > 0.06 || w._blocked(x, z, 8) || w.isRoad(x, z, 4) || w.creekDist(x, z) < 20) continue;
+    if (w.waters.some((q) => Math.hypot(q.x - x, q.z - z) < q.r + 10)) continue;
+    prop('ruin', x, z, { rot: rnd() * 6.28, collide: false });
+    w._addBox(x, z, 4, 4, { kind: 'ruin' });
+    w.landmarks.push({ kind: 'ruin', x, z });
+    break;
+  }
+  void EDGE;
 }

@@ -188,7 +188,20 @@ export function treeGeometries(lod = false) {
   }
   norParts.push(at(leaf(pf(1), 0x2f6a40, 0x40854f), 0, 18.0, 0, 0, 0, 0, 0.4, 0.8, 0.4));
   const norfolk = merge(norParts);
-  return { pine, oak, palm, bush, gum, paperbark, mangrove, willow, norfolk };
+  // --- banksia: a short gnarled trunk, a rounded crown and upright golden flower cones
+  const bankParts = [at(tint(cyl(0.15, 0.26, 1.9), 0x6a5440), 0, 0.95, 0, 0, 0, 0.06), at(leaf(pf(1.15), 0x55784a, 0x6f9460), 0.05, 2.45, 0, 0, 0, 0, 1.15, 0.85, 1.1),
+    at(leaf(pf(0.7), 0x5c8250, 0x76a066), 0.75, 2.15, 0.35)];
+  for (let i = 0; i < (lod ? 3 : 5); i++) { const a = i * 1.3 + 0.4; bankParts.push(at(tint(new THREE.CapsuleGeometry(0.13, 0.42, 2, 6), 0xe8a83a), Math.cos(a) * 0.75, 2.75 + (i % 2) * 0.25, Math.sin(a) * 0.7, Math.sin(a) * 0.3, 0, -Math.cos(a) * 0.3)); }
+  const banksia = merge(bankParts);
+  // --- grass tree: a black stubby trunk, a round skirt of fine leaves, and one tall flower spike
+  const grasstree = merge([
+    at(tint(cyl(0.26, 0.34, 1.3), 0x2b2522), 0, 0.65, 0),
+    at(leaf(pf(1.0), 0x5e7a34, 0x86a24a), 0, 1.45, 0, 0, 0, 0, 1.0, 0.55, 1.0),
+    at(leaf(pf(0.6), 0x6e8a3c, 0x92ac56), 0, 1.75, 0),
+    at(tint(cyl(0.05, 0.08, 2.4, S - 2), 0x6a5a3a), 0, 3.0, 0),
+    at(tint(new THREE.CapsuleGeometry(0.1, 0.9, 2, 6), 0xc8a050), 0, 4.0, 0),
+  ]);
+  return { pine, oak, palm, bush, gum, paperbark, mangrove, willow, norfolk, banksia, grasstree };
 }
 
 /** a soft grass tuft: six wide, bent, round-tipped blades (darker at the base); white-ish so the instance colour tints it */

@@ -33,6 +33,9 @@ export class Collectibles {
     this.root = new THREE.Group(); scene.add(this.root);
     // ---- shells: three models (scallop, turban, cowrie), each one instanced mesh. The original map's shells have fixed slots;
     // shells in the endless far regions borrow a slot from a small pool while the octopus is near them.
+    // banded world: every shell streams through the pool (a slot only while the octopus is within ~120 m), so the
+    // few hundred shells across the map are not all drawn every frame
+    if (world.banded) world.shells.forEach((sh, i) => { sh.reg = true; sh.id ??= 'b' + i; sh.slot = -1; sh.k = shellKind(i); sh.s = shellScale(i); });
     const list = world.shells.filter((sh) => !sh.reg);
     this.geos = buildShellGeos();
     // natural, matte-to-satin shell (no metal): the colours are baked into the vertices, instances only vary the tone a little
@@ -60,6 +63,7 @@ export class Collectibles {
     this.bgrid = new Map();
     const gadd = (map, size, o) => { const k = Math.floor(o.x / size) + ',' + Math.floor(o.z / size); (map.get(k) || map.set(k, []).get(k)).push(o); };
     for (const sh of list) gadd(this.grid, 20, sh);
+    for (const sh of world.shells) if (sh.reg) gadd(this.grid, 20, sh);
     this.active = new Set(); this.actT = 0;
     // ---- babies
     this.babyGeo = babyGeometry();
@@ -93,6 +97,7 @@ export class Collectibles {
     for (const i of shellIdx) { const sh = list[i]; if (sh && !sh.got) { sh.got = true; sh.fade = 0; this.setShell(i, sh, 0); } }
     for (const m of Object.values(this.meshes)) m.instanceMatrix.needsUpdate = true;
     for (const r of this.world.regions.list) for (const sh of r.shells) if (this.savedShells.has(sh.id)) sh.got = true;
+    for (const sh of this.world.shells) if (sh.reg && this.savedShells.has(sh.id)) sh.got = true;
     for (const b of this.world.babies) if (this.savedBabies.has(String(b.id))) b.found = true;
   }
   /** wriggle + glint for the babies close to the octopus (<= ~40 u) */
@@ -165,7 +170,9 @@ export class Collectibles {
 
   update(dt, o, runTime, ctx = {}) {
     // ---- shells: silent pick-up, quietly adds armour
-    this.actT -= dt; if (this.actT <= 0) { this.actT = 0.5; this.streamShells(o); }
+    // twice a second, or at once after a jump (a teleport, a new start) so a shell under the octopus already has its slot
+    this.actT -= dt;
+    if (this.actT <= 0 || Math.abs(o.x - (this._sx ?? 1e9)) + Math.abs(o.z - (this._sz ?? 1e9)) > 20) { this.actT = 0.5; this._sx = o.x; this._sz = o.z; this.streamShells(o); }
     if (o.alive && !o.tunnel) {
       const cx = Math.floor(o.x / 20), cz = Math.floor(o.z / 20);
       for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {

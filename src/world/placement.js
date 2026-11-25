@@ -161,7 +161,7 @@ export function discMatrix(f, x, z, rx, rz, yaw, out) {
   _q.premultiply(_qt);
   return out.compose(_p.set(x, f.y0, z), _q, _sc.set(rx, 1, rz));
 }
-const STILL_KINDS = new Set(['puddle', 'dam', 'pond', 'tidepool', 'drip', 'aircon', 'trough']);
+const STILL_KINDS = new Set(['puddle', 'dam', 'pond', 'tidepool', 'drip', 'aircon', 'trough', 'sludge']);
 /** render radius and plane of a static water source */
 export function waterDisc(world, q) {
   if (q._disc) return q._disc;

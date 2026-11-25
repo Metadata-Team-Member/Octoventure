@@ -5,6 +5,7 @@ import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { EDGE } from '../src/world/bands.js';
 
 const chrome = process.env.CHROME_PATH || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
 let failed = 0;
@@ -78,7 +79,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
 {
   const r = await E(() => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
-    G.teleport(w.start.x, w.start.z); G.advance(0.1);
+    G.teleport(w.home.x, w.home.z); G.advance(0.1);
     const onLand = G.inkNow();
     const q = w.waters.find((a) => a.kind === 'pond' || a.kind === 'puddle');
     G.teleport(q.x, q.z); G.advance(0.2);
@@ -123,7 +124,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
 {
   const r = await E(() => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
-    G.teleport(w.start.x, w.start.z); g.advance(0.2); o.biteCool = 0; o.health = 100;
+    G.teleport(w.home.x, w.home.z); g.advance(0.2); o.biteCool = 0; o.health = 100;
     const none = G.biteNow(), cdNone = G.biteCool;
     const dog = G.spawnPredator('dog', 2.2, 0); g.advance(0.05);
     dog.state = 'chase'; dog.chaseT = 0;
@@ -151,7 +152,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     const inside = G.hiddenIn, vis = o.visibility;
     o.energy = 100; const e0 = o.energy;
     G.pressKey('Space'); g.advance(2); const eIn = e0 - o.energy; G.releaseKey('Space');
-    G.teleport(w.start.x, w.start.z); g.advance(0.3);
+    G.teleport(w.home.x, w.home.z); g.advance(0.3);
     o.energy = 100; G.pressKey('Space'); g.advance(2); const eOut = 100 - o.energy; G.releaseKey('Space');
     return { inside, vis, eIn, eOut, kind: h.kind };
   });
@@ -229,7 +230,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
       // stand on moist ground so the dry rate is the low, fixed one (seed 2026, noon, clear)
       const moist = new Set(['swamp', 'mud', 'fern', 'wet', 'bank', 'forest', 'litter']);
       let spot = null;
-      const hx = w.start.x, hz = w.start.z;
+      const hx = w.home.x, hz = w.home.z;
       for (let ring = 0; ring < 40 && !spot; ring++) {
         const n = ring === 0 ? 1 : 12;
         for (let a = 0; a < n && !spot; a++) {
@@ -286,7 +287,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   const r = await E(() => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
     const out = {};
-    G.clearPredators(); G.teleport(w.start.x, w.start.z); g.advance(0.2); o.health = 100; o.armor = 0; o.invuln = 0;
+    G.clearPredators(); G.teleport(w.home.x, w.home.z); g.advance(0.2); o.health = 100; o.armor = 0; o.invuln = 0;
     // --- cat: stalk, then pounce. A random start can put a fence between them, so stand on a clear 12 m line.
     G.freezeTime(true); G.setTime(0.5); G.setWeather('clear');
     const open = (() => {
@@ -354,7 +355,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     out.search = { states: [...ss].join(','), minD };
     G.clearPredators(); o.health = 100;
     // --- bucket person: grabs, carries, drops; camo ends the carry
-    G.teleport(w.start.x, w.start.z); g.advance(0.2);
+    G.teleport(w.home.x, w.home.z); g.advance(0.2);
     const hu = G.spawnPredator('human', 3, 0); hu.hasBucket = true; hu.parts.bucket.visible = true; hu.state = 'chase'; hu.chaseT = 0;
     let grabbed = false, h2 = o.health; for (let i = 0; i < 200 && !grabbed; i++) { g.advance(0.05); grabbed = G.carried; }
     const hGrab = o.health; let dropped = false; for (let i = 0; i < 160; i++) { g.advance(0.05); if (!G.carried) { dropped = true; break; } }
@@ -371,7 +372,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.human.grabbed && r.human.dropped && r.human.lost > 3, `a person with a bucket grabs, carries, then drops you (${r.human.lost.toFixed(0)} health lost)`);
   const carry = await E(() => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
-    G.clearPredators(); G.teleport(w.start.x, w.start.z); g.advance(0.2); o.health = 100; o.energy = 100; o.invuln = 0;
+    G.clearPredators(); G.teleport(w.home.x, w.home.z); g.advance(0.2); o.health = 100; o.energy = 100; o.invuln = 0;
     const hu = G.spawnPredator('human', 3, 0); hu.hasBucket = true; hu.state = 'chase'; hu.chaseT = 0;
     for (let i = 0; i < 200 && !G.carried; i++) g.advance(0.05);
     const was = G.carried; G.pressKey('Space'); g.advance(0.3); G.releaseKey('Space');
@@ -399,7 +400,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   ok(r.puddles > 3, `storms leave many temporary puddles (${r.puddles})`);
   const noct = await E(() => {
     const G = window.__game, g = G.game, w = g.world, o = g.octopus;
-    G.clearPredators(); G.teleport(w.start.x, w.start.z); g.advance(0.1);
+    G.clearPredators(); G.teleport(w.home.x, w.home.z); g.advance(0.1);
     const fox = G.spawnPredator('fox', 60, 0); const cat = G.spawnPredator('cat', 60, 5); const gull = G.spawnPredator('gull', 60, -5);
     G.setTime(0.5); g.advance(0.1); const day = { fox: fox.act, cat: cat.act, gull: gull.act };
     G.setTime(0.02); g.advance(0.1); const night = { fox: fox.act, cat: cat.act, gull: gull.act };
@@ -418,7 +419,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   const press = (i) => Array.from({ length: 17 }, (_, k) => k === i);
   const r = await E(() => {
     const G = window.__game, g = G.game, o = g.octopus, w = g.world;
-    G.clearPredators(); G.teleport(w.start.x, w.start.z); g.advance(0.2);
+    G.clearPredators(); G.teleport(w.home.x, w.home.z); g.advance(0.2);
     const out = {};
     const pad = (axes, held = []) => ({ axes, buttons: Array.from({ length: 17 }, (_, k) => ({ pressed: held.includes(k), value: held.includes(k) ? 1 : 0 })) });
     // left stick forward moves
@@ -582,7 +583,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
   const r = await E(async () => {
     const G = window.__game, g = G.game, o = g.octopus, fx = g.fx;
     if (G.paused) g.setPaused(false);
-    G.teleport(g.world.start.x, g.world.start.z); G.advance(0.2);
+    G.teleport(g.world.home.x, g.world.home.z); G.advance(0.2);
     const before = g.scene.children.length;
     G.pressKey('KeyW');
     for (let i = 0; i < 60; i++) { o.wetness = 1; G.advance(0.05); }
@@ -681,11 +682,15 @@ const uiBefore = await E(() => document.body.innerText.trim());
     out.peekFar = g.collect.peek.count === Math.min(24, within);       // only the babies close by get a live slot
     // squelch: walk wet for 20 s and count step sounds
     let n = 0; const orig = g.audio.step; g.audio.step = () => { n++; };
-    G.teleport(w.start.x, w.start.z); G.advance(0.2); G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig;
-    out.steps = n; return out;
+    G.clearPredators(); g.input.keys.clear(); g.input.pressed.clear(); o.alive = true; if (g.state !== 'playing') g.state = 'playing'; o.carried = null; o.tunnel = null;
+    let dsp = null;   // a desert spot with 70 m of flat, open, dry sand to the west (not into the big rock or the oasis)
+    for (let k = 0; k < 900 && !dsp; k++) { const c = { x: 160 + (k % 30) * 17, z: -300 - Math.floor(k / 30) * 6 }; let okk = w.biomeAt(c.x, c.z) === 'desert'; for (let d = 0; okk && d <= 70; d += 2) { const x = c.x - d, h = w.heightAt(x, c.z); okk = h > 0.5 && Math.abs(h - w.heightAt(c.x, c.z)) < 2 && !w.waterAt?.(x, c.z) && w.biomeAt(x, c.z) === 'desert'; const q = w.resolve(x, c.z, 0.3); okk = okk && Math.hypot(q.x - x, q.z - c.z) < 0.01; } if (okk && !w.decor.rocks.some((rk) => Math.abs(rk.z - c.z) < 2 + (rk.size || 1) && rk.x < c.x + 3 && rk.x > c.x - 75)) dsp = c; } G.teleport(dsp.x, dsp.z); G.advance(0.2); g.input.yaw = Math.PI / 2;   // open, dry, flat red sand (no tide to reach it)
+    G.freezeTime(true); G.setTime(0.3); G.setWeather('clear'); g.env.heat = 0;   // a cool morning, so the sand does not dry it between frames
+    G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.wetness = 1; g.env.heat = 0; o.health = 100; o.energy = 100; G.advance(0.05); } G.releaseKey('KeyW'); g.audio.step = orig; G.freezeTime(false);
+    out.steps = n; out.walk = `${Math.abs(o.x - dsp.x).toFixed(0)} m`; return out;
   });
   ok(r.peekNear && r.peekFar, 'a hidden baby wriggles into view only when the octopus is near');
-  ok(r.steps <= 10 && r.steps >= 2, `the wet squelch is occasional (${r.steps} in 20 s walking, not 5-8 per second)`);
+  ok(r.steps <= 10 && r.steps >= 2, `the wet squelch is occasional (${r.steps} in 20 s walking, not 5-8 per second; walked ${r.walk})`);
 }
 
 // ================================================================ the endless land: no edge, nothing breaks far from the start
@@ -722,55 +727,42 @@ const uiBefore = await E(() => document.body.innerText.trim());
       samples.sort((a, b) => a - b);
       return samples[Math.floor(samples.length / 2)];
     };
-    // a Daily/New start can leave w.start already inland, so walk toward the sea until the air is moist
-    let sx = w.start.x, sz = w.start.z;
-    for (let s = 0; s <= 5000; s += 80) {
-      const x = w.start.x + w.dir.x * s, z = w.start.z + w.dir.z * s;
-      if ((w.harshAt(x, z) ?? 0) < 0.15) { sx = x; sz = z; break; }
-    }
-    G.teleport(sx, sz); settle(10); out.lossStart = loss();
-    // 3 km inland (away from the sea), and then keep walking: the old map ended at 800 u
-    const ix = -w.dir.x, iz = -w.dir.z;
-    const tele = (d) => { G.teleport(w.start.x + ix * d, w.start.z + iz * d); settle(40); };
-    tele(1400); out.regions1 = w.regions.list.length; out.chunks1 = g.view.chunks.size;
-    tele(3000); out.harsh = w.harshAt(o.x, o.z); out.lossFar = loss();
-    out.farFlowers = w.regions.list.reduce((n, q) => n + q.decor.flowers.length, 0);
-    G.pressKey('KeyW'); for (let i = 0; i < 400; i++) { o.health = 100; G.advance(0.05); } G.releaseKey('KeyW');
-    out.moved = Math.hypot(o.x - (w.start.x + ix * 3000), o.z - (w.start.z + iz * 3000));
-    out.alive = o.alive; out.finite = Number.isFinite(o.x) && Number.isFinite(o.y) && Math.abs(o.y) < 400;
-    out.chunks2 = g.view.chunks.size; out.visible = g.view.stats.chunksVisible;
-    // a long walk streams chunks in and frees them behind: memory stays flat
+    const EDGE = w.edge;
+    // banded world: home (the town band) is gentle, the wasteland up north dries the octopus fastest
+    G.teleport(w.home.x, w.home.z); settle(10); out.lossStart = loss();
+    G.teleport(-60, -600); settle(40); out.harsh = w.harshAt(o.x, o.z); out.band = w.bandAt(o.x, o.z); out.lossFar = loss();
+    out.regions = w.regions.list.length;
+    // the edges hold: walk west into the ranges, north into the ranges, and swim south past the shark fins
+    const walk = (x, z, dx, dz, sec) => { G.teleport(x, z); settle(4); g.input.yaw = Math.atan2(-dx, -dz); o.heading = Math.atan2(dx, dz); G.pressKey('KeyW'); for (let i = 0; i < sec * 20; i++) { o.health = 100; G.advance(0.05); } G.releaseKey('KeyW'); settle(2); return { x: o.x, z: o.z, alive: o.alive, finite: Number.isFinite(o.x + o.y + o.z) }; };
+    out.west = walk(EDGE.west + 40, -100, -1, 0, 25);
+    out.north = walk(200, EDGE.north + 40, 0, -1, 25);
+    out.east = walk(EDGE.east - 40, 100, 1, 0, 25);
+    out.south = walk(-200, EDGE.sea - 40, 0, 1, 30);
+    // memory stays flat as we criss-cross the map, and nothing is built deep in the ranges or far out to sea
     const geos0 = g.renderer.info.memory.geometries;
-    for (const d of [3200, 3600, 4000, 4400, 4800, 5200, 5600, 6000]) tele(d);
-    out.chunks3 = g.view.chunks.size; out.freed = g.view.stats.chunksFreed ?? 0; out.geos = g.renderer.info.memory.geometries - geos0; out.regions3 = w.regions.list.length;
-    out.predFar = g.predators.list.filter((p) => p.far).length; out.eagles = g.predators.list.filter((p) => p.far && p.kind === 'eagle').length;
-    // the sea plane follows: still under the player's lateral position when we are 5 km along the shore
-    G.teleport(w.start.x + w.perp.x * 5000, w.start.z + w.perp.z * 5000); settle(20);
+    for (const [x, z] of [[-600, 400], [600, 400], [600, -600], [-600, -600], [0, 0], [-300, 200], [300, -300], [0, 700]]) { G.teleport(x, z); settle(30); }
+    out.chunks = g.view.chunks.size; out.geos = g.renderer.info.memory.geometries - geos0; out.regions2 = w.regions.list.length;
+    out.wanted = [...g.view.chunks.values()].every((c) => w.edgeOut(c.userData.cx, c.userData.cz) < 170 && c.userData.cz < EDGE.sea + 270);
+    out.predFar = g.predators.list.filter((p) => p.far).length;
+    // the ranges are one cheap instanced draw; shark fins patrol beyond the reef
+    out.ranges = g.view.ranges?.isInstancedMesh ? g.view.ranges.count : 0;
+    out.fins = g.view.finMesh?.count ?? 0;
+    G.teleport(0, EDGE.sea - 60); settle(10);
+    { const m = new (g.camera.matrix.constructor)(), v = new (g.camera.position.constructor)(); let minZ = 1e9; for (let i = 0; i < out.fins; i++) { g.view.finMesh.getMatrixAt(i, m); v.setFromMatrixPosition(m); minZ = Math.min(minZ, v.z); } out.finMinZ = minZ; }
+    // the sea plane follows along the shore
+    G.teleport(560, EDGE.sea - 120); settle(20);
     const sp = g.view.sea.position; out.seaLat = Math.abs(w.lateral(sp.x, sp.z) - w.lateral(o.x, o.z));
-    out.shoreChunks = g.view.chunks.size;
-    G.teleport(w.start.x + w.dir.x * 7000, w.start.z + w.dir.z * 7000); settle(20);        // 7 km out to sea
-    const sp2 = g.view.sea.position, dc = (p) => p.x * w.dir.x + p.z * w.dir.z;
-    out.seaOut = Math.abs(dc(sp2) - dc(o)); out.seaHalf = g.view.sea.userData.size / 2;
-    // flowers and shells out there still work: touch one, and pick up a shell
-    const farF = w.regions.list.filter((q) => Math.abs(q.rx - 1.5) > 3 || Math.abs(q.rz - 1.5) > 3).flatMap((q) => q.decor.flowers);
-    const f = farF[Math.floor(farF.length / 2)];
-    G.teleport(f.x + 2, f.z); settle(10);
-    out.farFlowerInst = !!f.inst && f.inst.mesh.parent !== null;
-    const farS = w.shells.filter((q) => q.reg);
-    const sh = farS[Math.floor(farS.length / 2)];
-    G.teleport(sh.x + 3, sh.z); settle(20);
-    out.farShellSlot = sh.slot >= 0 && g.collect.meshes[sh.k].count > 0;
-    G.teleport(sh.x, sh.z); settle(4); out.farShellGot = sh.got;
     return out;
   });
-  ok(r.lossFar > r.lossStart * 1.3, `far inland dries the octopus faster (${r.lossStart.toFixed(2)} -> ${r.lossFar.toFixed(2)} per 3 s; harsh ${r.harsh})`);
-  ok(r.harsh > 0.95 && r.regions1 > 3 && r.chunks1 > 10, `3 km inland the land exists and is harsh (harshness ${r.harsh.toFixed(2)}, ${r.regions1} regions generated, ${r.chunks1} chunks)`);
-  ok(r.moved > 20 && r.alive && r.finite, `walking on beyond 3 km: moved ${r.moved.toFixed(0)} u, alive, finite coordinates`);
-  ok(r.chunks3 < 90 && r.freed > 50 && r.geos < 250, `memory stays flat over a 6 km trek (${r.chunks3} chunks resident, ${r.freed} freed, ${r.geos} extra geometries)`);
-  ok(r.predFar >= 1 && r.eagles >= 1, `eagles circle far inland (${r.eagles} of ${r.predFar} wanderers)`);
-  ok(r.seaOut < r.seaHalf - 600, `the sea has no far edge either: 7 km out the plane still extends ${(r.seaHalf - r.seaOut).toFixed(0)} u beyond the player`);
+  ok(r.lossFar > r.lossStart * 1.3 && r.band === 5, `the wasteland dries the octopus faster than home (${r.lossStart.toFixed(2)} -> ${r.lossFar.toFixed(2)} per 3 s; harsh ${r.harsh.toFixed(2)})`);
+  ok(r.regions === 0 && r.regions2 === 0, 'the banded world makes no far tiles');
+  const inside = (p) => p.alive && p.finite && p.x >= EDGE.west - 27 && p.x <= EDGE.east + 27 && p.z >= EDGE.north - 27 && p.z <= EDGE.sea + 0.5;
+  ok(inside(r.west) && inside(r.north) && inside(r.east) && inside(r.south), `the edges hold: walking into the ranges and swimming out to sea stop gently (west ${r.west.x.toFixed(0)}, north ${r.north.z.toFixed(0)}, east ${r.east.x.toFixed(0)}, south ${r.south.z.toFixed(0)})`);
+  ok(r.chunks < 260 && r.geos < 250 && r.wanted, `memory stays flat criss-crossing the map (${r.chunks} chunks, ${r.geos} extra geometries; none deep in the ranges)`);
+  ok(r.predFar === 0, 'no wanderers are spawned beyond the map');
+  ok(r.ranges > 30, `the mountain ranges are one instanced draw (${r.ranges} peaks)`);
+  ok(r.fins >= 3 && r.finMinZ >= EDGE.sea + 5, `grey shark fins patrol beyond the reef (${r.fins}, nearest z ${r.finMinZ.toFixed(0)})`);
   ok(r.seaLat < 30, `the sea plane follows along the shore (${r.seaLat.toFixed(0)} u off)`);
-  ok(r.farFlowerInst && r.farShellSlot && r.farShellGot, 'flowers and shells out in the far land are drawn, and a far shell can be picked up');
 }
 
 // ================================================================ shore, wading people, living birds
@@ -915,7 +907,7 @@ const uiBefore = await E(() => document.body.innerText.trim());
     }
     if (p.indoor || p.phase) p.leaveNow();
     o.camoWanted = false;
-    G.teleport(w.start.x, w.start.z);
+    G.teleport(w.home.x, w.home.z);
     return { first, bad, n: p.plan.homes.length };
   });
   ok(doors.first.pose.indoor && doors.first.pose.h === 0 && doors.first.inM > 1.2 && doors.first.inM <= 1.51, `entry stands about 1.5 m inside, facing in (${doors.first.inM.toFixed(2)} m)`);

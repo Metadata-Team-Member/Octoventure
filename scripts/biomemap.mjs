@@ -11,6 +11,7 @@ import { mulberry32 } from '../src/util/rng.js';
 export const BIOME_RGB = {
   suburb: [150, 190, 120], town: [150, 150, 160], farm: [226, 205, 120], bush: [70, 130, 70], riverbank: [90, 170, 190],
   wetland: [90, 120, 90], dunes: [232, 210, 150], beach: [250, 240, 200], headland: [120, 110, 120], estuary: [150, 200, 190], sea: [40, 110, 170],
+  desert: [205, 110, 70], rainforest: [40, 100, 60], mudflat: [170, 150, 120], wasteland: [140, 110, 150],
 };
 const out = process.argv[2] || 'biomemap.png', half = +process.argv[3] || 1000, px = +process.argv[4] || 1000, seed = process.argv[5] ? +process.argv[5] : CONFIG.worldSeed;
 const w = new WorldData(seed);

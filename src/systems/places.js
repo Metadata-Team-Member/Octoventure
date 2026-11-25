@@ -15,6 +15,7 @@ export const FLAP_STEP = 1.5 / 0.32;
 export const FLAP_COOL = 1;
 export const ROOM_D = RD;
 const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
+const _cellV = new THREE.Vector3();
 const G = {};
 const geo = (id, make) => G[id] || (G[id] = make());
 const ball = () => geo('ball', () => new THREE.SphereGeometry(0.5, 8, 6));
@@ -72,6 +73,27 @@ export class Places {
     this._dayT = 30;
     this.critterBase = 0;
     this.buildOutdoor();
+    this._bucketStatic();
+  }
+  /** the yard gnomes, sheds, garden and playground pieces are a few hundred small meshes spread over the town: group them in
+   *  80 m cells so a whole cell is skipped once it is past the fog (the pieces keep their own visible flags) */
+  _bucketStatic() {
+    const C = 80, cells = new Map(), keep = new Set([this.dailyCritter, this.dailyFlower]);
+    for (const c of [...this.root.children]) {
+      if (keep.has(c)) continue;
+      c.updateMatrixWorld(true); const p = _cellV.setFromMatrixPosition(c.matrixWorld);
+      const k = Math.floor(p.x / C) + ',' + Math.floor(p.z / C);
+      let g = cells.get(k);
+      if (!g) { g = new THREE.Group(); g.userData.cx = (Math.floor(p.x / C) + 0.5) * C; g.userData.cz = (Math.floor(p.z / C) + 0.5) * C; cells.set(k, g); this.root.add(g); }
+      g.attach(c);
+    }
+    this.cells = [...cells.values()]; this._cellT = 0;
+  }
+  _cullCells(dt, o) {
+    if ((this._cellT -= dt) > 0 || !this.cells) return;
+    this._cellT = 0.25;
+    const R = CONFIG.graphics.fogFar * 1.2 + 60;
+    for (const g of this.cells) g.visible = Math.hypot(g.userData.cx - o.x, g.userData.cz - o.z) < R;
   }
 
   mat(hex) {
@@ -609,6 +631,7 @@ export class Places {
   // ---------------------------------------------------------------- frame
   update(dt, o) {
     if (!o) return;
+    this._cullCells(dt, o);
     this._hop = (this._hop || 0) + dt;
     this._dayT -= dt;
     if (this._dayT <= 0) { this._dayT = 20; this.ensureDaily(); }

@@ -90,7 +90,7 @@ function tally(cat, name, hover, bury, limit, tol = TOL, steep = false) {
   if (hover > tol && process.env.HOVLIST) console.log("hover", cat, name, hover.toFixed(2), globalThis.__it ? globalThis.__it : "");
   if (hover > tol) { t.hover++; if (hover > t.maxHover) { t.maxHover = hover; t.worst = name; } }
   if (steep) t.steep = (t.steep || 0) + 1;
-  if (bury > limit && !steep) { t.buried++; const k = name; (t.bk ??= {})[k] = ((t.bk ??= {})[k] || 0) + 1; }
+  if (bury > limit && !steep) { if (process.env.HOVLIST) console.log("buried", cat, name, bury.toFixed(2), globalThis.__it || ""); t.buried++; const k = name; (t.bk ??= {})[k] = ((t.bk ??= {})[k] || 0) + 1; }
   if (bury > t.maxBury) t.maxBury = bury;
 }
 
