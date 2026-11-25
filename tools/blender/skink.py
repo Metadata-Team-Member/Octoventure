@@ -62,14 +62,14 @@ EXPORT_LENGTH = LENGTH_CM * CM  # 0.945 u
 # Warm cream-tan body, dark-brown bands (lightness contrast, not hue),
 # pale belly, bright blue tongue. Authored a touch bright so
 # Standard+Workbench midtones stay cheerful, not muddy.
-BODY = (0xEE / 255, 0xB8 / 255, 0x62 / 255, 1.0)      # #EEB862 warm tan
-BAND = (0x3A / 255, 0x28 / 255, 0x14 / 255, 1.0)      # #3A2814 dark brown
-BELLY = (0xF6 / 255, 0xE8 / 255, 0xC8 / 255, 1.0)     # #F6E8C8 paler cream
-TONGUE = (0x3A / 255, 0x7A / 255, 0xFF / 255, 1.0)    # #3A7AFF, pops more than #2E6BFF
+BODY = (0xF4 / 255, 0x90 / 255, 0x22 / 255, 1.0)      # #F49022, Workbench midtones read as #D9A050 caramel
+BAND = (0x3E / 255, 0x26 / 255, 0x12 / 255, 1.0)      # #3E2612 dark chocolate, a touch darker for Workbench
+BELLY = (0xE8 / 255, 0xD0 / 255, 0xA8 / 255, 1.0)     # #E8D0A8 cream, close to the tan so it does not flash white
+TONGUE = (0x3A / 255, 0x7A / 255, 0xFF / 255, 1.0)    # #3A7AFF
 EYE = (0x14 / 255, 0x14 / 255, 0x16 / 255, 1.0)
 HIGHLIGHT = (1.0, 1.0, 1.0, 1.0)
-MOUTH = (0x5A / 255, 0x30 / 255, 0x28 / 255, 1.0)     # #5A3028
-LEG = (0xD8 / 255, 0xA4 / 255, 0x58 / 255, 1.0)       # #D8A458 slightly deeper tan
+MOUTH = (0xF2 / 255, 0xA0 / 255, 0x90 / 255, 1.0)     # #F2A090 pink gape
+LEG = (0xDC / 255, 0x80 / 255, 0x20 / 255, 1.0)       # #DC8020 slightly deeper caramel
 CLAW = (0x5C / 255, 0x40 / 255, 0x30 / 255, 1.0)      # #5C4030
 
 FPS = 24
@@ -141,14 +141,20 @@ def shade_smooth(obj):
     mesh.update()
 
 
-def add_uv_sphere(name, radius, segments, rings, loc, scale=None):
+def add_uv_sphere(name, radius, segments, rings, loc, scale=None, poles="Z"):
     bpy.ops.mesh.primitive_uv_sphere_add(
-        radius=radius, segments=segments, ring_count=rings, location=loc
+        radius=radius, segments=segments, ring_count=rings, location=(0.0, 0.0, 0.0)
     )
     obj = bpy.context.active_object
     obj.name = name
-    if scale:
+    if poles == "Y":
+        # Poles on Z, then scale (width, height, length) and rotate so length is +Y.
+        if scale:
+            obj.scale = (scale[0], scale[2], scale[1])
+        obj.rotation_euler = (math.pi / 2.0, 0.0, 0.0)
+    elif scale:
         obj.scale = scale
+    obj.location = loc
     apply_all(obj)
     shade_smooth(obj)
     return obj
@@ -582,22 +588,90 @@ def weight_along_axis(obj, stops, axis="y"):
                 break
 
 
-def add_cross_band(name, center, half, y_dir, width, mats, group, wrap=0.95, segs=8):
-    """A dark band that wraps over the back and down the flanks of an ellipsoid."""
-    pts, rads = [], []
-    start = math.pi * (1.0 - wrap) * 0.5
-    end = math.pi - start
-    for i in range(segs):
-        t = i / (segs - 1)
-        a = math.pi - (start + (end - start) * t)
-        direction = Vector((math.cos(a), y_dir, math.sin(a)))
-        # Sit slightly in the surface so the band is a shallow ridge, not a pipe on top.
-        pts.append(on_ellipsoid(center, half, direction, 0.96))
-        rads.append(width)
-    tube = add_tapered_tube(name, pts, rads, verts=8, extra_rings=0, cap=True)
-    set_material(tube, mats["band"])
-    assign_group(tube, group)
-    return tube
+def ensure_slot(obj, mat):
+    mats = obj.data.materials
+    for i, m in enumerate(mats):
+        if m == mat:
+            return i
+    mats.append(mat)
+    return len(mats) - 1
+
+
+def smooth_mesh(obj, iterations=8, factor=0.55):
+    """Relax boolean creases without changing the triangle count."""
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    mod = obj.modifiers.new("Smooth", "SMOOTH")
+    mod.factor = factor
+    mod.iterations = iterations
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    shade_smooth(obj)
+
+
+def paint_bands(obj, mats, y0, y1, n_dark, belly_nz=-0.70, belly_z_max=0.95 * 0.0315):
+    """Paint flush dark-brown cross bands, as wide as the pale gaps, wrapping the flanks.
+
+    Underside faces get a cream belly so there is no separate white plate.
+    """
+    band_i = ensure_slot(obj, mats["band"])
+    belly_i = ensure_slot(obj, mats["belly"])
+    body_i = ensure_slot(obj, mats["body"])
+    span = y1 - y0
+    if span <= 1e-9 or n_dark < 1:
+        return
+    period = span / float(n_dark)
+    half = period * 0.5
+    for poly in obj.data.polygons:
+        c = poly.center
+        n = poly.normal
+        if n.z < belly_nz and c.z < belly_z_max:
+            poly.material_index = belly_i
+            continue
+        if c.y < y0 or c.y > y1:
+            poly.material_index = body_i
+            continue
+        pos = (c.y - y0) % period
+        poly.material_index = band_i if pos < half else body_i
+
+
+def paint_eye_stripes(obj, mats, head_c, head_s):
+    """A short dark streak immediately behind each eye."""
+    band_i = ensure_slot(obj, mats["band"])
+    eye_y = head_c.y + head_s.y * (-0.28)
+    y0 = eye_y - 0.05 * CM
+    y1 = eye_y + 1.55 * CM
+    z_min = head_c.z + 0.10 * CM
+    z_max = head_c.z + head_s.z * 0.72
+    x_min = head_s.x * 0.52
+    for poly in obj.data.polygons:
+        c = poly.center
+        n = poly.normal
+        if c.y < y0 or c.y > y1:
+            continue
+        if c.z < z_min or c.z > z_max:
+            continue
+        if abs(c.x) < x_min:
+            continue
+        # Side-facing only, so it does not spill onto the crown or cheek.
+        if abs(n.x) < 0.22:
+            continue
+        poly.material_index = band_i
+
+
+def wedge_head(obj, y_tip, y_back, x_tip=0.78, x_back=1.10, z_top=None, flatten=0.78):
+    """Taper the snout and flatten the crown so the head reads as a wedge, not a blob."""
+    span = y_back - y_tip
+    if span <= 1e-9:
+        return
+    for v in obj.data.vertices:
+        y = v.co.y
+        if y < y_tip or y > y_back:
+            continue
+        t = (y - y_tip) / span  # 0 at the tip, 1 at the back of the skull
+        v.co.x *= x_tip + (x_back - x_tip) * t
+        if z_top is not None and v.co.z > z_top:
+            v.co.z = z_top + (v.co.z - z_top) * flatten
+    obj.data.update()
 
 
 def add_leg(parts, mats, tag, joints, radii, parent_bone, names, n_toes=4):
@@ -678,194 +752,195 @@ def build_meshes(mats):
     parts = []
     bones = []
 
-    # 30 cm snout-to-tail-tip. Snout at y=-11, vent at y=+7 (SVL 18 cm),
-    # tail tip at y=+19. Low-slung: belly almost on the ground.
-    body_c = Vector((0.0, 0.6, 2.25)) * CM
-    body_s = Vector((3.40, 7.1, 2.12)) * CM
-    head_c = Vector((0.0, -7.6, 2.50)) * CM
-    head_s = Vector((3.65, 3.5, 2.20)) * CM
-    snout_c = Vector((0.0, -9.8, 2.15)) * CM
-    snout_s = Vector((2.35, 2.15, 1.50)) * CM
-    neck_c = Vector((0.0, -4.6, 2.40)) * CM
-    neck_s = Vector((3.45, 3.6, 2.18)) * CM
+    # Snout at y=-11.4, vent at y=+8.2 (SVL ~19.6 cm). Tail is shorter and
+    # fatter, about half the body length: tip at y=+18.2 (10 cm). Total ~29.6 cm.
+    # Low-slung: the belly is the underside of the body, not a separate plate.
+    body_c = Vector((0.0, 1.0, 2.20)) * CM
+    body_s = Vector((3.45, 7.20, 2.10)) * CM
+    # Broad, slightly triangular wedge head, wider than the neck, flatter top.
+    head_c = Vector((0.0, -7.6, 2.15)) * CM
+    head_s = Vector((4.15, 3.10, 1.58)) * CM
+    snout_c = Vector((0.0, -10.0, 1.85)) * CM
+    snout_s = Vector((2.20, 1.90, 1.08)) * CM
+    neck_c = Vector((0.0, -4.8, 2.15)) * CM
+    neck_s = Vector((3.05, 3.10, 1.90)) * CM
 
-    body = add_uv_sphere("body", 1.0, 16, 10, body_c, scale=body_s)
+    body = add_uv_sphere("body", 1.0, 20, 16, body_c, scale=body_s, poles="Y")
     set_material(body, mats["body"])
-    neck = add_uv_sphere("neck", 1.0, 14, 8, neck_c, scale=neck_s)
+    neck = add_uv_sphere("neck", 1.0, 16, 12, neck_c, scale=neck_s, poles="Y")
     set_material(neck, mats["body"])
-    head = add_uv_sphere("head", 1.0, 16, 10, head_c, scale=head_s)
+    head = add_uv_sphere("head", 1.0, 18, 14, head_c, scale=head_s, poles="Y")
     set_material(head, mats["body"])
-    snout = add_uv_sphere("snout", 1.0, 12, 8, snout_c, scale=snout_s)
+    snout = add_uv_sphere("snout", 1.0, 14, 10, snout_c, scale=snout_s, poles="Y")
     set_material(snout, mats["body"])
-    body = boolean_union(body, [neck, head, snout])
+
+    # Tail starts well inside the rump so a later union has no collar seam.
+    tail_pts = [
+        Vector((0.0, 6.4, 2.05)) * CM,
+        Vector((0.0, 9.2, 1.90)) * CM,
+        Vector((0.0, 11.6, 1.58)) * CM,
+        Vector((0.0, 13.8, 1.18)) * CM,
+        Vector((0.0, 16.0, 0.78)) * CM,
+        Vector((0.0, 18.2, 0.45)) * CM,
+    ]
+    tail_r = [2.45 * CM, 1.95 * CM, 1.50 * CM, 1.08 * CM, 0.72 * CM, 0.38 * CM]
+    tail = add_tapered_tube("tail", tail_pts, tail_r, verts=10, extra_rings=1, cap=True)
+    set_material(tail, mats["body"])
+
+    body = boolean_union(body, [neck, head, snout, tail])
     body.name = "body"
     set_material(body, mats["body"])
+    # Sharpen the wedge after the union, then relax the boolean creases.
+    wedge_head(body, y_tip=-11.6 * CM, y_back=-5.2 * CM,
+               x_tip=0.80, x_back=1.12, z_top=head_c.z + 0.35 * CM, flatten=0.70)
+    smooth_mesh(body, iterations=7, factor=0.50)
     weight_along_axis(body, [
-        (-10.5 * CM, "head"),
-        (-7.5 * CM, "head"),
-        (-5.4 * CM, "neck"),
-        (-3.2 * CM, "spine1"),
-        (1.0 * CM, "spine2"),
-        (5.2 * CM, "spine3"),
+        (-11.0 * CM, "head"),
+        (-7.4 * CM, "head"),
+        (-5.0 * CM, "neck"),
+        (-3.0 * CM, "spine1"),
+        (1.2 * CM, "spine2"),
+        (6.8 * CM, "spine3"),
+        (9.2 * CM, "tail1"),
+        (11.6 * CM, "tail2"),
+        (13.8 * CM, "tail3"),
+        (16.0 * CM, "tail4"),
+        (18.2 * CM, "tail5"),
     ], "y")
+    # One run of bands from the nape all the way down the tail: 8 on the
+    # body + 5 on the tail, equal dark/pale width, wrapping the flanks.
+    paint_bands(body, mats, y0=-5.4 * CM, y1=17.8 * CM, n_dark=14,
+                belly_nz=-0.72, belly_z_max=0.95 * CM)
+    paint_eye_stripes(body, mats, head_c, head_s)
     parts.append(body)
 
-    # Pale belly, just clear of the ground, under the sausage.
-    belly_c = Vector((0.0, 0.6, 0.55)) * CM
-    belly_s = Vector((2.7, 6.2, 0.55)) * CM
-    belly = add_uv_sphere("belly", 1.0, 12, 6, belly_c, scale=belly_s)
-    set_material(belly, mats["belly"])
-    weight_along_axis(belly, [
-        (-4.0 * CM, "spine1"),
-        (1.0 * CM, "spine2"),
-        (5.0 * CM, "spine3"),
-    ], "y")
-    parts.append(belly)
+    # Gentle smile on the snout.
+    smile_dirs = [
+        (-0.42, -0.80, -0.30),
+        (-0.22, -0.92, -0.42),
+        (0.00, -0.97, -0.50),
+        (0.22, -0.92, -0.42),
+        (0.42, -0.80, -0.30),
+    ]
+    smile_pts = [on_ellipsoid(snout_c, snout_s, d, 1.01) for d in smile_dirs]
+    smile = add_tapered_tube(
+        "smile", smile_pts,
+        [0.034 * CM, 0.040 * CM, 0.044 * CM, 0.040 * CM, 0.034 * CM],
+        verts=5, extra_rings=0, cap=True,
+    )
+    set_material(smile, mats["band"])
+    assign_group(smile, "head")
+    parts.append(smile)
 
-    # Lower jaw, slightly under the snout, so it can gape.
-    jaw_c = Vector((0.0, -10.2, 1.45)) * CM
-    jaw_s = Vector((1.70, 1.55, 0.55)) * CM
-    jaw = add_uv_sphere("jaw", 1.0, 10, 6, jaw_c, scale=jaw_s)
+    # Lower jaw and a pink mouth interior, tucked in at rest, visible on the gape.
+    jaw_c = Vector((0.0, -9.85, 1.38)) * CM
+    jaw_s = Vector((1.90, 1.50, 0.42)) * CM
+    jaw = add_uv_sphere("jaw", 1.0, 12, 8, jaw_c, scale=jaw_s, poles="Y")
     set_material(jaw, mats["body"])
     assign_group(jaw, "jaw")
     parts.append(jaw)
-    mouth = add_uv_sphere("mouth", 1.0, 8, 5, jaw_c + Vector((0.0, -0.15, 0.22)) * CM,
-                          scale=Vector((1.35, 1.20, 0.28)) * CM)
+    mouth = add_uv_sphere(
+        "mouth", 1.0, 10, 6,
+        jaw_c + Vector((0.0, 0.10, 0.22)) * CM,
+        scale=Vector((1.45, 1.10, 0.26)) * CM,
+        poles="Y",
+    )
     set_material(mouth, mats["mouth"])
     assign_group(mouth, "jaw")
     parts.append(mouth)
 
-    # Broad flat blue paddle, tucked in the mouth at rest, ready to flare
-    # forward along -Y. Parent is the head (not the jaw) so a gape does
-    # not swing it into a flag.
-    tongue_base = Vector((0.0, -9.2, 1.75)) * CM
-    tongue_mid = Vector((0.0, -10.0, 1.72)) * CM
-    tongue_end = Vector((0.0, -10.6, 1.70)) * CM
+    # Fat, rounded, slightly notched blue tongue. At rest it sits in the
+    # mouth; the threat clip slides about half a head-length out.
+    tongue_base = Vector((0.0, -9.2, 1.55)) * CM
+    tongue_mid = Vector((0.0, -9.9, 1.50)) * CM
+    tongue_end = Vector((0.0, -10.5, 1.42)) * CM
     tongue = add_tapered_tube(
         "tongue",
         [tongue_base, tongue_mid, tongue_end],
-        [0.42 * CM, 0.58 * CM, 0.40 * CM],
+        [0.42 * CM, 0.55 * CM, 0.48 * CM],
         verts=10, extra_rings=1, cap=True,
     )
     mid_z = tongue_mid.z
     for v in tongue.data.vertices:
-        v.co.z = mid_z + (v.co.z - mid_z) * 0.52
-        v.co.x *= 1.50
+        # Keep real thickness and a slight downward curve toward the tip.
+        v.co.z = mid_z + (v.co.z - mid_z) * 0.80
+        v.co.x *= 1.22
+        # Slight notch: pull the very tip centre back, leaving two rounded corners.
+        along = (tongue_end.y - v.co.y)  # more negative y = closer to tip, along is negative
+        if v.co.y < tongue_end.y + 0.28 * CM and abs(v.co.x) < 0.16 * CM:
+            v.co.y += 0.16 * CM
+            v.co.z -= 0.04 * CM
+        # Gentle droop toward the tip.
+        fade = max(0.0, min(1.0, (tongue_base.y - v.co.y) / (tongue_base.y - tongue_end.y + 1e-9)))
+        v.co.z -= 0.10 * CM * fade * fade
     tongue.data.update()
     shade_smooth(tongue)
     set_material(tongue, mats["tongue"])
-    # base half -> tongue, tip half -> tongueTip
     vg_a = tongue.vertex_groups.new(name="tongue")
     vg_b = tongue.vertex_groups.new(name="tongueTip")
     mid_y = tongue_mid.y
     for i, v in enumerate(tongue.data.vertices):
-        if v.co.y > mid_y + 0.05 * CM:      # toward the throat (less -Y)
+        if v.co.y > mid_y + 0.05 * CM:
             vg_a.add([i], 1.0, "REPLACE")
-        elif v.co.y < mid_y - 0.05 * CM:    # toward the tip
+        elif v.co.y < mid_y - 0.05 * CM:
             vg_b.add([i], 1.0, "REPLACE")
         else:
             vg_a.add([i], 0.5, "REPLACE")
             vg_b.add([i], 0.5, "REPLACE")
     parts.append(tongue)
-    tip_cap = add_uv_sphere("tongue_cap", 0.36 * CM, 8, 5, tongue_end, scale=Vector((1.55, 1.05, 0.55)))
+    # Single rounded cap, slightly flattened, so the tip is a fat paddle with a notch, not two sausages.
+    tip_cap = add_uv_sphere(
+        "tongue_cap", 0.42 * CM, 10, 6, tongue_end + Vector((0.0, -0.04, -0.04)) * CM,
+        scale=Vector((1.35, 1.05, 0.72)),
+    )
+    # Cut a shallow centre notch in the cap too.
+    for v in tip_cap.data.vertices:
+        if v.co.y < tongue_end.y - 0.05 * CM and abs(v.co.x) < 0.14 * CM:
+            v.co.y += 0.14 * CM
+    tip_cap.data.update()
+    shade_smooth(tip_cap)
     set_material(tip_cap, mats["tongue"])
     assign_group(tip_cap, "tongueTip")
     parts.append(tip_cap)
 
-    # Dark-brown cross bands on the back (value contrast).
-    body_bands = [
-        (-3.8, 0.28, "spine1"),
-        (-1.6, 0.34, "spine1"),
-        (0.8, 0.36, "spine2"),
-        (3.2, 0.34, "spine2"),
-        (5.5, 0.30, "spine3"),
-    ]
-    for i, (y_cm, width, group) in enumerate(body_bands):
-        # y_dir is the direction toward this band on the ellipsoid (local y)
-        y_dir = (y_cm * CM - body_c.y) / (body_s.y + 1e-9)
-        parts.append(add_cross_band(
-            f"band_{i}", body_c, body_s, y_dir, width * CM, mats, group,
-            wrap=0.98, segs=8,
-        ))
-
-    # Tapered tail, slightly drooped, tip just off the ground.
-    tail_pts = [
-        Vector((0.0, 5.8, 2.05)) * CM,
-        Vector((0.0, 8.6, 1.70)) * CM,
-        Vector((0.0, 11.8, 1.20)) * CM,
-        Vector((0.0, 14.8, 0.80)) * CM,
-        Vector((0.0, 17.2, 0.50)) * CM,
-        Vector((0.0, 18.6, 0.32)) * CM,
-    ]
-    tail_r = [2.05 * CM, 1.50 * CM, 1.08 * CM, 0.70 * CM, 0.40 * CM, 0.20 * CM]
-    tail = add_tapered_tube("tail", tail_pts, tail_r, verts=8, extra_rings=1, cap=True)
-    set_material(tail, mats["body"])
-    tail_joints = tail_pts[:5] + [tail_pts[-1]]  # 6 points, 5 bones
-    tail_names = ["tail1", "tail2", "tail3", "tail4", "tail5"]
-    assign_chain_weights(tail, [tail_pts[0], tail_pts[1], tail_pts[2], tail_pts[3], tail_pts[4], tail_pts[5]],
-                         tail_names, parent_bone="spine3")
-    parts.append(tail)
-
-    # Bands on the tail: wrap a short arc over each mid-segment.
-    tail_band_at = [1, 2, 3]  # indices into tail_pts
-    for k, ti in enumerate(tail_band_at):
-        p = tail_pts[ti]
-        rad = tail_r[ti] * 0.92
-        width = 0.22 * CM * (1.0 - ti * 0.10)
-        pts = []
-        for j in range(6):
-            a = math.pi * 0.15 + math.pi * 0.70 * j / 5  # top arc
-            pts.append(p + Vector((math.cos(a) * rad, 0.0, math.sin(a) * rad)))
-        band = add_tapered_tube(f"tail_band_{k}", pts, [width] * len(pts), verts=5, extra_rings=0, cap=True)
-        set_material(band, mats["band"])
-        assign_group(band, tail_names[min(ti, len(tail_names) - 1)])
-        parts.append(band)
-
-    # Friendly eyes on the sides of the broad head, slightly forward.
+    # Smaller eyes set on the sides of the head, not bulging on stalks.
     eye_bones = {}
     for side, name in ((1, "eye_L"), (-1, "eye_R")):
-        loc = on_ellipsoid(head_c, head_s, (side * 0.82, -0.40, 0.32), 1.06)
-        eye_r = 0.52 * CM
-        look = Vector((side * 0.72, -0.62, 0.12)).normalized()
+        loc = on_ellipsoid(head_c, head_s, (side * 0.90, -0.28, 0.18), 0.99)
+        eye_r = 0.34 * CM
+        look = Vector((side * 0.85, -0.45, 0.06)).normalized()
         eyeball = add_uv_sphere(name, eye_r, 12, 8, loc)
         set_material(eyeball, mats["eye"])
         assign_group(eyeball, name)
         parts.append(eyeball)
-        # A soft lid disc behind the globe, body-coloured, not a cut line.
-        lid = add_surface_disc(
-            name + "_lid", loc - look * (eye_r * 0.55), look,
-            eye_r * 1.12, thickness=0.30, segments=10, rings=3, inset=0.0,
-        )
-        set_material(lid, mats["body"])
-        assign_group(lid, name)
-        parts.append(lid)
-        hl_dir = (look + Vector((0.0, 0.0, 0.55))).normalized()
-        hl = add_uv_sphere(name + "_hl", 0.14 * CM, 6, 3, loc + hl_dir * (eye_r * 0.90))
+        hl_dir = (look + Vector((0.0, 0.0, 0.50))).normalized()
+        hl = add_uv_sphere(name + "_hl", 0.09 * CM, 6, 3, loc + hl_dir * (eye_r * 0.88))
         set_material(hl, mats["highlight"])
         assign_group(hl, name)
         parts.append(hl)
-        eye_bones[name] = (loc, loc + look * (0.22 * CM))
+        eye_bones[name] = (loc, loc + look * (0.18 * CM))
 
-    # Short stubby sprawling legs. Front under the shoulders, hind under the hips.
-    front_r = (0.72 * CM, 0.58 * CM, 0.40 * CM, 0.26 * CM)
-    back_r = (0.85 * CM, 0.66 * CM, 0.44 * CM, 0.28 * CM)
+    # Short, sturdy, sprawling legs. Front feet plant ahead of the chest,
+    # not tucked underneath.
+    front_r = (0.78 * CM, 0.62 * CM, 0.42 * CM, 0.28 * CM)
+    back_r = (0.90 * CM, 0.70 * CM, 0.46 * CM, 0.30 * CM)
     for side, tag in ((1, "fl"), (-1, "fr")):
         s = float(side)
         joints = [
-            Vector((s * 2.35, -3.8, 1.85)) * CM,
-            Vector((s * 2.85, -4.3, 0.95)) * CM,
-            Vector((s * 2.65, -4.9, 0.32)) * CM,
-            Vector((s * 2.55, -5.5, 0.12)) * CM,
+            Vector((s * 2.55, -4.4, 1.85)) * CM,
+            Vector((s * 3.45, -5.4, 1.00)) * CM,
+            Vector((s * 3.30, -6.3, 0.32)) * CM,
+            Vector((s * 3.15, -7.1, 0.12)) * CM,
         ]
         names = [f"{tag}_upper", f"{tag}_lower", f"{tag}_foot"]
         bones.extend(add_leg(parts, mats, tag, joints, front_r, "spine1", names, n_toes=4))
     for side, tag in ((1, "bl"), (-1, "br")):
         s = float(side)
         joints = [
-            Vector((s * 2.55, 4.3, 1.95)) * CM,
-            Vector((s * 3.10, 5.0, 1.05)) * CM,
-            Vector((s * 2.85, 4.3, 0.32)) * CM,
-            Vector((s * 2.70, 3.6, 0.12)) * CM,
+            Vector((s * 2.70, 5.0, 1.90)) * CM,
+            Vector((s * 3.55, 6.0, 1.05)) * CM,
+            Vector((s * 3.35, 5.2, 0.32)) * CM,
+            Vector((s * 3.15, 4.3, 0.12)) * CM,
         ]
         names = [f"{tag}_upper", f"{tag}_lower", f"{tag}_foot"]
         bones.extend(add_leg(parts, mats, tag, joints, back_r, "spine3", names, n_toes=4))
@@ -873,12 +948,12 @@ def build_meshes(mats):
     # Core bones. Spine points toward the tail (+Y).
     core = [
         ("root", None, Vector((0.0, 0.0, 0.0)), Vector((0.0, 0.0, 0.5)) * CM),
-        ("spine1", "root", Vector((0.0, -4.4, 2.30)) * CM, Vector((0.0, -1.2, 2.30)) * CM),
-        ("spine2", "spine1", Vector((0.0, -1.2, 2.30)) * CM, Vector((0.0, 2.8, 2.25)) * CM),
-        ("spine3", "spine2", Vector((0.0, 2.8, 2.25)) * CM, Vector((0.0, 6.2, 2.10)) * CM),
-        ("neck", "spine1", Vector((0.0, -5.6, 2.40)) * CM, Vector((0.0, -4.4, 2.35)) * CM),
-        ("head", "neck", Vector((0.0, -7.4, 2.50)) * CM, Vector((0.0, -10.4, 2.30)) * CM),
-        ("jaw", "head", Vector((0.0, -9.4, 1.70)) * CM, Vector((0.0, -11.0, 1.30)) * CM),
+        ("spine1", "root", Vector((0.0, -4.2, 2.20)) * CM, Vector((0.0, -1.0, 2.20)) * CM),
+        ("spine2", "spine1", Vector((0.0, -1.0, 2.20)) * CM, Vector((0.0, 3.4, 2.18)) * CM),
+        ("spine3", "spine2", Vector((0.0, 3.4, 2.18)) * CM, Vector((0.0, 7.6, 2.05)) * CM),
+        ("neck", "spine1", Vector((0.0, -5.6, 2.20)) * CM, Vector((0.0, -4.2, 2.20)) * CM),
+        ("head", "neck", Vector((0.0, -7.2, 2.20)) * CM, Vector((0.0, -10.6, 2.00)) * CM),
+        ("jaw", "head", Vector((0.0, -9.2, 1.50)) * CM, Vector((0.0, -11.0, 1.15)) * CM),
         ("tongue", "head", tongue_base, tongue_mid),
         ("tongueTip", "tongue", tongue_mid, tongue_end),
         ("eye_L", "head", eye_bones["eye_L"][0], eye_bones["eye_L"][1]),
@@ -1004,22 +1079,22 @@ def animate_threat(arm):
     # Build, hold, settle. Tongue flares wide and forward.
     for fr, gape, puff, lift, ext, wide in (
         (0,  0,  1.00, 0,  0.0, 1.00),
-        (6,  22, 1.06, 6,  0.55, 1.30),
-        (12, 40, 1.10, 10, 1.00, 1.60),
-        (18, 34, 1.08, 8,  0.90, 1.50),
+        (6,  26, 1.06, 8,  0.55, 1.10),
+        (12, 48, 1.08, 12, 1.00, 1.18),
+        (18, 42, 1.06, 10, 0.90, 1.14),
         (24, 0,  1.00, 0,  0.0, 1.00),
     ):
         # Jaw bone points toward the snout; +X opens the mouth.
         key_euler(jaw, fr, (r(gape), 0, 0))
-        key_euler(head, fr, (r(-lift * 0.5), 0, 0))
+        key_euler(head, fr, (r(-lift * 0.4), 0, 0))
         key_scale(spine2, fr, (puff, 1.0, puff))
         key_scale(spine3, fr, (puff * 0.98, 1.0, puff))
-        # Slide the paddle forward along the tongue bone and widen it a little.
-        # Keep length scale modest so it does not become a giant flag.
-        key_loc(tongue, fr, (0.0, ext * 2.4 * CM, 0.0))
-        key_scale(tongue, fr, (wide, 1.0 + ext * 0.45, 1.0))
-        key_loc(tip, fr, (0.0, ext * 1.1 * CM, 0.0))
-        key_scale(tip, fr, (wide * 1.05, 1.0 + ext * 0.25, 1.0))
+        # Slide a fat tongue about half a head-length out; do not scale it huge.
+        # +Z on this bone is slightly down in the gape so a little +Z droops it.
+        key_loc(tongue, fr, (0.0, ext * 1.7 * CM, 0.08 * CM * ext))
+        key_scale(tongue, fr, (wide, 1.0 + ext * 0.08, 1.0))
+        key_loc(tip, fr, (0.0, ext * 0.35 * CM, 0.04 * CM * ext))
+        key_scale(tip, fr, (wide, 1.0, 1.0))
     bpy.ops.object.mode_set(mode="OBJECT")
     push_nla(arm, action, "threat")
     return action
@@ -1037,16 +1112,16 @@ def animate_flick(arm):
     tip = arm.pose.bones["tongueTip"]
     for fr, gape, ext, wide in (
         (0, 0, 0.0, 1.0),
-        (3, 8, 0.55, 1.2),
-        (5, 12, 0.85, 1.35),
-        (7, 6, 0.40, 1.15),
+        (3, 12, 0.50, 1.08),
+        (5, 18, 0.80, 1.12),
+        (7, 10, 0.40, 1.06),
         (10, 0, 0.0, 1.0),
     ):
         key_euler(jaw, fr, (r(gape), 0, 0))
-        key_loc(tongue, fr, (0.0, ext * 2.0 * CM, 0.0))
-        key_scale(tongue, fr, (wide, 1.0 + ext * 0.35, 1.0))
-        key_loc(tip, fr, (0.0, ext * 0.9 * CM, 0.0))
-        key_scale(tip, fr, (wide, 1.1, 1.0))
+        key_loc(tongue, fr, (0.0, ext * 1.3 * CM, 0.05 * CM * ext))
+        key_scale(tongue, fr, (wide, 1.0 + ext * 0.06, 1.0))
+        key_loc(tip, fr, (0.0, ext * 0.25 * CM, 0.02 * CM * ext))
+        key_scale(tip, fr, (wide, 1.0, 1.0))
     bpy.ops.object.mode_set(mode="OBJECT")
     push_nla(arm, action, "tongueFlick")
     return action
