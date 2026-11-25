@@ -6,6 +6,7 @@
 // =====================================================================
 import * as THREE from 'three';
 import { tint, merge, at, rockGeometry } from './models.js';
+import { beetleStandIn } from './beetleModel.js';
 
 const C = (h) => new THREE.Color(h);
 const sph = (r, ws = 8, hs = 6) => new THREE.SphereGeometry(r, ws, hs);
@@ -163,16 +164,8 @@ export const worm = () => {
   const tube = paint(new THREE.TubeGeometry(curve, 28, 0.014, 6, false), (x) => (x > -0.02 && x < 0.04 ? 0xf0b0a4 : mixC(0xc4706a, 0xdb8f86, (x + 0.15) * 3)));
   return merge([tube, at(paint(sph(1, 6, 4), () => 0xe0968c), 0.152, 0.014, 0.0, 0, 0, 0, 0.018, 0.013, 0.013)]);
 };
-export const beetle = () => {
-  const parts = [
-    at(paint(sph(1, 10, 7), (x, y, z) => mixC(0x1f6a52, 0x7ee0b6, y * 0.7 + 0.2 + Math.abs(z) * 0.05)), 0, 0.045, -0.01, 0, 0, 0, 0.055, 0.04, 0.085),
-    at(tint(sph(1, 7, 5), 0x15302a), 0, 0.04, 0.085, 0, 0, 0, 0.032, 0.026, 0.028),
-    at(tint(sph(0.02, 5, 3), 0x103a2c), 0, 0.08, -0.01, 0, 0, 0, 0.2, 0.15, 3.2),
-  ];
-  for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) parts.push(at(tint(sph(0.02, 5, 4), 0x15302a), sx * 0.05, 0.02, -0.04 + i * 0.045, 0, 0, sx * (Math.PI / 2 - 0.6), 0.28, 0.28, 1.6));
-  for (const sx of [-1, 1]) parts.push(at(tint(sph(0.012, 4, 3), 0x15302a), sx * 0.02, 0.055, 0.11, Math.PI / 2 - 0.3, 0, sx * 0.4, 0.35, 0.35, 2.2));
-  return merge(parts);
-};
+/** Ladybird from the glb, already in world units. Far beetles draw this bind-pose stand-in; nearby ones play the clips. */
+export const beetle = () => beetleStandIn();
 export const spawn = () => {
   const parts = [], pts = [[0, 0], [0.05, 0.01], [-0.045, 0.02], [0.02, -0.05], [-0.02, 0.05], [0.07, -0.035], [-0.07, -0.02], [0.0, 0.0, 1], [0.03, 0.02, 1], [-0.03, -0.02, 1], [0.01, -0.03, 1]];
   pts.forEach(([x, z, up], i) => {

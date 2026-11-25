@@ -171,6 +171,12 @@ The trail is the soft-toon ant from `src/assets/models/ant.glb` (built by `tools
 
 `walk` (0.5 s loop) plays while the line marches and `idle` (2 s loop) when the march is held still, with a 0.15 s cross-fade. Only ants within 4 m run an `AnimationMixer`, and only up to 16 of them (8 on a phone). Everyone else on the trail is one instanced bind-pose stand-in that keeps a few dozen triangles of each body part, so a full line stays about as cheap as the old procedural ants (one draw). Ants still march nest-to-food, pack up when the rain is past 0.7, and fill the journal entry `ant`. No outline — they are still too small. Saves stay at v9.
 
+## Beetle model
+
+The gatherable beetle is the soft-toon ladybird from `src/assets/models/beetle.glb` (built by `tools/blender/beetle.py`), not the old green shell. The file is imported as a module so the single-file build inlines it; a `public/` URL would break `file://` and the Pages deploy. The same glTF helper as the ant bakes the seven materials into vertex colours on one shared `toonMat` (shell `#FF5A2A`, seam `#E83C20`, spots, head and legs `#2A221C`, cream `#F3E6C8`, belly `#3D2A24`, dark eyes with a white catchlight) instead of the glb's satin PBR. The mesh is already about 1.4 cm long, so the object scale is 1 and `SIZE.beetle` only varies it a little (0.9–1.2). +Z is forward and the origin sits on the ground between the feet. The usual gather seating (`GATHER_TILT` 0.5, a 0.5 cm bury) puts those feet on `heightAt`.
+
+There are still 26, at the foot of gum, pine and willow trees in the bush and on the riverbank. `idle` (2 s antenna twitch and a tiny shell flutter) plays only for beetles within 4 m, and only up to 8 of them (4 on a phone). Everyone else is one instanced bind-pose stand-in, a few dozen triangles of each part, cheaper than the old spheres. One that close may scuttle about 2.5 cm on `walk` (0.5 s) and then settle back, still pickable, without sitting on a neighbour. Touch still collects it once, the tentacle still tucks it, and the satchel, the journal and the recipes are unchanged. The pictogram is the same red shell and dark spots. No outline. Saves stay at v9.
+
 ## Secrets of night and rain
 
 A few finds that are not gatherables (they do not use the gather stream, so nothing else in the world moves). Each 400 m tile, including the original map's sixteen tiles and every far tile, rolls its own hash. Most tiles have none. On the one world each kind shows up a handful of times and no more.
@@ -273,7 +279,7 @@ The dusk sky is no longer one orange everywhere. Each biome has its own dusk col
 
 ## Shapes that were too sharp
 
-Ants, beetles and the little crabs (the ones you can pick up, and the ones that run about) are made of rounded pieces, not boxes and sharp cones. The snake is one tapered tube that bends along its curve, not a string of beads; the bend is a vertex wiggle on that snake's own geometry (nothing shared, nothing allocated per frame). The goanna has a snout, four legs and a tail that sways as it walks. Reef arches are rounded rock, sea stars have five puffy arms, and the fish and the turtle have a body, fins and a tail, with the usual creature outlines. Beach shells kept the lower triangle counts; the scallop's hinge and the cowrie's teeth are small spheres again so they still read as shells. The golden shell is a large scallop of that same shape, seated on the sand, with a soft shine.
+The little crabs (the ones you can pick up, and the ones that run about) are made of rounded pieces, not boxes and sharp cones. The ants and the gatherable beetles are the soft-toon models above, not those earlier simple shells. The snake is one tapered tube that bends along its curve, not a string of beads; the bend is a vertex wiggle on that snake's own geometry (nothing shared, nothing allocated per frame). The goanna has a snout, four legs and a tail that sways as it walks. Reef arches are rounded rock, sea stars have five puffy arms, and the fish and the turtle have a body, fins and a tail, with the usual creature outlines. Beach shells kept the lower triangle counts; the scallop's hinge and the cowrie's teeth are small spheres again so they still read as shells. The golden shell is a large scallop of that same shape, seated on the sand, with a soft shine.
 
 ## Checks
 
