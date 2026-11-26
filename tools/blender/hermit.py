@@ -1,4 +1,4 @@
-"""Build the Octoventure soft-toon hermit crab and export public/models/hermit.glb.
+"""Build the Octoventure soft-toon hermit crab and export src/assets/models/hermit.glb.
 
 Run from the repo with:
     /opt/blender/blender -b --python tools/blender/hermit.py
@@ -55,7 +55,7 @@ import bmesh
 from mathutils import Matrix, Vector
 
 ROOT = Path(__file__).resolve().parents[2]
-GLB_PATH = ROOT / "public" / "models" / "hermit.glb"
+GLB_PATH = ROOT / "src" / "assets" / "models" / "hermit.glb"
 PREVIEW_REPO = ROOT / "tools" / "blender" / "hermit-preview.png"
 PREVIEW_REPO_SIDE = ROOT / "tools" / "blender" / "hermit-preview-side.png"
 PREVIEW_REPO_WALK = ROOT / "tools" / "blender" / "hermit-walk.png"

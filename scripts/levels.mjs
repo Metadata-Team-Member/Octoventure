@@ -307,6 +307,102 @@ await sleep(400);
   ok(w.journal, 'wrens still fill the field journal');
   ok(w.mud.waders > 0 && w.mud.waderMesh === w.mud.waders && w.mud.samples.filter((s) => s.as === 'wader').every((s) => s.procedural && !s.skinned), `mudflat waders keep the procedural mesh (${w.mud.waders} waders, mesh ${w.mud.waderMesh})`);
 }
+// ---- the hermit crab model (on the ground, crawl along +Z, hide then peek; ghost and predator crabs stay procedural)
+{
+  await page.waitForFunction(() => window.__game.game.critters.hermitReady || window.__game.game.critters.hermitError, { timeout: 20000 });
+  const h = await E(() => {
+    const G = window.__game, g = G.game, C = g.critters, o = g.octopus, w = g.world;
+    G.clearPredators(); G.setWeather('clear'); g.env.rain = 0; g.env.apply(); G.setTime(0.45);
+    G.teleportToBiome('beach');
+    for (let i = 0; i < 120 && (C.counts().hermits < 1 || C.counts().crabs < 1); i++) G.advance(0.1);
+    const ghostOn = C.counts().crabs;
+    const anchor = C.hm.find((c) => c.on) || C.hm[0];
+    const crab = C.hm[0];
+    const park = () => {
+      let spot = null;
+      const ax = anchor.x, az = anchor.z;
+      for (let i = 0; i < 80 && !spot; i++) {
+        const a = i / 80 * 6.2832, r = 0.4 + (i % 10) * 0.35;
+        const x = ax + Math.cos(a) * r, z = az + Math.sin(a) * r;
+        if (w.waterAt?.(x, z) || w._blocked?.(x, z, 0.2)) continue;
+        if (w.heightAt(x, z) < 0.35) continue;
+        let clear = true;
+        for (let s = 1; s <= 6; s++) {
+          const nx = x, nz = z + s * 0.12;
+          if (w.waterAt?.(nx, nz) || w._blocked?.(nx, nz, 0.15) || w.heightAt(nx, nz) < 0.3) { clear = false; break; }
+        }
+        if (clear) spot = [x, z, w.heightAt(x, z)];
+      }
+      return spot;
+    };
+    const spot = park();
+    const shove = () => {
+      for (const arr of [C.sk, C.cr, C.fr, C.bu, C.wr, C.fl]) for (const c of arr) if (c.on) { c.x += 80; c.z += 80; }
+    };
+    const place = (extra = {}) => {
+      crab.on = true; crab.x = spot[0]; crab.z = spot[1]; crab.y = spot[2];
+      crab.h = 0; crab.t = 0.4; crab.run = 0; crab.hide = 0; crab.emerge = 0; crab.sp = 0; crab.dir = 1;
+      Object.assign(crab, extra);
+      for (const c of C.hm) if (c !== crab) c.on = false;
+      shove();
+    };
+    if (spot) {
+      place();
+      G.teleport(crab.x + 6, crab.z);
+      o.speed = 0;
+      G.advance(0.08);
+      place();
+    }
+    G.advance(0.05);
+    const sit = C.hermitProbe();
+    const sitter = sit.samples.find((s) => s.i === 0);
+    let dx = 0, dz = 0, walker = null;
+    if (spot) {
+      place({ t: 8 });
+      const x0 = crab.x, z0 = crab.z;
+      G.advance(0.28);
+      walker = C.hermitProbe().samples.find((s) => s.i === 0);
+      dx = crab.x - x0; dz = crab.z - z0;
+      place();
+      G.teleport(crab.x + 1.2, crab.z);
+      o.speed = 0;
+    }
+    G.advance(0.12);
+    const runner = C.hermitProbe().samples.find((s) => s.i === 0);
+    G.advance(0.36);
+    const hider = C.hermitProbe().samples.find((s) => s.i === 0);
+    C.slot = 0;
+    if (spot && hider) { crab.hide = Math.max(crab.hide, 0.93); crab.emerge = 0; crab.run = 0; crab.sp = 0; }
+    G.advance(1 / 30);
+    const shell = C.hermitProbe().samples.find((s) => s.i === 0);
+    if (spot) { C.slot = 0; G.teleport(crab.x + 6, crab.z); o.speed = 0; }
+    G.advance(0.28);
+    const peeker = C.hermitProbe().samples.find((s) => s.i === 0);
+    const hover = sit.samples.reduce((m, s) => Math.max(m, Math.abs(s.meshY - s.ground)), 0);
+    const journal = g.journal.has('hermit');
+    let predSkinned = 0, predKind = '';
+    if (spot) {
+      const p = G.spawnPredator('crab', 5, 1);
+      predKind = p?.kind || '';
+      p?.group?.traverse((obj) => { if (obj.isSkinnedMesh) predSkinned++; });
+      G.clearPredators();
+    }
+    return { sit, sitter, walker, dx, dz, runner, hider, shell, peeker, hover, journal, ghostOn, predSkinned, predKind, spot: !!spot };
+  });
+  ok(h.sit.ready && !h.sit.error && ['idle', 'walk', 'hide', 'peek'].every((n) => h.sit.clips.includes(n)), `the hermit model loaded (${h.sit.clips.join('+') || h.sit.error})`);
+  ok(Math.abs(h.sit.dur.idle - 2.5) < 0.05 && Math.abs(h.sit.dur.walk - 0.625) < 0.02 && Math.abs(h.sit.dur.hide - 0.417) < 0.02 && Math.abs(h.sit.dur.peek - 0.625) < 0.02, `idle 2.5s, walk 0.62s, hide 0.42s, peek 0.62s (${h.sit.dur.idle}, ${h.sit.dur.walk}, ${h.sit.dur.hide}, ${h.sit.dur.peek})`);
+  ok(h.sit.tris > 2000 && h.sit.farTris > 40 && h.sit.farTris < 500, `the hermit uses the glb (${h.sit.tris} tris) and a cheap stand-in (${h.sit.farTris})`);
+  ok(h.sit.minY > -0.01 && h.sit.minY < 0.01, `the hermit origin is on the ground (min y ${h.sit.minY.toFixed(4)})`);
+  ok(h.spot && h.sitter && h.hover < 0.03 && h.sitter.scale === 1 && h.sitter.skinned && h.sitter.clip === 'idle' && h.sit.oldMesh === 0, `hermits sit on heightAt (${h.sitter ? h.sitter.clip + ' off ' + h.hover.toFixed(4) : 'none'})`);
+  ok(h.walker && h.walker.skinned && h.walker.clip === 'walk' && h.walker.scale === 1 && h.dz > 0.05 && Math.abs(h.dx) < Math.max(0.02, h.dz * 0.45) && Math.abs(h.walker.timeScale - 1) < 0.08, `walk crawls along +Z (${h.walker ? h.walker.clip + ' dz ' + h.dz.toFixed(3) + ' dx ' + h.dx.toFixed(3) + ' x' + h.walker.timeScale.toFixed(2) : 'none'})`);
+  ok(h.runner && h.runner.skinned && h.runner.clip === 'walk' && h.runner.run > 0 && Math.abs(h.runner.timeScale - 1.8 / 0.45) < 0.15, `a scare runs before the tuck (${h.runner ? h.runner.clip + ' run ' + h.runner.run.toFixed(2) + ' x' + h.runner.timeScale.toFixed(2) : 'none'})`);
+  ok(h.hider && h.hider.skinned && h.hider.clip === 'hide' && h.hider.hide > 0.05 && h.hider.hide < 1 && h.shell && h.shell.clip === 'hide' && h.shell.hide >= 1, `hide plays while tucking and holds (${h.hider ? h.hider.hide.toFixed(2) : 'none'} -> ${h.shell ? h.shell.hide.toFixed(2) : 'none'})`);
+  ok(h.peeker && h.peeker.skinned && h.peeker.clip === 'peek' && h.peeker.emerge > 0.15 && h.peeker.hide < 1, `peek plays while emerging (${h.peeker ? h.peeker.clip + ' emerge ' + h.peeker.emerge.toFixed(2) : 'none'})`);
+  ok(h.sit.flipY === false && h.sit.colorSpace === 'srgb' && h.sit.mapW > 64, `the shell map stays sRGB and unflipped (${h.sit.colorSpace}, ${h.sit.mapW}px)`);
+  ok(h.journal, 'hermits still fill the field journal');
+  ok(h.sit.ghostProcedural && h.ghostOn > 0, `ghost crabs keep the procedural mesh (${h.ghostOn})`);
+  ok(h.predKind === 'crab' && h.predSkinned === 0, `the predator crab is not the hermit glb (${h.predKind}, skinned ${h.predSkinned})`);
+}
 ok(problems.length === 0, `no page errors${problems.length ? ': ' + problems.join(' | ') : ''}`);
 await browser.close();
 console.log(failed ? `\n${failed} FAILED` : '\nall levels / badges / day-night / weather checks passed');
