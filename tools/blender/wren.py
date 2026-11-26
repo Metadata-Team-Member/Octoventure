@@ -1198,8 +1198,9 @@ def add_leaf(name, base, tip, width, thickness, segments=10, rings=6):
 
 
 def add_folded_wing(name, side, shoulder, mid, tip, mats, groups):
-    """A simple flat leaf-shaped wing: rounded leading edge, three soft
-    scallops on the trailing edge, a few millimetres thick, no twist.
+    """A soft, rounded leaf-shaped wing: smooth leading edge, three
+    gentle rounded feather tips, elliptical thickness, smooth shaded.
+    No sharp creases or corrugated scallop ribs.
     """
     s = 1.0 if side >= 0 else -1.0
     length_axis = (tip - shoulder).normalized()
@@ -1222,55 +1223,81 @@ def add_folded_wing(name, side, shoulder, mid, tip, mats, groups):
 
     length = (tip - shoulder).length
     origin = shoulder + out * (0.08 * CM)
-    half = 0.14 * CM  # ~2.8 mm thick, a simple solid paddle
+    half = 0.16 * CM  # slightly plump so the rounded rim reads
     n_sc = 3
+
+    def _smoothstep(x):
+        x = max(0.0, min(1.0, x))
+        return x * x * (3.0 - 2.0 * x)
 
     def lead_v(u):
         return (0.10 + 0.48 * math.sin(math.pi * min(1.0, u / 0.90))) * CM
 
     def trail_v(u):
         base = (-0.05 - 0.40 * math.sin(math.pi * min(1.0, u * 0.96))) * CM
-        if u < 0.40:
-            return base
-        tt = (u - 0.40) / 0.60
-        scallop = abs(math.sin(tt * n_sc * math.pi))
-        fade = 1.0
-        if tt < 0.10:
-            fade = tt / 0.10
-        elif tt > 0.90:
-            fade = (1.0 - tt) / 0.10
+        # Raised-cosine lobes: C-infinity, 0 at the joints, no V-notch crease.
+        if u <= 0.36:
+            scallop = 0.0
+        else:
+            tt = (u - 0.36) / 0.64
+            scallop = 0.5 * (1.0 - math.cos(2.0 * math.pi * n_sc * tt))
+            fade = 1.0
+            if tt < 0.14:
+                fade = _smoothstep(tt / 0.14)
+            elif tt > 0.86:
+                fade = _smoothstep((1.0 - tt) / 0.14)
+            scallop *= fade
         tip_round = 1.0
-        if u > 0.88:
-            tip_round = math.sqrt(max(0.0, 1.0 - ((u - 0.88) / 0.12) ** 2))
-        return (base - 0.13 * CM * scallop * fade) * tip_round
+        if u > 0.84:
+            tip_round = math.sqrt(max(0.0, 1.0 - ((u - 0.84) / 0.16) ** 2))
+        return (base - 0.05 * CM * scallop) * tip_round
 
-    def pt(u, v, h):
+    def thick_at(u, t):
+        """Elliptical pad: t=0 trailing, t=1 leading. Soft rounded rim,
+        slightly tapered at the root and tip."""
+        x = 2.0 * t - 1.0
+        rim = (max(0.0, 1.0 - abs(x) ** 1.7)) ** (1.0 / 1.7)
+        rim = 0.22 + 0.78 * rim
+        taper = 1.0
+        if u < 0.08:
+            taper = 0.60 + 0.40 * _smoothstep(u / 0.08)
+        elif u > 0.80:
+            taper = 0.38 + 0.62 * math.sqrt(max(0.0, 1.0 - ((u - 0.80) / 0.20) ** 2))
+        return half * rim * taper
+
+    def pt(u, t, sign):
+        v = trail_v(u) * (1.0 - t) + lead_v(u) * t
+        h = thick_at(u, t) * sign
         return origin + length_axis * (u * length) + chord * v + out * h
 
-    n_lead, n_trail = 14, 30
-    outline = []
-    for i in range(n_lead + 1):
-        u = i / n_lead
-        outline.append((u, lead_v(u)))
-    for i in range(1, n_trail + 1):
-        u = 1.0 - i / n_trail
-        outline.append((u, trail_v(u)))
-
+    nu, nv = 14, 7  # length x chord segments
     bm = bmesh.new()
-    def ring(h):
-        return [bm.verts.new(pt(u, v, h)) for u, v in outline]
-
-    top = ring(half)
-    bot = ring(-half)
+    top = [[None] * (nv + 1) for _ in range(nu + 1)]
+    bot = [[None] * (nv + 1) for _ in range(nu + 1)]
+    for i in range(nu + 1):
+        u = i / nu
+        for j in range(nv + 1):
+            t = j / nv
+            top[i][j] = bm.verts.new(pt(u, t, 1.0))
+            bot[i][j] = bm.verts.new(pt(u, t, -1.0))
     bm.verts.ensure_lookup_table()
-    bm.faces.new(top)
-    bm.faces.new(list(reversed(bot)))
-    n = len(outline)
-    for i in range(n):
-        j = (i + 1) % n
-        bm.faces.new((top[i], top[j], bot[j], bot[i]))
+
+    def quad(a, b, c, d):
+        bm.faces.new((a, b, c, d))
+
+    # Top (normal +out) and bottom (normal -out).
+    for i in range(nu):
+        for j in range(nv):
+            quad(top[i][j], top[i + 1][j], top[i + 1][j + 1], top[i][j + 1])
+            quad(bot[i][j], bot[i][j + 1], bot[i + 1][j + 1], bot[i + 1][j])
+    # Rim: trailing, leading, root, tip.
+    for i in range(nu):
+        quad(top[i][0], bot[i][0], bot[i + 1][0], top[i + 1][0])
+        quad(top[i][nv], top[i + 1][nv], bot[i + 1][nv], bot[i][nv])
+    for j in range(nv):
+        quad(top[0][j], top[0][j + 1], bot[0][j + 1], bot[0][j])
+        quad(top[nu][j], bot[nu][j], bot[nu][j + 1], top[nu][j + 1])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bmesh.ops.triangulate(bm, faces=bm.faces)
 
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
