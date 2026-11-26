@@ -187,6 +187,65 @@ await sleep(400);
   ok(f.sung.croak > 0, `the croak beat plays croak on a frog (${f.sung.croak})`);
   ok(f.journal, 'frogs still fill the field journal');
 }
+// ---- the skink model (on the ground, walk while moving, threat before the dart; rats stay procedural)
+{
+  await page.waitForFunction(() => window.__game.game.critters.skinkReady || window.__game.game.critters.skinkError, { timeout: 20000 });
+  const k = await E(() => {
+    const G = window.__game, g = G.game, C = g.critters, o = g.octopus, w = g.world;
+    G.clearPredators(); G.setWeather('clear'); g.env.rain = 0; g.env.apply(); G.setTime(0.45);
+    G.teleportToBiome('desert');
+    for (let i = 0; i < 90 && C.counts().skinks < 1; i++) G.advance(0.1);
+    const target = C.sk.find((c) => c.on && c.as !== 'rat') || C.sk.find((c) => c.on);
+    const id = target ? C.sk.indexOf(target) : -1;
+    const settle = (c, extra = {}) => {
+      c.t = 40; c.run = 0; c.walk = 0; c.cur = 0; c.bask = 0; c.threat = 0; c.flick = 0; c.launched = 0; c.sp = 0;
+      Object.assign(c, extra);
+    };
+    const only = () => { if (target) for (const c of C.sk) if (c !== target) c.on = false; };
+    if (target) {
+      only();
+      G.teleport(target.x + 3, target.z);
+      o.speed = 0;
+      settle(target, { bask: 2 });
+      G.advance(0.35);
+    }
+    const sit = C.skinkProbe();
+    const sitter = sit.samples.find((s) => s.i === id) || null;
+    if (target) { only(); settle(target, { walk: 1.6, bask: 0 }); }
+    G.advance(0.35);
+    const moving = C.skinkProbe();
+    const walker = moving.samples.find((s) => s.i === id && s.sp > 0) || null;
+    if (target) {
+      only();
+      settle(target);
+      G.teleport(target.x + 1.2, target.z);
+      o.speed = 0;
+    }
+    G.advance(0.2);
+    const scared = C.skinkProbe();
+    const gaping = scared.samples.find((s) => s.i === id) || null;
+    const journal = g.journal.has('skink');
+    const hover = sit.samples.filter((s) => s.as === 'skink').reduce((m, s) => Math.max(m, Math.abs(s.meshY - s.ground)), 0);
+    G.setTime(0.45); G.teleportToBiome('wasteland');
+    for (let i = 0; i < 80; i++) G.advance(0.1);
+    const rats = C.skinkProbe();
+    G.setTime(0.02); g.env.apply();
+    for (let i = 0; i < 80; i++) G.advance(0.1);
+    const packed = C.counts().skinks;
+    G.setTime(0.45); G.setWeather('clear'); g.env.rain = 0; g.env.apply();
+    return { sit, sitter, walker, gaping, journal, hover, rats, packed, n: sit.samples.length };
+  });
+  ok(k.sit.ready && !k.sit.error && ['idle', 'walk', 'bask', 'threat', 'tongueFlick'].every((n) => k.sit.clips.includes(n)), `the skink model loaded (${k.sit.clips.join('+') || k.sit.error})`);
+  ok(Math.abs(k.sit.dur.idle - 3) < 0.05 && Math.abs(k.sit.dur.walk - 0.833) < 0.02 && Math.abs(k.sit.dur.bask - 3) < 0.05 && Math.abs(k.sit.dur.threat - 1) < 0.02 && Math.abs(k.sit.dur.tongueFlick - 0.417) < 0.02, `idle 3s, walk 0.83s, bask 3s, threat 1s, tongueFlick 0.42s (${k.sit.dur.idle}, ${k.sit.dur.walk}, ${k.sit.dur.bask}, ${k.sit.dur.threat}, ${k.sit.dur.tongueFlick})`);
+  ok(k.sit.tris > 3000 && k.sit.farTris > 40 && k.sit.farTris < 500, `the skink uses the glb (${k.sit.tris} tris) and a cheap stand-in (${k.sit.farTris})`);
+  ok(k.sit.minY > -0.01 && k.sit.minY < 0.01, `the skink origin is on the ground (min y ${k.sit.minY.toFixed(4)})`);
+  ok(k.sitter && k.hover < 0.03 && k.sitter.scale === 1 && k.sitter.skinned && (k.sitter.clip === 'bask' || k.sitter.clip === 'idle'), `skinks sit on heightAt (${k.sitter ? k.sitter.clip + ' off ' + k.hover.toFixed(4) : 'none'})`);
+  ok(k.walker && k.walker.skinned && k.walker.clip === 'walk' && k.walker.scale === 1 && Math.abs(k.walker.timeScale - k.walker.sp / 0.5) < 0.08, `walk plays while moving (${k.walker ? k.walker.clip + ' sp ' + k.walker.sp.toFixed(2) + ' x' + k.walker.timeScale.toFixed(2) : 'none'})`);
+  ok(k.gaping && k.gaping.skinned && k.gaping.clip === 'threat' && k.gaping.threat > 0 && k.gaping.run === 0, `threat plays on a scare before the dart (${k.gaping ? k.gaping.clip + ' threat ' + k.gaping.threat.toFixed(2) + ' run ' + k.gaping.run : 'none'})`);
+  ok(k.journal, 'skinks still fill the field journal');
+  ok(k.rats.rats > 0 && k.rats.ratMesh === k.rats.rats && k.rats.samples.filter((s) => s.as === 'rat').every((s) => s.procedural && !s.skinned), `wasteland rats keep the procedural mesh (${k.rats.rats} rats, mesh ${k.rats.ratMesh})`);
+  ok(k.packed === 0, `skinks pack up at night (${k.packed} left)`);
+}
 ok(problems.length === 0, `no page errors${problems.length ? ': ' + problems.join(' | ') : ''}`);
 await browser.close();
 console.log(failed ? `\n${failed} FAILED` : '\nall levels / badges / day-night / weather checks passed');

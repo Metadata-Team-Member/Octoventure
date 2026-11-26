@@ -1,4 +1,4 @@
-"""Build the Octoventure soft-toon blue-tongue skink and export public/models/skink.glb.
+"""Build the Octoventure soft-toon blue-tongue skink and export src/assets/models/skink.glb.
 
 Run:
     /opt/blender/blender -b --python tools/blender/skink.py
@@ -45,7 +45,7 @@ import bpy
 from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[2]
-GLB_PATH = ROOT / "public" / "models" / "skink.glb"
+GLB_PATH = ROOT / "src" / "assets" / "models" / "skink.glb"
 PREVIEW_REPO = ROOT / "tools" / "blender" / "skink-preview.png"
 PREVIEW_REPO_SIDE = ROOT / "tools" / "blender" / "skink-preview-side.png"
 PREVIEW_REPO_WALK = ROOT / "tools" / "blender" / "skink-walk.png"
