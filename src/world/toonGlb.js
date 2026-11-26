@@ -5,7 +5,7 @@
 // authored sRGB, so callers pass the hex from the Blender script, not material.color).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { toonMat } from './toon.js';
+import { toonMat, addPatch } from './toon.js';
 
 
 /** Largest triangles per bone / material part. Load time only. `keepLow` retains each bone's lowest triangle (feet). `keepSpan` keeps the extremes so the silhouette stays the real length. */
@@ -149,4 +149,93 @@ export function assignToonMaterials(gltf, hexByName, fallback = 0xffffff) {
     o.receiveShadow = false;
   });
   return { scene: gltf.scene, mats, clips: gltf.animations };
+}
+
+/** Read a glTF colour map (flipY false, sRGB) into linear RGB. Load time only. */
+function mapSampler(map) {
+  const img = map?.image;
+  if (!img || !img.width || typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width; canvas.height = img.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, img.width, img.height).data;
+  const w = img.width, h = img.height, tmp = new THREE.Color();
+  return (u, v) => {
+    const uu = ((u % 1) + 1) % 1, vv = ((v % 1) + 1) % 1;
+    const x = Math.min(w - 1, Math.max(0, (uu * (w - 1)) | 0));
+    const fy = map.flipY ? vv : 1 - vv;
+    const y = Math.min(h - 1, Math.max(0, (fy * (h - 1)) | 0));
+    const i = (y * w + x) * 4;
+    tmp.setRGB(data[i] / 255, data[i + 1] / 255, data[i + 2] / 255, THREE.SRGBColorSpace);
+    return [tmp.r, tmp.g, tmp.b];
+  };
+}
+
+/**
+ * Like bakeToonSkinned, but one material keeps its colour map. That part's
+ * vertices are marked `wrenBody` so a toon patch shows the map there and
+ * vertex colours everywhere else. The far stand-in bakes the map into
+ * vertex colours (male plumage) and drops the texture. Callers pass sRGB hexes.
+ */
+export function bakeToonMapped(gltf, { mapped = 'body', tint, part, budget, fallback = 0xffffff, keepLow = false, keepSpan = false, clipNames = ['idle'] } = {}) {
+  const meshes = [];
+  gltf.scene.traverse((o) => { if (o.isSkinnedMesh) meshes.push(o); });
+  let map = null;
+  for (const m of meshes) if ((m.material?.name || '') === mapped && m.material?.map) map = m.material.map;
+  const sample = mapSampler(map);
+  const geos = meshes.map((m) => {
+    const g = m.geometry.clone();
+    const name = m.material?.name || '';
+    const isMap = name === mapped;
+    const c = new THREE.Color(tint[name] ?? fallback);
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3), body = new Float32Array(n), pa = new Float32Array(n);
+    const uv = g.attributes.uv;
+    const p = part[name] ?? 0;
+    for (let i = 0; i < n; i++) {
+      pa[i] = p;
+      if (isMap) {
+        body[i] = 1;
+        let r = c.r, gc = c.g, b = c.b;
+        if (sample && uv) { const s = sample(uv.getX(i), uv.getY(i)); r = s[0]; gc = s[1]; b = s[2]; }
+        col[i * 3] = r; col[i * 3 + 1] = gc; col[i * 3 + 2] = b;
+      } else {
+        col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+      }
+    }
+    if (!uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setAttribute('wrenBody', new THREE.BufferAttribute(body, 1));
+    g.setAttribute('part', new THREE.BufferAttribute(pa, 1));
+    return g;
+  });
+  const geo = mergeGeometries(geos, false);
+  const bones = meshes[0].skeleton.bones.map((b) => b.name);
+  const farGeo = decimateSkinned(geo, bones, budget, { keepLow, keepSpan });
+  const col = geo.attributes.color, bodyA = geo.attributes.wrenBody;
+  for (let i = 0; i < bodyA.count; i++) if (bodyA.getX(i) > 0.5) col.setXYZ(i, 1, 1, 1);
+  geo.deleteAttribute('part');
+  const skinned = new THREE.SkinnedMesh(geo, new THREE.MeshBasicMaterial());
+  skinned.bind(meshes[0].skeleton, meshes[0].bindMatrix);
+  const parent = meshes[0].parent;
+  for (const m of meshes) { parent.remove(m); m.geometry.dispose(); }
+  parent.add(skinned);
+  const clips = gltf.animations.filter((a) => clipNames.includes(a.name));
+  geo.computeBoundingBox();
+  return { scene: gltf.scene, geo, farGeo, clips, map };
+}
+
+/** Soft toon that shows `map` only where the wrenBody attribute is 1. */
+export function toonMappedMat(map) {
+  const m = toonMat({ map, vertexColors: true, name: 'body' });
+  return addPatch(m, 'wrenBody1', (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float wrenBody;\nvarying float vWrenBody;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWrenBody = wrenBody;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vWrenBody;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        diffuseColor.rgb = mix(vColor.rgb, diffuseColor.rgb, vWrenBody);`);
+  });
 }

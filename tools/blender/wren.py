@@ -1,4 +1,4 @@
-"""Build the Octoventure soft-toon superb fairy-wren and export public/models/wren.glb.
+"""Build the Octoventure soft-toon superb fairy-wren and export src/assets/models/wren.glb.
 
 Run:
     /opt/blender/blender -b --python tools/blender/wren.py
@@ -38,7 +38,7 @@ body, beak, eye, highlight, leg, tail, wing, wingEdge.
 Female / eclipse retint:
   The male map is embedded on the `body` material (tools/blender/wren_male.png,
   also packed in the glb). Swap that image for tools/blender/wren_female.png
-  (copied to public/models/wren_female.png): head and bib become brown-grey
+  (copied to src/assets/models/wren_female.png): head and bib become brown-grey
   #A09070, the mask rusty orange #D07838. tail, wing, wingEdge, belly/back
   colours in the map, beak, eye, highlight and leg stay as they are.
 """
@@ -59,7 +59,7 @@ import bpy
 from mathutils import Quaternion, Vector
 
 ROOT = Path(__file__).resolve().parents[2]
-GLB_PATH = ROOT / "public" / "models" / "wren.glb"
+GLB_PATH = ROOT / "src" / "assets" / "models" / "wren.glb"
 PREVIEW_REPO = ROOT / "tools" / "blender" / "wren-preview.png"
 PREVIEW_REPO_SIDE = ROOT / "tools" / "blender" / "wren-preview-side.png"
 PREVIEW_REPO_FLY = ROOT / "tools" / "blender" / "wren-fly.png"
@@ -70,7 +70,7 @@ PREVIEW_FLY = Path("/workspace/wren-fly.png")
 PREVIEW_SONG = Path("/workspace/wren-song.png")
 MALE_TEX = ROOT / "tools" / "blender" / "wren_male.png"
 FEMALE_TEX = ROOT / "tools" / "blender" / "wren_female.png"
-FEMALE_TEX_PUBLIC = ROOT / "public" / "models" / "wren_female.png"
+FEMALE_TEX_PUBLIC = ROOT / "src" / "assets" / "models" / "wren_female.png"
 
 CM = 0.0315
 LENGTH_CM = 14.0
