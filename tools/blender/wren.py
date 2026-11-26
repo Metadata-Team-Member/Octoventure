@@ -45,6 +45,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import bmesh
 import bpy
 from mathutils import Quaternion, Vector
 
@@ -71,6 +72,7 @@ NAPE = (0x18 / 255, 0x16 / 255, 0x18 / 255, 1.0)       # #181618
 THROAT = (0x14 / 255, 0x2C / 255, 0x58 / 255, 1.0)     # #142C58 deep blue-black
 BACK = (0xB0 / 255, 0x84 / 255, 0x52 / 255, 1.0)       # #B08452 mid warm brown-grey
 WING = (0x8A / 255, 0x6C / 255, 0x4C / 255, 1.0)       # #8A6C4C slightly darker wing
+WING_EDGE = (0x5C / 255, 0x44 / 255, 0x2C / 255, 1.0)  # #5C442C trailing-edge shade
 BELLY = (0xF2 / 255, 0xEA / 255, 0xD8 / 255, 1.0)      # #F2EAD8 pale cream-grey
 TAIL = (0x4A / 255, 0x72 / 255, 0x9A / 255, 1.0)       # #4A729A darker blue-grey than the crown
 BEAK = (0x2C / 255, 0x24 / 255, 0x1C / 255, 1.0)       # #2C241C
@@ -640,51 +642,19 @@ def snap_to_mesh(obj, point, inset=0.0):
 
 
 
-def paint_wren_body(obj, mats, body_c, head_c, head_s):
-    """Paint the unioned plump body: small crown cap, ear patches, a black
-    mask-to-nape band, a navy bib under the beak, cream belly, brown elsewhere.
+def paint_wren_body(obj, mats, body_c, head_c=None, head_s=None):
+    """Cream belly on the underside; the rest of the body stays brown.
+    Head markings are separate smooth shells, not painted faces.
     """
     belly_i = ensure_slot(obj, mats["belly"])
     back_i = ensure_slot(obj, mats["back"])
-    crown_i = ensure_slot(obj, mats["crown"])
-    ear_i = ensure_slot(obj, mats["ear"])
-    mask_i = ensure_slot(obj, mats["mask"])
-    nape_i = ensure_slot(obj, mats["nape"])
-    throat_i = ensure_slot(obj, mats["throat"])
     for poly in obj.data.polygons:
         c = poly.center
         n = poly.normal
-        dx = (c.x - head_c.x) / max(head_s.x, 1e-9)
-        dy = (c.y - head_c.y) / max(head_s.y, 1e-9)
-        dz = (c.z - head_c.z) / max(head_s.z, 1e-9)
-        on_head = math.sqrt(dx * dx + dy * dy + dz * dz) < 1.35
-        lon = math.degrees(math.atan2(dx, -dy))
-        lat = math.degrees(math.atan2(dz, math.hypot(dx, dy)))
         if n.z < -0.50 and c.z < body_c.z - 0.15 * CM and c.y > -0.2 * CM:
             poly.material_index = belly_i
-            continue
-        if (on_head and abs(lon) < 50 and lat < -22) or (
-            not on_head and c.y < -0.4 * CM and c.z < body_c.z + 0.05 * CM
-            and c.z > body_c.z - 0.7 * CM and abs(c.x) < 0.7 * CM and n.y < 0.15
-        ):
-            poly.material_index = throat_i
-            continue
-        if on_head:
-            # Ear first, so it stays a distinct sky-blue patch behind the eye.
-            if 68 <= abs(lon) <= 128 and -8 <= lat <= 42:
-                poly.material_index = ear_i
-                continue
-            if abs(lon) >= 128 and -25 <= lat <= 48:
-                poly.material_index = nape_i
-                continue
-            # Narrow mask band through the eye, not up into the crown.
-            if 18 <= abs(lon) <= 115 and -16 <= lat <= 12:
-                poly.material_index = mask_i
-                continue
-            if lat > 16 and abs(lon) < 135:
-                poly.material_index = crown_i
-                continue
-        poly.material_index = back_i
+        else:
+            poly.material_index = back_i
 
 def paint_head(obj, mats, head_c, head_s):
     """Colour-block a breeding-male head. No brown on the skull: blue crown,
@@ -755,32 +725,183 @@ def apply_shrinkwrap(obj, target, offset):
     return obj
 
 
-def add_flush_patch(name, target, point, normal, radius, mat, group, thickness=0.28, segments=12, inset=0.04):
-    disc = add_surface_disc(
-        name, point, normal, radius,
-        thickness=thickness, segments=segments, rings=4, inset=inset,
+def delete_faces(obj, keep_fn):
+    """Drop faces for which keep_fn(center) is False, in object space."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    drop = [f for f in bm.faces if not keep_fn(f.calc_center_median())]
+    if drop:
+        bmesh.ops.delete(bm, geom=drop, context="FACES")
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
+def recalc_normals(obj):
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj.select_set(False)
+
+
+def add_cap_shell(name, target, center, scale, direction, angle_deg, mat, group,
+                  segments=20, rings=10, offset=0.007):
+    """A thin ellipsoidal cap sitting just outside the head. The cut is a
+    clean circle, so the marking reads as a smooth cartoon shape, not a
+    blotch. Named materials stay on the shells so female retint still works.
+    """
+    sph = add_uv_sphere(name, 1.0, segments, rings, center, scale=scale, poles="Z")
+    direction = Vector(direction)
+    if direction.length < 1e-9:
+        direction = Vector((0.0, 0.0, 1.0))
+    direction = direction.normalized()
+    limit = math.radians(angle_deg)
+
+    def keep(co):
+        v = co - center
+        if v.length < 1e-12:
+            return False
+        return v.normalized().angle(direction) <= limit
+
+    delete_faces(sph, keep)
+    if len(sph.data.polygons) == 0:
+        print("WARNING: empty cap", name)
+        return sph
+    # Uniform scale keeps the cap a smooth ellipsoid with a clean circular
+    # outline. Per-vertex snap followed the body's faceted surface and
+    # turned the markings back into blotches.
+    fit_shell_outside(sph, target, center, offset * CM)
+    recalc_normals(sph)
+    shade_smooth(sph)
+    set_material(sph, mat)
+    assign_group(sph, group)
+    return sph
+
+
+def add_zone_shell(name, target, center, scale, axis, min_deg, max_deg, mat, group,
+                   lon_keep=None, segments=32, rings=16, offset=0.008):
+    """A thin spherical belt (and optional longitude window) on the head.
+    Used for the black mask-to-nape band so it reads as a stripe, not a cheek patch.
+    """
+    sph = add_uv_sphere(name, 1.0, segments, rings, center, scale=scale, poles="Z")
+    axis = Vector(axis)
+    if axis.length < 1e-9:
+        axis = Vector((0.0, 0.0, 1.0))
+    axis = axis.normalized()
+    ref = Vector((0.0, -1.0, 0.0))
+    ref = ref - axis * ref.dot(axis)
+    if ref.length < 1e-9:
+        ref = Vector((1.0, 0.0, 0.0))
+    ref = ref.normalized()
+
+    def keep(co):
+        v = co - center
+        if v.length < 1e-12:
+            return False
+        vn = v.normalized()
+        ang = math.degrees(vn.angle(axis))
+        if not (min_deg <= ang <= max_deg):
+            return False
+        if lon_keep is None:
+            return True
+        radial = vn - axis * vn.dot(axis)
+        if radial.length < 1e-12:
+            return False
+        radial = radial.normalized()
+        lon = math.degrees(math.atan2(axis.dot(ref.cross(radial)), ref.dot(radial)))
+        return lon_keep(lon)
+
+    delete_faces(sph, keep)
+    if len(sph.data.polygons) == 0:
+        print("WARNING: empty zone", name)
+        return sph
+    fit_shell_outside(sph, target, center, offset * CM)
+    recalc_normals(sph)
+    shade_smooth(sph)
+    set_material(sph, mat)
+    assign_group(sph, group)
+    return sph
+
+
+def fit_shell_outside(obj, target, center, offset):
+    """Scale the whole cap uniformly so it sits just outside the body."""
+    deps = bpy.context.evaluated_depsgraph_get()
+    ev = target.evaluated_get(deps)
+    factors = []
+    for v in obj.data.vertices:
+        outward = v.co - center
+        if outward.length < 1e-12:
+            continue
+        direction = outward.normalized()
+        origin = center + direction * (0.04 * CM)
+        ok, loc, _normal, _idx = ev.ray_cast(origin, direction, distance=4.0 * CM)
+        if ok:
+            body_r = (Vector(loc) - center).length
+            cap_r = outward.length
+            if cap_r > 1e-12:
+                factors.append(body_r / cap_r)
+    if not factors:
+        print(f"  cap {obj.name}: no body hits, left unscaled")
+        return
+    factors.sort()
+    # Drop rays that missed the skull and hit the torso or far side.
+    # Prefer hits that land on the skull itself, not the torso or a far side.
+    kept = [f for f in factors if 0.80 <= f <= 0.98]
+    if not kept:
+        kept = [f for f in factors if 0.75 <= f <= 1.05]
+    if not kept:
+        mid = factors[len(factors) // 2]
+        kept = [mid]
+        print(f"  cap {obj.name}: all hits out of range, used median {mid:.4f}")
+    factor = max(kept)
+    for v in obj.data.vertices:
+        radial = v.co - center
+        if radial.length < 1e-12:
+            continue
+        v.co = center + radial * factor + radial.normalized() * offset
+    obj.data.update()
+    print(
+        f"  cap {obj.name}: uniform scale {factor:.4f} "
+        f"(raw min {factors[0]:.4f} max {factors[-1]:.4f}, kept {len(kept)}/{len(factors)})"
     )
-    apply_shrinkwrap(disc, target, offset=0.006 * CM)
-    set_material(disc, mat)
-    assign_group(disc, group)
-    return disc
 
 
-def add_tail_fan(name, base, tip, width, mats, groups):
-    """One opaque, slim, rounded fan — no stacked paper-thin feathers."""
+def add_cocked_tail(name, base, tip, width, thickness, mats, groups):
+    """One opaque, slightly fanned tail with a single rounded tip."""
     mid = base.lerp(tip, 0.55)
-    half_len = (tip - base).length * 0.55
-    # Thick enough to stay opaque; narrow at the base, rounded at the tip.
+    length = (tip - base).length
     fan = add_oriented_ellipsoid(
         name, mid, tip - base,
-        (width, 0.22 * CM, half_len),
-        segments=8, rings=6,
+        (width, thickness, length * 0.52),
+        segments=12, rings=8,
     )
+    # Soften the tip to a rounded end and slim the base a little.
+    axis = (tip - base).normalized()
+    for v in fan.data.vertices:
+        t = (v.co - base).dot(axis) / max(length, 1e-9)
+        t = max(0.0, min(1.0, t))
+        if t < 0.18:
+            profile = 0.55 + 0.45 * (t / 0.18)
+        elif t > 0.62:
+            u = (t - 0.62) / 0.38
+            profile = math.sqrt(max(0.0, 1.0 - u * u))
+            profile = max(profile, 0.22)
+        else:
+            profile = 1.0
+        center = base + axis * (t * length)
+        offset = v.co - center
+        along = offset.dot(axis) * axis
+        perp = offset - along
+        v.co = center + along + perp * profile
+    fan.data.update()
+    shade_smooth(fan)
     set_material(fan, mats["tail"])
     assign_chain_weights(fan, [base, mid, tip], list(groups), parent_bone="body")
     return fan
-
-
 
 def even_mesh(obj, voxel, target_tris):
     """Voxel remesh + decimate so painted markings sit on even faces."""
@@ -838,22 +959,120 @@ def add_leaf(name, base, tip, width, thickness, segments=10, rings=6):
 
 
 def add_folded_wing(name, side, shoulder, mid, tip, mats, groups):
-    """One long flat leaf, skinned in two halves so it unfolds into a
-    rounded span of about 1.5x body length."""
-    wing = add_leaf(
-        name, shoulder, tip,
-        width=0.72 * CM, thickness=0.10 * CM, segments=10, rings=8,
-    )
-    # Soft rounded tip, still flat, slightly wider at the end of the fan.
-    step = add_leaf(
-        name + "_tip", mid.lerp(tip, 0.55), tip + (tip - mid) * 0.08,
-        width=0.48 * CM, thickness=0.08 * CM, segments=8, rings=5,
-    )
-    wing = join_objects(name, [wing, step])
-    set_material(wing, mats["wing"])
-    assign_chain_weights(wing, [shoulder, mid, tip], list(groups), parent_bone=None)
-    shade_smooth(wing)
-    return wing
+    """One solid songbird wing: rounded leading edge, five soft scallops
+    on the trailing tip, a slightly darker trailing edge, tucked on the flank.
+    """
+    s = 1.0 if side >= 0 else -1.0
+    length_axis = (tip - shoulder).normalized()
+    chord = length_axis.cross(Vector((s, 0.0, 0.0)))
+    if chord.length < 1e-9:
+        chord = Vector((0.0, 0.0, 1.0))
+    chord = chord.normalized()
+    if chord.z < 0:
+        chord = -chord
+    out = length_axis.cross(chord).normalized()
+    if out.x * s < 0:
+        out = -out
+        chord = length_axis.cross(out).normalized()
+        if chord.z < 0:
+            chord = -chord
+            out = length_axis.cross(chord).normalized()
+            if out.x * s < 0:
+                out = -out
+
+    length = (tip - shoulder).length
+    origin = shoulder + out * (0.07 * CM)
+    half = 0.055 * CM
+    n_sc = 5
+    u_sc0 = 0.48
+
+    def lead_v(u):
+        return (0.08 + 0.38 * math.sin(math.pi * min(1.0, u / 0.88))) * CM
+
+    def trail_v(u):
+        base = (-0.02 - 0.34 * math.sin(math.pi * min(1.0, u * 0.98))) * CM
+        if u < u_sc0:
+            return base
+        t = (u - u_sc0) / (1.0 - u_sc0)
+        scallop = abs(math.sin(t * n_sc * math.pi))
+        fade = 1.0
+        if t < 0.07:
+            fade = t / 0.07
+        elif t > 0.93:
+            fade = (1.0 - t) / 0.07
+        # Round the very tip a little so the last scallop isn't a spike.
+        tip_round = 1.0
+        if u > 0.92:
+            tip_round = math.sqrt(max(0.0, 1.0 - ((u - 0.92) / 0.08) ** 2))
+        return (base - 0.12 * CM * scallop * fade) * tip_round
+
+    def pt(u, v, h):
+        return origin + length_axis * (u * length) + chord * v + out * h
+
+    n_lead, n_trail = 18, 48
+    outline = []
+    us_lead = []
+    for i in range(n_lead + 1):
+        u = i / n_lead
+        outline.append((u, lead_v(u)))
+        us_lead.append(u)
+    us_trail = []
+    for i in range(1, n_trail + 1):
+        u = 1.0 - i / n_trail
+        outline.append((u, trail_v(u)))
+        us_trail.append(u)
+
+    bm = bmesh.new()
+    def ring(h):
+        return [bm.verts.new(pt(u, v, h)) for u, v in outline]
+
+    top = ring(half)
+    bot = ring(-half)
+    bm.verts.ensure_lookup_table()
+    top_face = bm.faces.new(top)
+    bot_face = bm.faces.new(list(reversed(bot)))
+    n = len(outline)
+    side_faces = []
+    side_u = []
+    side_trail = []
+    for i in range(n):
+        j = (i + 1) % n
+        f = bm.faces.new((top[i], top[j], bot[j], bot[i]))
+        side_faces.append(f)
+        u_a, v_a = outline[i]
+        u_b, v_b = outline[j]
+        side_u.append(0.5 * (u_a + u_b))
+        # Trailing-edge sides are the samples that came from the trail curve
+        # (after the first n_lead+1 leading verts), plus a little tip.
+        is_trail = (i >= n_lead) or (u_a >= 0.55 and v_a < 0.0) or (u_b >= 0.55 and v_b < 0.0)
+        side_trail.append(is_trail)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+
+    wing_mat = mats["wing"]
+    edge_mat = mats["wingEdge"]
+    obj.data.materials.clear()
+    obj.data.materials.append(wing_mat)
+    obj.data.materials.append(edge_mat)
+    for poly in obj.data.polygons:
+        c = poly.center
+        rel = c - origin
+        u = rel.dot(length_axis) / max(length, 1e-9)
+        v = rel.dot(chord)
+        if u >= 0.50 and v < -0.02 * CM:
+            poly.material_index = 1
+        else:
+            poly.material_index = 0
+
+    assign_chain_weights(obj, [shoulder, mid, tip], list(groups), parent_bone=None)
+    shade_smooth(obj)
+    return obj
 
 def build_meshes(mats):
     """Return (parts, bones). Face toward Blender -Y. Feet on Z=0."""
@@ -878,10 +1097,8 @@ def build_meshes(mats):
     body = boolean_union(body, [neck, head])
     body.name = "body"
     set_material(body, mats["back"])
-    smooth_mesh(body, iterations=6, factor=0.50)
-    even_mesh(body, voxel=0.20 * CM, target_tris=1600)
-    smooth_mesh(body, iterations=4, factor=0.45)
-    # Head / neck / body weights: a tight skull split so eyes stay on.
+    smooth_mesh(body, iterations=8, factor=0.55)
+    # Head / neck / body weights: a tight skull split so eyes and shells stay on.
     for name in ("head", "neck", "body"):
         if not body.vertex_groups.get(name):
             body.vertex_groups.new(name=name)
@@ -919,14 +1136,50 @@ def build_meshes(mats):
     parts.append(jaw)
 
     # Eyes sit in the black mask, highlight clearly visible.
+    # Smooth marking shells with clean rounded outlines, sitting just
+    # outside the head. Named materials stay on the shells so a female
+    # or eclipse retint can still recolour crown, ear, mask, nape and throat.
+    # Eyes are added after the shells so they sit on top of the mask band.
+    head_scale = head_s * 1.03
+    parts.append(add_cap_shell(
+        "crown", body, head_c, head_scale, (0.0, -0.10, 1.0), 44.0,
+        mats["crown"], "head", segments=24, rings=10, offset=0.008,
+    ))
+    for side, tag in ((1, "L"), (-1, "R")):
+        s = float(side)
+        parts.append(add_cap_shell(
+            f"ear_{tag}", body, head_c, head_scale, (s * 0.86, 0.36, 0.48), 20.0,
+            mats["ear"], "head", segments=18, rings=8, offset=0.008,
+        ))
+    # Black mask band through the eyes (sides + lores), then a nape collar.
+    # A thin belt, not a cheek patch, so the eye stays a round glossy sphere.
+    def _mask_lon(lon):
+        a = abs(lon)
+        return 32.0 <= a <= 150.0
+
+    parts.append(add_zone_shell(
+        "mask", body, head_c, head_scale, (0.0, -0.06, 1.0), 78.0, 100.0,
+        mats["mask"], "head", lon_keep=_mask_lon, segments=32, rings=16, offset=0.007,
+    ))
+    # Rounded collar on the back of the skull, just behind the crown.
+    # Sit clearly behind the crown so the two caps don't zipper from above.
+    parts.append(add_cap_shell(
+        "nape", body, head_c, head_scale, (0.0, 0.76, 0.64), 18.0,
+        mats["nape"], "head", segments=22, rings=8, offset=0.007,
+    ))
+    parts.append(add_cap_shell(
+        "throat", body, head_c, head_scale, (0.0, -0.48, -0.86), 22.0,
+        mats["throat"], "head", segments=16, rings=8, offset=0.008,
+    ))
+
     eye_bones = {}
     eye_r = 0.36 * CM
     for side, name in ((1, "eye_L"), (-1, "eye_R")):
         s = float(side)
         guess = on_ellipsoid(head_c, head_s, (s * 0.88, -0.22, 0.08), 1.02)
         surface, look = snap_to_mesh(body, guess, inset=0.0)
-        loc = surface - look * (eye_r * 0.22)
-        eyeball = add_uv_sphere(name, eye_r, 10, 6, loc)
+        loc = surface - look * (eye_r * 0.02)
+        eyeball = add_uv_sphere(name, eye_r, 12, 8, loc)
         set_material(eyeball, mats["eye"])
         assign_group(eyeball, "head")
         parts.append(eyeball)
@@ -949,20 +1202,17 @@ def build_meshes(mats):
         bones.append((names[0], "body", shoulder, mid))
         bones.append((names[1], names[0], mid, tip))
 
-    # Slim rounded tail, cocked at ~65 degrees, ~1.2x body length, opaque.
+    # One slightly fanned tail, ~1.0x body length, cocked 50 degrees from vertical.
     tail_base = Vector((0.0, 2.15, 2.05)) * CM
     body_len = (beak_tip - tail_base).length
-    tail_len = body_len * 1.20
-    tail_dir = Vector((0.0, math.cos(r(65.0)), math.sin(r(65.0)))).normalized()
+    tail_len = body_len * 1.00
+    tail_dir = Vector((0.0, math.sin(r(50.0)), math.cos(r(50.0)))).normalized()
     tail_tip = tail_base + tail_dir * tail_len
     tail_mid = tail_base.lerp(tail_tip, 0.48)
-    # Three slightly fanned feathers that overlap enough to read as one slim fan
-    # with a rounded tip, not a zigzag paddle.
-    for i, ang in enumerate((-5.0, 0.0, 5.0)):
-        direction = (Quaternion((0.0, 0.0, 1.0), r(ang)) @ tail_dir).normalized()
-        tip = tail_base + direction * (tail_len * (1.0 if ang == 0.0 else 0.96))
-        width = (0.42 if ang == 0.0 else 0.32) * CM
-        parts.append(add_tail_fan(f"tail_{i}", tail_base, tip, width, mats, ["tail1", "tail2"]))
+    parts.append(add_cocked_tail(
+        "tail", tail_base, tail_tip, width=0.52 * CM, thickness=0.20 * CM,
+        mats=mats, groups=["tail1", "tail2"],
+    ))
 
     # Shorter, slightly thicker twiggy legs. Three forward toes and a hallux, on z=0.
     for side, tag in ((1, "L"), (-1, "R")):
@@ -1118,9 +1368,12 @@ def animate_fly(arm):
         key_euler(w_r, fr, (r(-flap), 0, r(90)), mode="ZXY")
         key_euler(w_l2, fr, (0, 0, 0), mode="ZXY")
         key_euler(w_r2, fr, (0, 0, 0), mode="ZXY")
-        key_euler(leg_l, fr, (r(40), 0, r(-10)))
-        key_euler(leg_r, fr, (r(40), 0, r(10)))
-        key_euler(tail1, fr, (r(14), 0, 0))
+        # Fold the legs up under the belly, feet tucked in.
+        key_euler(leg_l, fr, (r(108), 0, r(-6)))
+        key_euler(leg_r, fr, (r(108), 0, r(6)))
+        key_euler(arm.pose.bones["foot_L"], fr, (r(55), 0, 0))
+        key_euler(arm.pose.bones["foot_R"], fr, (r(55), 0, 0))
+        key_euler(tail1, fr, (r(10), 0, 0))
     bpy.ops.object.mode_set(mode="OBJECT")
     push_nla(arm, action, "fly")
     return action
@@ -1436,6 +1689,7 @@ def main():
         "throat": set_coat(make_mat("throat", THROAT, roughness=0.45, metallic=0.0), 0.16, 0.30),
         "back": set_coat(make_mat("back", BACK, roughness=0.55, metallic=0.0), 0.10, 0.35),
         "wing": set_coat(make_mat("wing", WING, roughness=0.55, metallic=0.0), 0.10, 0.35),
+        "wingEdge": set_coat(make_mat("wingEdge", WING_EDGE, roughness=0.58, metallic=0.0), 0.08, 0.35),
         "belly": make_mat("belly", BELLY, roughness=0.65, metallic=0.0),
         "tail": set_coat(make_mat("tail", TAIL, roughness=0.48, metallic=0.0), 0.14, 0.32),
         "beak": make_mat("beak", BEAK, roughness=0.45, metallic=0.0),
