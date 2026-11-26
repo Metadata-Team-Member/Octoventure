@@ -10,11 +10,12 @@
 //
 //  Performance: one InstancedMesh per kind (plus thin outline hulls except for
 //  ants), small fixed pools recycled around the player, all scratch objects
-//  preallocated. Ants, frogs, skinks and fairy-wrens are the soft-toon glbs: one
-//  shared skinned mesh for the ones close enough to see move, and one instanced
-//  bind-pose stand-in (same colours, far fewer triangles) for the rest. Mixers
-//  run only for that nearby cap — never the whole pool. Wasteland rats reuse the
-//  procedural skink shape; mudflat waders reuse the procedural wren. The goanna
+//  preallocated. Ants, frogs, skinks, fairy-wrens and hermit crabs are the
+//  soft-toon glbs: one shared skinned mesh for the ones close enough to see
+//  move, and one instanced bind-pose stand-in (same colours, far fewer
+//  triangles) for the rest. Mixers run only for that nearby cap — never the
+//  whole pool. Wasteland rats reuse the procedural skink shape; mudflat waders
+//  reuse the procedural wren. Ghost crabs stay the old sidle mesh. The goanna
 //  and the hunting birds are not critters.
 // =====================================================================
 import * as THREE from 'three';
@@ -29,6 +30,7 @@ import frogUrl from '../assets/models/frog.glb?url';
 import skinkUrl from '../assets/models/skink.glb?url';
 import wrenUrl from '../assets/models/wren.glb?url';
 import wrenFemaleUrl from '../assets/models/wren_female.png?url';
+import hermitUrl from '../assets/models/hermit.glb?url';
 
 const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank', 'wasteland']);
 const ANT_B = new Set(['desert', 'bush', 'suburb', 'farm', 'town', 'dunes', 'rainforest']);
@@ -111,6 +113,27 @@ const WREN_BUDGET = {
   p1: 5, p2: 6, p3: 3,
 };
 const WREN_CLIPS = ['idle', 'hop', 'fly', 'peck', 'song'];
+const HERM_NEAR = 14;                     // metres: skinned idle / walk / hide / peek
+const HERM_WALK = 0.45;                   // u/s at walk-clip timeScale 1 (scare run 1.8)
+const HERM_HIDE = 0.42;                   // tuck, matched to the hide clip (was ~0.33 s)
+const HERM_PEEK = 0.62;                   // emerge, matched to the peek clip (was ~1.25 s)
+const HERM_TINT = {
+  shell: 0xF6E4C6, rim: 0xE8C89A, interior: 0x6A3E28, body: 0xFF6B3D,
+  clawTip: 0xF7D7A8, leg: 0xF25E34, eye: 0x1A1412, highlight: 0xffffff,
+};
+const HERM_PART = {
+  body: 0, leg: 0,
+  shell: 1, rim: 2, interior: 3, eye: 4, highlight: 5, clawTip: 6,
+};
+const HERM_BUDGET = {
+  root: 2, body: 10, shell: 4,
+  eye_L: 2, eye_R: 2, ant_L: 2, ant_R: 2,
+  claw_L: 3, claw_L2: 4, claw_R: 3, claw_R2: 4,
+  leg_fl: 2, leg_fl2: 2, leg_fr: 2, leg_fr2: 2,
+  leg_bl: 2, leg_bl2: 2, leg_br: 2, leg_br2: 2,
+  p1: 12, p2: 4, p3: 4, p4: 4, p5: 2, p6: 4,
+};
+const HERM_CLIPS = ['idle', 'walk', 'hide', 'peek'];
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _zero = new THREE.Vector3(0, 0, 0), _c = new THREE.Color();
 
 const sph = (r, s = 6, t = 5) => new THREE.SphereGeometry(r, s, t);
@@ -204,6 +227,24 @@ function wrenTemplate() {
   }
   return _wrenTplP;
 }
+let _hermitTpl = null, _hermitTplP = null;
+function hermitTemplate() {
+  if (_hermitTpl) return Promise.resolve(_hermitTpl);
+  if (!_hermitTplP) {
+    _hermitTplP = new GLTFLoader().loadAsync(hermitUrl).then((gltf) => {
+      _hermitTpl = bakeToonMapped(gltf, {
+        mapped: 'shell', tint: HERM_TINT, part: HERM_PART, budget: HERM_BUDGET, fallback: 0xF6E4C6,
+        keepLow: true, clipNames: HERM_CLIPS,
+      });
+      if (_hermitTpl.map) {
+        _hermitTpl.map.colorSpace = THREE.SRGBColorSpace;
+        _hermitTpl.map.flipY = false;
+      }
+      return _hermitTpl;
+    });
+  }
+  return _hermitTplP;
+}
 function flyGeo() {
   return merge([
     at(tint(new THREE.CylinderGeometry(0.012, 0.007, 0.28, 5), 0x2a7fb8), 0, 0, 0, Math.PI / 2, 0, 0),
@@ -279,6 +320,8 @@ export class Critters {
     this.skMesh.visible = false;
     this.flyMesh = mk(flyGeo(), NF); this.crMesh = mk(crabGeo(), NC);
     this.hmMesh = mk(hermitGeo(), NH);
+    this.hmMesh.count = 0;
+    this.hmMesh.visible = false;
     this.buMesh = mk(butterflyGeo(), NB);
     this.wrMesh = mk(wrenGeo(), NW);
     this.wrMesh.count = 0;
@@ -288,13 +331,13 @@ export class Critters {
     if (this.ratHull) this.ratHull.count = 0;
     this.waderHull = this.lineMat ? (outline(this.wrMesh, this.lineMat)[0] || null) : null;
     if (this.waderHull) this.waderHull.count = 0;
-    this.hulls = this.lineMat ? [this.flyMesh, this.crMesh, this.hmMesh, this.buMesh].flatMap((m) => outline(m, this.lineMat)) : [];
+    this.hulls = this.lineMat ? [this.flyMesh, this.crMesh, this.buMesh].flatMap((m) => outline(m, this.lineMat)) : [];
     this.sk = Array.from({ length: NS }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, run: 0, walk: 0, bask: 0, t: Math.random() * 5, cur: 0, threat: 0, flick: 0, fleeH: 0, launched: 0, sp: 0 }));
     this.tr = Array.from({ length: NT }, () => ({ on: false, x: 0, z: 0, a: 0, len: 3, hs: new Float32Array(9), ph: Math.random() }));
     this.fl = Array.from({ length: NF }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, g: 0, t: 0, h: 0 }));
     this.cr = Array.from({ length: NC }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, dir: 1, t: 0, run: 0, dig: 0, cur: 0 }));
     this.fr = Array.from({ length: NFR }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, hop: 0, air: 0, t: Math.random() * 3, wet: 0, croak: 0, flick: 0, launched: 0 }));
-    this.hm = Array.from({ length: NH }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, dir: 1, t: 0, run: 0, hide: 0 }));
+    this.hm = Array.from({ length: NH }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, dir: 1, t: 0, run: 0, hide: 0, emerge: 0, sp: 0 }));
     this.bu = Array.from({ length: NB }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, t: 0, h: 0, land: 0 }));
     this.wr = Array.from({ length: NW }, (_, i) => ({ on: false, x: 0, z: 0, y: 0, g: 0, h: 0, hop: 0, fly: 0, t: 0, tx: 0, tz: 0, ty: 0, peck: 0, song: 0, launched: 0, female: i % 2 === 1 }));
     this.slot = 0; this.T = 0;
@@ -314,6 +357,11 @@ export class Critters {
     this.wrenTris = 0; this.wrenFarTris = 0; this.wrenMinY = 0; this.wrFar = null; this.wrenHull = null;
     this.wrenMaleMap = null; this.wrenFemaleMap = null;
     this._wpick = new Int16Array(6); this._wpickD = new Float32Array(6); this._wnear = new Uint8Array(NW); this._wslotUsed = new Uint8Array(6);
+    this.hermitReady = false; this.hermitError = ''; this.hermitClips = []; this.hermitDur = {};
+    this.hermitCap = mobile ? 4 : 6; this.hermitSlots = []; this._hermitSim = 0;
+    this.hermitTris = 0; this.hermitFarTris = 0; this.hermitMinY = 0; this.hmFar = null; this.hermitHull = null;
+    this.hermitMap = null;
+    this._hpick = new Int16Array(6); this._hpickD = new Float32Array(6); this._hnear = new Uint8Array(NH); this._hslotUsed = new Uint8Array(6);
     this._ax = new Float32Array(ANT_N); this._ay = new Float32Array(ANT_N); this._az = new Float32Array(ANT_N);
     this._ayaw = new Float32Array(ANT_N); this._aon = new Uint8Array(ANT_N); this._anear = new Uint8Array(ANT_N);
     this._ad2 = new Float32Array(ANT_N); this._pick = new Int16Array(16); this._pickD = new Float32Array(16);
@@ -326,6 +374,8 @@ export class Critters {
     if (_skinkTpl) mountSkink(_skinkTpl); else skinkTemplate().then(mountSkink).catch((err) => { this.skinkError = String(err && err.message || err); });
     const mountWren = (tpl) => { if (!this.disposed) this._mountWrens(tpl); };
     if (_wrenTpl) mountWren(_wrenTpl); else wrenTemplate().then(mountWren).catch((err) => { this.wrenError = String(err && err.message || err); });
+    const mountHermit = (tpl) => { if (!this.disposed) this._mountHermits(tpl); };
+    if (_hermitTpl) mountHermit(_hermitTpl); else hermitTemplate().then(mountHermit).catch((err) => { this.hermitError = String(err && err.message || err); });
   }
 
   /** One shared skeleton template, cloned per nearby ant. Far ants share one instanced bind pose. */
@@ -612,6 +662,68 @@ export class Critters {
     slot.clip = name;
   }
 
+  /** One shared skeleton, cloned per nearby hermit. Far hermits share one instanced bind pose. */
+  _mountHermits(tpl) {
+    const map = this.hermitMap = tpl.map;
+    const mat = this.hermitMat = toonMappedMat(map);
+    const farMat = this.hermitFarMat = toonMat({ vertexColors: true });
+    const inst = this.hmFar = new THREE.InstancedMesh(tpl.farGeo, farMat, NH);
+    inst.frustumCulled = false; inst.castShadow = false; inst.receiveShadow = false; inst.count = 0;
+    this.scene.add(inst);
+    if (this.lineMat) {
+      this.hermitHull = outline(inst, this.lineMat)[0] || null;
+      if (this.hermitHull) this.hermitHull.count = 0;
+    }
+    const byName = {};
+    for (const c of tpl.clips) byName[c.name] = c;
+    this.hermitClips = HERM_CLIPS.filter((n) => byName[n]);
+    this.hermitDur = {};
+    for (const n of this.hermitClips) this.hermitDur[n] = byName[n].duration;
+    this.hermitTris = tpl.geo.index ? tpl.geo.index.count / 3 : tpl.geo.attributes.position.count / 3;
+    this.hermitFarTris = tpl.farGeo.attributes.position.count / 3;
+    tpl.geo.computeBoundingBox();
+    this.hermitMinY = tpl.geo.boundingBox.min.y;
+    this.hermitLine = this.mobile ? null : outlineMat(0x3A2418);
+    for (let i = 0; i < this.hermitCap; i++) {
+      const root = SkeletonUtils.clone(tpl.scene);
+      let skinned = null;
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = mat; o.frustumCulled = false; o.castShadow = false; o.receiveShadow = false;
+        if (o.isSkinnedMesh) skinned = o;
+      });
+      root.visible = false; root.scale.set(1, 1, 1); root.position.y = -999;
+      this.scene.add(root);
+      const hull = skinned && this.hermitLine ? this._skinnedHull(skinned, this.hermitLine) : null;
+      const mixer = new THREE.AnimationMixer(root);
+      const actions = {};
+      for (const n of this.hermitClips) {
+        const a = mixer.clipAction(byName[n]);
+        if (n === 'idle' || n === 'walk') a.setLoop(THREE.LoopRepeat, Infinity);
+        else { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+        actions[n] = a;
+      }
+      this.hermitSlots.push({ root, skinned, mixer, actions, hull, id: -1, live: false, clip: null });
+    }
+    this.hermitReady = true;
+  }
+
+  _playHermit(slot, name, restart, speed) {
+    const next = slot.actions[name];
+    if (!next) return;
+    next.timeScale = name === 'walk' ? Math.max(0.25, (speed || HERM_WALK) / HERM_WALK) : 1;
+    if (!restart && slot.clip === name) return;
+    const prev = slot.clip && slot.clip !== name ? slot.actions[slot.clip] : null;
+    if (!prev) {
+      for (const k of this.hermitClips) if (k !== name) slot.actions[k].stop();
+      next.reset().setEffectiveWeight(1).play();
+    } else {
+      next.reset().play();
+      prev.crossFadeTo(next, restart ? 0.06 : 0.12, false);
+    }
+    slot.clip = name;
+  }
+
   /** the chirp in audio.js: the nearest wren on the ground opens its beak. A hop or a flit still wins. */
   songNear(pos) {
     if (!pos) return false;
@@ -686,7 +798,7 @@ export class Critters {
     } else if (k < NS + NT + NF + NC + NFR + NH) {
       const c = this.hm[k - NS - NT - NF - NC - NFR]; if (!far(c) && c.hide < 1) return;
       if (!place(c, HERM_B)) return;
-      c.h = Math.random() * 6.28; c.dir = Math.random() < 0.5 ? -1 : 1; c.t = 0; c.run = 0; c.hide = 0;
+      c.h = Math.random() * 6.28; c.dir = Math.random() < 0.5 ? -1 : 1; c.t = 0; c.run = 0; c.hide = 0; c.emerge = 0; c.sp = 0;
     } else if (k < NS + NT + NF + NC + NFR + NH + NB) {
       const c = this.bu[k - NS - NT - NF - NC - NFR - NH]; if (!far(c) && !(night > 0.55) && !(rain > 0.5)) return;
       c.on = false; if (night > 0.55 || rain > 0.5) return;
@@ -1084,26 +1196,114 @@ export class Critters {
       if (this.frogHull) this.frogHull.count = n;
     }
 
-    // ---- hermit crabs: sidle with a borrowed shell, tuck in when startled
+    // ---- hermit crabs: crawl aperture-first, tuck into the shell when startled.
+    // The glb is already ~8 cm. Scale stays 1. Travel is code along +Z (no root
+    // motion). Hide and peek replace the old Y-squash. Ghost crabs keep crabGeo.
+    const hermHideRate = 1 / HERM_HIDE, hermPeekRate = 1 / HERM_PEEK;
     for (let i = 0; i < NH; i++) {
       const c = this.hm[i];
-      if (!c.on) { hide(this.hmMesh, i); continue; }
+      if (!c.on) continue;
       const s = scare(c, 6);
-      if (s.close && c.hide <= 0 && c.run <= 0) { c.run = 0.45; c.h = s.heading - c.dir * Math.PI / 2; }
-      let sp = 0, tucked = c.hide;
-      if (c.run > 0) { c.run -= dt; sp = 1.8; if (c.run <= 0) c.hide = 0.001; }
-      else if (c.hide > 0) { c.hide = Math.min(1, c.hide + dt * 3); if (c.hide >= 1 && s.d2 > 16) c.hide = Math.max(0, c.hide - dt * 0.8); }
-      else { c.t -= dt; if (c.t <= 0) { c.t = 0.8 + Math.random() * 2.2; if (Math.random() < 0.35) c.dir = -c.dir; if (Math.random() < 0.3) c.h += (Math.random() - 0.5) * 1.2; } if (c.t > 1) sp = 0.45; }
-      if (sp > 0) {
-        const mx = Math.cos(c.h) * c.dir, mz = -Math.sin(c.h) * c.dir;
-        const nx = c.x + mx * sp * dt, nz = c.z + mz * sp * dt;
-        if (!w.waterAt?.(nx, nz) && !w._blocked?.(nx, nz, 0.15)) { c.x = nx; c.z = nz; c.y = w.heightAt(nx, nz); } else c.dir = -c.dir;
+      if (s.close && c.hide <= 0 && c.emerge <= 0 && c.run <= 0) { c.run = 0.45; c.h = s.heading; }
+      let sp = 0;
+      if (c.run > 0) {
+        c.run -= dt; sp = 1.8; if (c.run <= 0) { c.hide = 0.001; c.emerge = 0; }
+      } else if (c.emerge > 0) {
+        c.emerge = Math.min(1, c.emerge + dt * hermPeekRate);
+        c.hide = 1 - c.emerge;
+        if (c.emerge >= 1) { c.emerge = 0; c.hide = 0; }
+      } else if (c.hide > 0) {
+        c.hide = Math.min(1, c.hide + dt * hermHideRate);
+        if (c.hide >= 1 && s.d2 > 16) c.emerge = 0.001;
+      } else {
+        c.t -= dt;
+        if (c.t <= 0) {
+          c.t = 0.8 + Math.random() * 2.2;
+          if (Math.random() < 0.35) c.h += Math.PI;
+          if (Math.random() < 0.3) c.h += (Math.random() - 0.5) * 1.2;
+        }
+        if (c.t > 1) sp = HERM_WALK;
       }
-      const bob = sp > 0 ? Math.abs(Math.sin(this.T * 28 + i)) * 0.01 : 0;
-      const sy = 1 - tucked * 0.25, y = c.y + bob - tucked * 0.03;
-      pose(this.hmMesh, i, c.x, y, c.z, c.h, 1, sy, 1);
+      if (sp > 0) {
+        const nx = c.x + Math.sin(c.h) * sp * dt, nz = c.z + Math.cos(c.h) * sp * dt;
+        if (!w.waterAt?.(nx, nz) && !w._blocked?.(nx, nz, 0.15)) { c.x = nx; c.z = nz; c.y = w.heightAt(nx, nz); }
+        else c.h += Math.PI;
+      } else c.y = w.heightAt(c.x, c.z);
+      c.sp = sp;
     }
-    this.hmMesh.instanceMatrix.needsUpdate = true;
+    const hermNear = HERM_NEAR * HERM_NEAR, hermCap = this.hermitCap;
+    const hpick = this._hpick, hpickD = this._hpickD;
+    for (let k = 0; k < hermCap; k++) { hpick[k] = -1; hpickD[k] = Infinity; }
+    if (this.hermitReady) {
+      for (let i = 0; i < NH; i++) {
+        const c = this.hm[i];
+        if (!c.on) continue;
+        const dx = c.x - o.x, dz = c.z - o.z, d2 = dx * dx + dz * dz;
+        if (d2 > hermNear) continue;
+        let worst = 0;
+        for (let k = 1; k < hermCap; k++) if (hpickD[k] > hpickD[worst]) worst = k;
+        if (d2 < hpickD[worst]) { hpickD[worst] = d2; hpick[worst] = i; }
+      }
+    }
+    this._hnear.fill(0);
+    for (let k = 0; k < hermCap; k++) if (hpick[k] >= 0) this._hnear[hpick[k]] = 1;
+    const hslots = this.hermitSlots, hused = this._hslotUsed;
+    hused.fill(0);
+    let hsim = 0;
+    if (this.hermitReady) {
+      for (let s = 0; s < hslots.length; s++) {
+        const slot = hslots[s];
+        if (!slot.live) continue;
+        let keep = -1;
+        for (let k = 0; k < hermCap; k++) if (hpick[k] === slot.id) { keep = k; break; }
+        if (keep < 0) {
+          slot.live = false; slot.id = -1; slot.clip = null; slot.mixer.stopAllAction();
+          slot.root.visible = false; slot.root.position.y = -999;
+        } else hused[keep] = 1;
+      }
+      for (let k = 0; k < hermCap; k++) {
+        if (hpick[k] < 0 || hused[k]) continue;
+        let slot = null;
+        for (let s = 0; s < hslots.length; s++) if (!hslots[s].live) { slot = hslots[s]; break; }
+        if (!slot) break;
+        slot.live = true; slot.id = hpick[k]; slot.clip = null; hused[k] = 1;
+      }
+      for (let s = 0; s < hslots.length; s++) {
+        const slot = hslots[s];
+        if (!slot.live) continue;
+        const c = this.hm[slot.id];
+        slot.root.position.set(c.x, c.y, c.z);
+        slot.root.rotation.set(0, c.h, 0);
+        slot.root.scale.set(1, 1, 1);
+        slot.root.visible = true;
+        let want = 'idle';
+        if (c.sp > 0) want = 'walk';
+        else if (c.emerge > 0) want = 'peek';
+        else if (c.hide > 0) want = 'hide';
+        this._playHermit(slot, want, false, c.sp);
+        slot.mixer.update(dt);
+        if (want === 'hide' && slot.actions.hide) {
+          const dur = slot.actions.hide.getClip().duration;
+          slot.actions.hide.time = Math.max(0, Math.min(1, c.hide)) * dur;
+        } else if (want === 'peek' && slot.actions.peek) {
+          const dur = slot.actions.peek.getClip().duration;
+          slot.actions.peek.time = Math.max(0, Math.min(1, c.emerge)) * dur;
+        }
+        hsim++;
+      }
+    }
+    this._hermitSim = hsim;
+    const hmFarMesh = this.hmFar;
+    if (hmFarMesh) {
+      let n = 0;
+      for (let i = 0; i < NH; i++) {
+        const c = this.hm[i];
+        if (!c.on || this._hnear[i]) continue;
+        pose(hmFarMesh, n++, c.x, c.y, c.z, c.h, 1, 1, 1);
+      }
+      hmFarMesh.count = n; hmFarMesh.visible = n > 0; hmFarMesh.instanceMatrix.needsUpdate = true;
+      if (this.hermitHull) { this.hermitHull.count = n; this.hermitHull.visible = n > 0; }
+    }
 
     // ---- butterflies: flutter between resting spots, fold in the rain / at night (despawned), startle up
     for (let i = 0; i < NB; i++) {
@@ -1443,6 +1643,52 @@ export class Critters {
       idle, hop, fly, peck, song, samples,
     };
   }
+  /** model hookup, for tests: clips, feet on the ground, crawl along +Z, hide and peek. Ghost crabs stay procedural. */
+  hermitProbe() {
+    const samples = [];
+    for (let i = 0; i < NH; i++) {
+      const c = this.hm[i];
+      if (!c.on) continue;
+      let clip = null, scale = 1, skinned = false, meshY = c.y, timeScale = 1, yaw = c.h;
+      for (let s = 0; s < this.hermitSlots.length; s++) {
+        const slot = this.hermitSlots[s];
+        if (slot.live && slot.id === i) {
+          skinned = true; clip = slot.clip; scale = slot.root.scale.x; meshY = slot.root.position.y;
+          yaw = slot.root.rotation.y;
+          timeScale = slot.actions.walk ? slot.actions.walk.timeScale : 1;
+          break;
+        }
+      }
+      const fx = Math.sin(c.h), fz = Math.cos(c.h);
+      samples.push({
+        i, x: c.x, z: c.z, y: c.y, meshY, ground: this.world.heightAt(c.x, c.z),
+        heading: c.h, yaw, fx, fz, skinned, clip, scale, timeScale,
+        sp: c.sp || 0, run: c.run || 0, hide: c.hide || 0, emerge: c.emerge || 0,
+      });
+    }
+    let idle = 0, walk = 0, hide = 0, peek = 0;
+    for (let s = 0; s < this.hermitSlots.length; s++) {
+      const slot = this.hermitSlots[s];
+      if (!slot.live) continue;
+      if (slot.clip === 'walk') walk++;
+      else if (slot.clip === 'hide') hide++;
+      else if (slot.clip === 'peek') peek++;
+      else idle++;
+    }
+    const ghostOn = this.cr.filter((c) => c.on && c.dig < 1).length;
+    return {
+      ready: this.hermitReady, error: this.hermitError, clips: this.hermitClips.slice(), dur: { ...this.hermitDur },
+      scale: 1, tris: this.hermitTris, farTris: this.hermitFarTris, minY: this.hermitMinY, cap: this.hermitCap,
+      simulating: this._hermitSim, instanced: this.hmFar ? this.hmFar.count : 0,
+      oldMesh: this.hmMesh ? this.hmMesh.count : 0,
+      ghostProcedural: !!(this.crMesh && this.crMesh.isInstancedMesh && this.crMesh.material === this.mat),
+      ghostOn,
+      flipY: this.hermitMap ? this.hermitMap.flipY : null,
+      colorSpace: this.hermitMap ? this.hermitMap.colorSpace : null,
+      mapW: this.hermitMap?.image?.width || 0,
+      idle, walk, hide, peek, samples,
+    };
+  }
   dispose() {
     this.disposed = true;
     for (const m of [this.skMesh, this.flyMesh, this.crMesh, this.hmMesh, this.buMesh, this.wrMesh]) {
@@ -1461,6 +1707,9 @@ export class Critters {
     for (const s of this.wrenSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); s.matF?.dispose(); }
     this.wrenMat?.dispose(); this.wrenFarMat?.dispose(); this.wrenLine?.dispose();
     this.wrenFemaleMap?.dispose();
+    if (this.hmFar) this.scene.remove(this.hmFar);
+    for (const s of this.hermitSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); }
+    this.hermitMat?.dispose(); this.hermitFarMat?.dispose(); this.hermitLine?.dispose();
     this.mat.dispose(); this.lineMat?.dispose();
   }
 }

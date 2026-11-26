@@ -87,7 +87,7 @@ There is **no HUD, timer, tutorial, markers or hint text**. Everything is read f
 ## Features
 * One fixed world: a 1600 x 1600 m map with 13 biomes that blend into each other over tens of metres (the ground, trees, rocks and props of both mix and thin out) and simply never ends: beyond it the land (and the coast) keep going, generated on demand and streamed in 100 m chunks of instanced geometry; mesh-exact ground heights, everything seated on the terrain (an automated audit checks every object over the one world, its far tiles and a few debug worlds).
 * Day/night cycle with stars, moon and night glow, weather (clear, heatwave, rain, storm), tides, wind and dew; per-biome lighting.
-* Small harmless wildlife going about its day (skinks, ant trails, dragonflies, ghost crabs, fairy-wrens).
+* Small harmless wildlife going about its day (skinks, ant trails, dragonflies, ghost crabs, hermit crabs, fairy-wrens).
 * Spatial WebAudio (surf, wind, gulls, magpies, kookaburras, engines, horns, ground thumps, squelching footsteps, heartbeat when nearly dry, a soft splash and bubbles as you slip into water, muffled sound under it), droplets, camera shake on lunges and heavy footsteps.
 * Difficulty (gentle / normal / harsh) and the daily start are chosen from the pause menu only.
 * Gamepad support (standard mapping).
