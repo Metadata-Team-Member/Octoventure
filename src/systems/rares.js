@@ -91,7 +91,7 @@ function geos() {
   if (GEO.shell) return GEO;
   GEO.shell = new THREE.SphereGeometry(0.16, 7, 5);
   GEO.gold = scallop(1);
-  GEO.gold.scale(1.9, 1.9, 1.9);
+  GEO.gold.scale(3.2, 3.2, 3.2);
   GEO.gold.rotateX(-0.35);
   GEO.gold.computeBoundingBox();
   GEO.gold.translate(0, -GEO.gold.boundingBox.min.y - 0.02, 0);
@@ -107,7 +107,7 @@ function geos() {
 const MAT = {};
 function mats() {
   if (MAT.gold) return MAT;
-  MAT.gold = toonMat({ vertexColors: true, emissive: 0xf2c14a, emissiveIntensity: 0.55 });
+  MAT.gold = toonMat({ vertexColors: true, emissive: 0xf2c14a, emissiveIntensity: 0.85 });
   MAT.sand = toonMat({ color: 0xf3dcc9 });
   MAT.pearl = toonMat({ color: 0xfff8ee });
   MAT.frog = toonMat({ color: 0x8dffb0 });

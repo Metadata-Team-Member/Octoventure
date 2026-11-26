@@ -58,7 +58,7 @@ export const BADGES = [
   { id: 'mazewet',    glyph: 'b_wave',    title: 'Still wet',    note: 'The middle of the maze, still at least half wet.', test: (s) => s.mazewet },
   { id: 'places',     glyph: 'b_poi',     title: 'Every corner', note: 'The shed, the drain, the garden, the light and the playground.', test: (s) => s.pois.size >= POI_SET.size },
   { id: 'rainbow',    glyph: 'b_rainbow', title: 'Rainbow dust', note: 'Every pollen colour, mixed.', test: (s) => s.rainbow },
-  { id: 'secret',     glyph: 'b_secret',  title: 'Both ways',    note: 'A house and the maze, and then the little light.', test: (s) => s.secret },
+  { id: 'secret',     glyph: 'b_secret',  title: 'Both ways',    note: 'A house and the maze, and then a jar of light.', test: (s) => s.secret },
 ];
 export const BADGE_IDS = BADGES.map((b) => b.id);
 

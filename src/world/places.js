@@ -8,6 +8,7 @@ import { mulberry32 } from '../util/rng.js';
 export const POI_IDS = ['shed', 'drain', 'garden', 'light', 'play'];
 export const POI_SET = new Set(POI_IDS);
 export const LAYOUTS = ['lounge', 'kitchen', 'laundry', 'hall'];
+export const ROOM_KINDS = ['kitchen', 'lounge', 'bedroom', 'laundry'];
 export const FLOORS = ['tile', 'board', 'rug'];
 export const HOME_TARGET = 16;
 export const MAZE_N = 9;
@@ -18,6 +19,90 @@ const hash = (seed, i) => {
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
+
+/** 2 or 3 rooms for one house. Stable for a seed and a house index. Each later room joins the one before it. */
+export function planRooms(seed, n) {
+  const count = hash(seed, n * 17 + 3) < 0.55 ? 3 : 2;
+  const shift = Math.floor(hash(seed, n * 17 + 9) * ROOM_KINDS.length);
+  const rooms = [];
+  for (let i = 0; i < count; i++) {
+    rooms.push({
+      kind: ROOM_KINDS[(shift + i * 2) % ROOM_KINDS.length],
+      floor: FLOORS[Math.floor(hash(seed, n * 19 + i * 3 + 1) * FLOORS.length)],
+      link: i === 0 ? null : (i === 1 ? 'north' : 'east'),
+    });
+  }
+  return rooms;
+}
+
+/**
+ * Spiral stair around a lighthouse. The gap sits outside the tower wall, on the
+ * side where the ground still meets the base. Steps climb in angle order, less
+ * than one full turn so a point on the plan has one height, and the last step
+ * is up at the lamp. The find sits on that step.
+ */
+export function planTower(lh, world) {
+  if (!lh) return null;
+  const R = 4.4;
+  const TOP = 21;
+  const turns = 0.9;
+  const N = 20;
+  const base = lh.y || 0;
+  let gapA = -0.55;
+  if (world?.heightAt) {
+    let best = -1e9;
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2 - Math.PI;
+      const x = lh.x + Math.cos(a) * (R + 1.2);
+      const z = lh.z + Math.sin(a) * (R + 1.2);
+      if (world.isSea?.(x, z) || world.waterAt?.(x, z)) continue;
+      const h = world.heightAt(x, z);
+      if (!Number.isFinite(h)) continue;
+      const drop = Math.max(0, base - h);
+      const score = -Math.abs(h - base) * 3 - drop * 8;
+      if (score > best) { best = score; gapA = a; }
+    }
+  }
+  const steps = [];
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    const a = gapA + u * Math.PI * 2 * turns;
+    steps.push({ i, u, a, x: lh.x + Math.cos(a) * R, z: lh.z + Math.sin(a) * R, y: base + u * TOP });
+  }
+  const top = steps[N];
+  return {
+    gap: { x: lh.x + Math.cos(gapA) * (R + 1.2), z: lh.z + Math.sin(gapA) * (R + 1.2), y: base, a: gapA },
+    steps, top,
+    find: { x: top.x + Math.cos(top.a) * 0.35, z: top.z + Math.sin(top.a) * 0.35, y: top.y + 0.16 },
+    R, TOP, turns, gapA, cx: lh.x, cz: lh.z, base, N,
+  };
+}
+
+/** floor height of the spiral at a world point. Just under one turn, so each angle is one height. */
+export function towerFloor(plan, x, z) {
+  if (!plan) return 0;
+  const span = Math.PI * 2 * plan.turns;
+  let da = Math.atan2(z - plan.cz, x - plan.cx) - plan.gapA;
+  while (da <= -Math.PI) da += Math.PI * 2;
+  while (da > Math.PI) da -= Math.PI * 2;
+  if (da < 0 && da + Math.PI * 2 <= span + 0.05) da += Math.PI * 2;
+  if (da < 0) da = 0;
+  if (da > span) da = span;
+  return plan.base + (da / span) * plan.TOP;
+}
+
+/** idle cycle for a house pet. Close: it notices. Hidden: it naps. Otherwise nap, stretch, groom. */
+export function nextPetIdle(state, t, dist, camo) {
+  if (camo) return 'nap';
+  if (state === 'notice' && dist < 1.15) return 'creep';
+  if (state === 'notice' && dist > 3.5) return 'nap';
+  if (dist < 2.35 && state !== 'creep' && state !== 'pounce' && state !== 'sit' && state !== 'notice') return 'notice';
+  if (state === 'nap' && t > 4.5) return 'stretch';
+  if (state === 'stretch' && t > 1.25) return 'groom';
+  if (state === 'groom' && t > 2.3) return 'nap';
+  if (state === 'sit' && t > 2.2) return 'nap';
+  return state;
+}
 
 /** distance from the ray that runs from home toward the sea. Inland of home counts as "not on the way". */
 export function rayDist(world, x, z) {
@@ -148,13 +233,15 @@ export function planPlaces(world) {
   const homes = chosen.map((h, n) => {
     const layout = LAYOUTS[Math.floor(hash(seed, n * 3 + 1) * LAYOUTS.length)];
     const floor = FLOORS[Math.floor(hash(seed, n * 5 + 2) * FLOORS.length)];
+    const rooms = planRooms(seed, n);
+    rooms[0].floor = floor;
     const r = hash(seed, n * 11 + 4);
     const pet = r < 0.62 ? (hash(seed, n * 13 + 5) < 0.5 ? 'cat' : 'dog') : null;
     const baby = hash(seed, n * 19 + 6) < 0.28;
     const tint = [0xe8d9c2, 0xd7e4ea, 0xf3e7c2, 0xf6d7cc][Math.floor(hash(seed, n * 7 + 8) * 4)];
     return {
       id: 'h' + n, x: h.x, z: h.z, y: h.y, w: h.w, d: h.d,
-      layout, floor, pet, baby, tint,
+      layout, floor, rooms, pet, baby, tint,
       door: { x: h.x - h.w * 0.28, z: h.z + h.d / 2 + 0.85, y: h.y },
       entry: h.y,
     };

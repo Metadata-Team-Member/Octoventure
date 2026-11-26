@@ -448,7 +448,7 @@ void main(){
       this.env.updatePuddles(dt, o);
       // abilities: ink (water only) and the venom bite (last resort)
       if (o.alive) {
-        if (inp.ink) this.tryInk(); if (inp.bite) this.tryBite(); if (inp.nip) this.tryNip();
+        if (inp.ink) this.tryInk(); if (inp.bite) this.tryBite(); if (inp.nip && !this.decor?.interact()) this.tryNip();
         if (inp.shelter) this.abilities.quickShelter(); if (inp.boost) this.abilities.quickBoost(); if (inp.den) this.abilities.use('den');
       }
       this.leaveScent(o);
@@ -506,9 +506,10 @@ void main(){
     if (playing && !this.places?.indoor) this.rares?.update(dt, o);
     if (playing) this.updateJournal();
     if (!this.places?.indoor) this.plankton?.update(dt, { night: world.night, biome: world.biomeAt(o.x, o.z), o, seaLevel: world.seaLevel });
-    const viewAt = this.places?.indoor && this.places.outdoor ? { x: this.places.outdoor.x, y: o.y, z: this.places.outdoor.z } : { x: o.x, y: o.y, z: o.z };
+    const tower = !!this.places?.tower;
+    const viewAt = (!tower && this.places?.indoor && this.places.outdoor) ? { x: this.places.outdoor.x, y: o.y, z: this.places.outdoor.z } : { x: o.x, y: o.y, z: o.z };
     this.view.update(dt, viewAt, this.camera);
-    if (this.places?.indoor && this.view) this.view.root.visible = false;
+    if (this.places?.indoor && !tower && this.view) this.view.root.visible = false;
     this.updateCamera(dt);
     this.updateAtmosphere(dt);
     this.hud.update(o);
@@ -701,7 +702,7 @@ void main(){
     // swimming at depth: the camera drops down beside the octopus so the water is visible around it
     const dv = o.dive || 0;
     const want = _camWant.set(tx + off.x, ty + C.height * 0.4 * k + off.y * (1 - dv * 0.8) - dv * 0.5 * k, tz + off.z);
-    const gy = this.places?.indoor ? (this.places.indoor.entry ?? this.places.indoor.y ?? 0) : this.world.heightAt(want.x, want.z);
+    const gy = (this.places?.indoor && !this.places.tower) ? (this.places.indoor.entry ?? this.places.indoor.y ?? 0) : this.world.heightAt(want.x, want.z);
     if (want.y < gy + 0.9 * k) want.y = gy + 0.9 * k;
     if (!this.camInit || snap) { this.camPos.copy(want); this.camInit = true; }
     else this.camPos.lerp(want, 1 - Math.exp(-14 * dt));

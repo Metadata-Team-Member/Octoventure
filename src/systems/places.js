@@ -5,7 +5,8 @@
 // =====================================================================
 import * as THREE from 'three';
 import { toonMat, outline, outlineMat } from '../world/toon.js';
-import { planPlaces, carveMaze, mazeDress, mazeOpen, dailyKind, MAZE_CELL } from '../world/places.js';
+import { planPlaces, carveMaze, mazeDress, mazeOpen, dailyKind, MAZE_CELL, planTower, towerFloor, nextPetIdle } from '../world/places.js';
+import { merge, at as placeGeo } from '../world/models.js';
 import { CONFIG } from '../config.js';
 
 const IX = 9200, IZ = 9200;
@@ -65,6 +66,10 @@ export class Places {
     this.pickups = [];
     this.pet = null;
     this.secret = null;
+    this.tower = null;
+    this.towerPlan = null;
+    this.towerCool = 0;
+    this.towerArmed = true;
     this.prize = null;
     this.daily = null;
     this.dailyGot = false;
@@ -113,7 +118,10 @@ export class Places {
     return {
       hides: [], tunnels: [], raining: false, gates: null, dryMult: 1, seaLevel: -20,
       typeAt() { const f = self.indoor?.floor; return f === 'tile' ? 'paving' : f === 'board' ? 'litter' : 'lawn'; },
-      heightAt() { return (self.indoor?.entry ?? self.indoor?.y ?? 0) + 0.02; },
+      heightAt(x, z) {
+        if (self.tower && self.towerPlan) return self.towerY(x, z);
+        return (self.indoor?.entry ?? self.indoor?.y ?? 0) + 0.02;
+      },
       isSea() { return false; },
       isShallow() { return false; },
       normalAt(x, z, out = { x: 0, y: 1, z: 0 }) { out.x = 0; out.y = 1; out.z = 0; return out; },
@@ -127,6 +135,7 @@ export class Places {
         return null;
       },
       resolve(x, z, rad, out = { x, z, hit: false }) {
+        if (self.tower && self.towerPlan) return self.resolveTower(x, z, rad, out);
         out.x = x; out.z = z; out.hit = false; out.col = null;
         const list = self.boxes;
         for (let pass = 0; pass < 2; pass++) {
@@ -241,9 +250,17 @@ export class Places {
       this.lostBall = b;
     }
     const sec = at(Math.min(n - 2, dress.mid + 1), dress.mid);
-    const nest = new THREE.Mesh(ball(), this.glow(0xfff1c4, 0.95));
-    nest.scale.setScalar(0.18);
-    nest.position.set(sec.x, sec.y + 0.2, sec.z);
+    const jar = merge([
+      placeGeo(cyl().clone(), 0, 0.18, 0, 0, 0, 0, 0.18, 0.32, 0.18),
+      placeGeo(ball().clone(), 0, 0.36, 0, 0, 0, 0, 0.11, 0.08, 0.11),
+      placeGeo(ball().clone(), 0.2, 0.22, 0.06, 0, 0, 0, 0.05, 0.05, 0.05),
+      placeGeo(ball().clone(), -0.14, 0.28, 0.12, 0, 0, 0, 0.042, 0.042, 0.042),
+      placeGeo(ball().clone(), 0.04, 0.4, -0.16, 0, 0, 0, 0.04, 0.04, 0.04),
+    ]);
+    const nest = new THREE.Mesh(jar, this.glow(0xffe08a, 0.92));
+    nest.scale.setScalar(1.35);
+    nest.position.set(sec.x, sec.y + 0.02, sec.z);
+    nest.userData.noOutline = true;
     nest.visible = false;
     this.root.add(nest);
     this.secret = nest;
@@ -443,10 +460,11 @@ export class Places {
     this.waters.length = 0;
     this.pickups.length = 0;
     this.pet = null;
+    this.lamp = null;
   }
 
-  wx(lx) { return IX + lx; }
-  wz(lz) { return IZ + lz; }
+  wx(lx) { return IX + lx + (this._rx || 0); }
+  wz(lz) { return IZ + lz + (this._rz || 0); }
 
   addMesh(mesh) { mesh.userData.noOutline = true; mesh.castShadow = false; this.roomRoot.add(mesh); return mesh; }
 
@@ -483,47 +501,186 @@ export class Places {
     this.addMesh(m);
   }
 
+  towerPlanOf() {
+    if (this._tw !== undefined) return this._tw;
+    const lh = this.game.world?.landmarks?.find((l) => l.kind === 'lighthouse');
+    this._tw = planTower(lh || null, this.game.world);
+    return this._tw;
+  }
+  towerY(x, z) { return towerFloor(this.towerPlan, x, z) + 0.08; }
+  resolveTower(x, z, rad, out = { x, z, hit: false }) {
+    const p = this.towerPlan;
+    out.x = x; out.z = z; out.hit = false; out.col = null;
+    if (!p) return out;
+    const span = Math.PI * 2 * p.turns;
+    let da = Math.atan2(z - p.cz, x - p.cx) - p.gapA;
+    while (da <= -Math.PI) da += Math.PI * 2;
+    while (da > Math.PI) da -= Math.PI * 2;
+    if (da < 0 && da + Math.PI * 2 <= span + 0.05) da += Math.PI * 2;
+    let clamped = da;
+    if (clamped < 0.04) clamped = 0.04;
+    if (clamped > span - 0.04) clamped = span - 0.04;
+    const inner = 3.25 + rad, outer = p.R + 0.78 - rad;
+    let d = Math.hypot(x - p.cx, z - p.cz);
+    if (d < inner) d = inner;
+    else if (d > outer) d = outer;
+    const ang = p.gapA + clamped;
+    const nx = p.cx + Math.cos(ang) * d, nz = p.cz + Math.sin(ang) * d;
+    if ((nx - x) ** 2 + (nz - z) ** 2 > 1e-8) out.hit = true;
+    out.x = nx; out.z = nz;
+    return out;
+  }
+
   buildRoom(home) {
     this.clearRoom();
+    this._rx = 0; this._rz = 0;
     this.roomRoot.position.y = home.entry ?? home.y ?? 0;
-    const floorHex = home.floor === 'tile' ? 0xd7dbe2 : home.floor === 'board' ? 0xc4a574 : 0x8f4d4d;
-    const floor = new THREE.Mesh(boxG(), this.mat(floorHex));
-    floor.scale.set(RW, 0.08, RD);
-    floor.position.set(IX, 0, IZ);
-    this.addMesh(floor);
-    if (home.floor === 'rug') {
-      const rug = new THREE.Mesh(boxG(), this.mat(0xe7c98a));
-      rug.scale.set(RW * 0.72, 0.04, RD * 0.62);
-      rug.position.set(IX, 0.06, IZ);
-      this.addMesh(rug);
-    }
+    const rooms = home.rooms && home.rooms.length ? home.rooms : [{ kind: home.layout, floor: home.floor, link: null }];
+    const north = rooms.length > 1;
+    const east = rooms.length > 2;
+    this.petBox = {
+      minX: -RW / 2 + 0.4,
+      maxX: (east ? RW + RW / 2 : RW / 2) - 0.4,
+      minZ: -RD / 2 + 0.4,
+      maxZ: (north ? RD + RD / 2 : RD / 2) - 0.4,
+      north, east,
+    };
+    this.roomFloor(0, 0, rooms[0].floor || home.floor);
+    if (north) this.roomFloor(0, RD, rooms[1].floor);
+    if (east) this.roomFloor(RW, 0, rooms[2].floor);
     const wall = 0xded4c6, hh = 2.4;
-    this.solid(0, 0, RD / 2, RW, hh, 0.12, wall);                         // north
-    this.solid(-RW / 2, 0, 0, 0.12, hh, RD, wall);
-    this.solid(RW / 2, 0, 0, 0.12, hh, RD, wall);
-    this.solid(-RW / 4 - 0.35, 0, -RD / 2, RW / 2 - 0.7, hh, 0.12, wall);  // south, split for the flap
-    this.solid(RW / 4 + 0.35, 0, -RD / 2, RW / 2 - 0.7, hh, 0.12, wall);
+    this.wallBox(0, -RD / 2, RW, 0.12, hh, 1.15);                 // south, flap in the middle
+    this.wallRun(-RW / 2, 0, 0.12, RD, hh, false);
+    if (east) this.wallBox(RW / 2, 0, 0.12, RD, hh, 1.15);
+    else this.wallRun(RW / 2, 0, 0.12, RD, hh, false);
+    if (north) this.wallBox(0, RD / 2, RW, 0.12, hh, 1.15);
+    else this.wallRun(0, RD / 2, RW, 0.12, hh, true);
+    if (north) {
+      this.wallRun(-RW / 2, RD, 0.12, RD, hh, false);
+      this.wallRun(RW / 2, RD, 0.12, RD, hh, false);
+      this.wallRun(0, RD + RD / 2, RW, 0.12, hh, true);
+    }
+    if (east) {
+      this.wallRun(RW + RW / 2, 0, 0.12, RD, hh, false);
+      this.wallRun(RW, RD / 2, RW, 0.12, hh, true);
+      this.wallRun(RW, -RD / 2, RW, 0.12, hh, true);
+    }
+    const winZ = north ? RD + RD / 2 - 0.08 : RD / 2 - 0.08;
     const win = new THREE.Mesh(boxG(), this.glow(0xfff6df, 0.55));
     win.scale.set(1.4, 0.9, 0.06);
-    win.position.set(this.wx(1.4), 1.15, this.wz(RD / 2 - 0.08));
+    win.position.set(this.wx(1.1), 1.15, this.wz(winZ));
     this.addMesh(win);
     const sun = new THREE.Mesh(disc(), this.glow(0xfff1c4, 0.35));
     sun.rotation.x = -Math.PI / 2;
-    sun.position.set(this.wx(1.3), 0.07, this.wz(RD / 2 - 1.1));
+    sun.position.set(this.wx(1.0), 0.07, this.wz((north ? RD : 0) + RD / 2 - 1.1));
     sun.scale.setScalar(0.7);
     this.addMesh(sun);
-    const lay = home.layout;
-    if (lay === 'lounge' || lay === 'hall') this.couch();
-    if (lay === 'kitchen' || lay === 'lounge' || lay === 'hall') this.table();
-    if (lay === 'kitchen' || lay === 'laundry') this.sink();
-    if (lay === 'laundry') this.bath();
-    if (lay !== 'laundry') this.tank();
-    this.shelf();
-    this.bowl();
-    this.plant();
+    this.furnish(rooms[0].kind || home.layout, 0, 0);
+    if (north) this.furnish(rooms[1].kind, 0, RD);
+    if (east) this.furnish(rooms[2].kind, RW, 0);
     this.finds(home);
     if (home.pet) this.makePet(home);
     if (home.baby && !this.game.progress.rescued.has('home-' + home.id)) this.makeBaby(home);
+  }
+
+  buildTower(plan) {
+    this.clearRoom();
+    this.roomRoot.position.y = 0;
+    const stamp = this._stamp || (this._stamp = new THREE.Object3D());
+    const n = plan.steps.length;
+    const treads = new THREE.InstancedMesh(boxG(), this.mat(0xd9cbb4), n);
+    const rails = new THREE.InstancedMesh(boxG(), this.mat(0x6b4a33), n);
+    const posts = new THREE.InstancedMesh(cyl(), this.mat(0x6b4a33), n);
+    let pi = 0;
+    for (let i = 0; i < n; i++) {
+      const s = plan.steps[i];
+      const ox = Math.cos(s.a) * 0.52, oz = Math.sin(s.a) * 0.52;
+      stamp.position.set(s.x, s.y, s.z);
+      stamp.rotation.set(0, -s.a, 0);
+      stamp.scale.set(0.9, 0.12, 1.15);
+      stamp.updateMatrix();
+      treads.setMatrixAt(i, stamp.matrix);
+      stamp.position.set(s.x + ox, s.y + 0.46, s.z + oz);
+      stamp.scale.set(0.05, 0.05, 0.95);
+      stamp.updateMatrix();
+      rails.setMatrixAt(i, stamp.matrix);
+      if (i % 4 === 0) {
+        stamp.position.set(s.x + ox, s.y + 0.4, s.z + oz);
+        stamp.rotation.set(0, 0, 0);
+        stamp.scale.set(0.08, 0.8, 0.08);
+        stamp.updateMatrix();
+        posts.setMatrixAt(pi++, stamp.matrix);
+      }
+    }
+    posts.count = pi;
+    for (const mesh of [treads, rails, posts]) {
+      mesh.frustumCulled = false;
+      mesh.instanceMatrix.needsUpdate = true;
+      this.addMesh(mesh);
+    }
+    const top = plan.top;
+    const land = new THREE.Mesh(disc(), this.mat(0xe7e0d4));
+    land.rotation.x = -Math.PI / 2;
+    land.position.set(top.x, top.y + 0.08, top.z);
+    land.scale.setScalar(0.9);
+    this.addMesh(land);
+    const glass = new THREE.Mesh(cyl(), this.glow(0xfff6c8, 0.72));
+    glass.scale.set(0.55, 0.95, 0.55);
+    glass.position.set(plan.cx + Math.cos(top.a) * (plan.R - 1.35), top.y + 1.4, plan.cz + Math.sin(top.a) * (plan.R - 1.35));
+    this.addMesh(glass);
+    if (!this.game.journal?.has('find-lamp')) {
+      const shard = new THREE.Mesh(ball(), this.glow(0xfff2b0, 0.95));
+      shard.scale.setScalar(0.2);
+      shard.position.set(plan.find.x, plan.find.y + 0.12, plan.find.z);
+      this.addMesh(shard);
+      this.lamp = shard;
+    }
+  }
+
+  roomFloor(ox, oz, floor) {
+    const hex = floor === 'tile' ? 0xd7dbe2 : floor === 'board' ? 0xc4a574 : 0x8f4d4d;
+    const m = new THREE.Mesh(boxG(), this.mat(hex));
+    m.scale.set(RW, 0.08, RD);
+    m.position.set(IX + ox, 0, IZ + oz);
+    this.addMesh(m);
+    if (floor === 'rug') {
+      const rug = new THREE.Mesh(boxG(), this.mat(0xe7c98a));
+      rug.scale.set(RW * 0.72, 0.04, RD * 0.62);
+      rug.position.set(IX + ox, 0.06, IZ + oz);
+      this.addMesh(rug);
+    }
+  }
+
+  /** a wall of size (sx, sz) centred at (lx, lz). split opens a doorway on the long axis. */
+  wallBox(lx, lz, sx, sz, hh, door) {
+    const longX = sx >= sz;
+    const span = (longX ? sx : sz);
+    if (!door || door * 2 >= span - 0.2) { this.solid(lx, 0, lz, sx, hh, sz, 0xded4c6); return; }
+    const side = (span - door * 2) / 2;
+    if (longX) {
+      this.solid(lx - door - side / 2, 0, lz, side, hh, sz, 0xded4c6);
+      this.solid(lx + door + side / 2, 0, lz, side, hh, sz, 0xded4c6);
+    } else {
+      this.solid(lx, 0, lz - door - side / 2, sx, hh, side, 0xded4c6);
+      this.solid(lx, 0, lz + door + side / 2, sx, hh, side, 0xded4c6);
+    }
+  }
+  wallRun(lx, lz, sx, sz, hh, alongX) {
+    this.wallBox(lx, lz, alongX ? sx : 0.12, alongX ? 0.12 : sz, hh, 0);
+  }
+
+  furnish(kind, ox, oz) {
+    this._rx = ox; this._rz = oz;
+    if (kind === 'lounge' || kind === 'hall' || kind === 'bedroom') this.couch();
+    if (kind === 'kitchen' || kind === 'lounge' || kind === 'hall' || kind === 'bedroom') this.table();
+    if (kind === 'kitchen' || kind === 'laundry') this.sink();
+    if (kind === 'laundry') this.bath();
+    if (kind === 'bedroom') this.bed();
+    if (kind !== 'laundry' && kind !== 'bedroom') this.tank();
+    if (kind === 'lounge' || kind === 'bedroom' || kind === 'hall') this.shelf();
+    if (kind === 'kitchen' || kind === 'laundry') this.bowl();
+    if (kind !== 'laundry') this.plant();
+    this._rx = 0; this._rz = 0;
   }
 
   couch() {
@@ -576,6 +733,13 @@ export class Places {
     this.blob(1.7, 0.08, -1.7, 0.16, 0xe24b4b, 0);
     this.water(1.7, -1.7, 0.22, 'bowl');
   }
+  bed() {
+    const m = new THREE.Mesh(boxG(), this.mat(0xf4efe6));
+    m.scale.set(1.5, 0.22, 0.9);
+    m.position.set(this.wx(-0.7), 0.28, this.wz(0.55));
+    this.addMesh(m);
+    this.solid(-0.7, 0, 0.55, 1.35, 0.16, 0.75, 0xc4a574, false);
+  }
   plant() {
     this.blob(-2.2, 0.28, -1.6, 0.16, 0x6aaa48, 0.14);
     const pot = new THREE.Mesh(cyl(), this.mat(0xc4552c));
@@ -604,18 +768,79 @@ export class Places {
   makePet(home) {
     const cat = home.pet === 'cat';
     const g = new THREE.Group();
-    const body = new THREE.Mesh(ball(), this.mat(cat ? 0xc9894a : 0xd2a06a));
-    body.scale.set(cat ? 0.34 : 0.4, 0.26, 0.48);
-    body.position.y = 0.2;
-    const head = new THREE.Mesh(ball(), this.mat(cat ? 0xc9894a : 0xd2a06a));
-    head.scale.setScalar(cat ? 0.2 : 0.22);
-    head.position.set(0, 0.28, 0.28);
-    g.add(body, head);
+    const furH = cat ? 0xd98a43 : 0xc4a06a;
+    const darkH = cat ? 0x8a4e22 : 0x5c3a22;
+    const lightH = cat ? 0xf6d7b0 : 0xe7d3b4;
+    const fur = this.mat(furH), dark = this.mat(darkH), light = this.mat(lightH);
+    const pink = this.mat(cat ? 0xeea4a4 : 0xd9897a), black = this.mat(0x1a1a1a), eyeC = this.mat(0xc6e86a);
+    const sph = (r, mat, sx = 1, sy = 1, sz = 1) => {
+      const m = new THREE.Mesh(ball(), mat);
+      m.scale.set(r * 2 * sx, r * 2 * sy, r * 2 * sz);
+      return m;
+    };
+    const legCyl = (r, h, mat) => {
+      const m = new THREE.Mesh(cyl(), mat);
+      m.scale.set(r * 2, h, r * 2);
+      return m;
+    };
+    const belly = sph(0.46, fur, 0.82, 0.7, 1.25); belly.position.set(0, 0.62, 0.12); g.add(belly);
+    const haunch = sph(0.38, fur, 0.9, 0.78, 0.95); haunch.position.set(0, 0.64, -0.36); g.add(haunch);
+    const chest = sph(0.2, light, 1.05, 0.75, 0.8); chest.position.set(0, 0.5, 0.4); g.add(chest);
+    const head = new THREE.Group(); head.position.set(0, cat ? 0.9 : 0.95, cat ? 0.6 : 0.72);
+    head.add(sph(cat ? 0.3 : 0.32, fur, 1.05, 0.95, cat ? 0.98 : 1.05));
+    const ears = [];
+    for (const s of [-1, 1]) {
+      const fluff = sph(0.11, light, 1.1, 0.7, 0.7); fluff.position.set(s * 0.16, -0.08, 0.12); head.add(fluff);
+      const ear = new THREE.Group(); ear.position.set(s * 0.14, cat ? 0.2 : 0.12, -0.02);
+      if (cat) {
+        const flap = sph(0.08, fur, 0.5, 1.15, 0.32); flap.position.y = 0.07; ear.add(flap);
+        const inner = sph(0.04, pink, 0.4, 0.7, 0.22); inner.position.set(0, 0.06, 0.02); ear.add(inner);
+      } else {
+        const flap = sph(0.1, dark, 0.45, 1.2, 0.7); flap.position.y = -0.02; flap.rotation.z = s * 0.5; ear.add(flap);
+      }
+      head.add(ear); ears.push(ear);
+      const eye = sph(0.05, eyeC, 1, 1.15, 0.55); eye.position.set(s * 0.11, 0.04, 0.24); head.add(eye);
+      const pupil = sph(0.02, black, 0.7, 1.3, 0.6); pupil.position.set(s * 0.11, 0.04, 0.28); head.add(pupil);
+    }
+    if (!cat) {
+      const snout = sph(0.14, light, 1.1, 0.75, 1.3); snout.position.set(0, -0.06, 0.28); head.add(snout);
+    }
+    const nose = sph(0.035, pink, 0.9, 0.7, 0.8); nose.position.set(0, cat ? -0.02 : -0.04, 0.32); head.add(nose);
+    g.add(head);
+    const knees = [];
+    for (const [x, z] of [[-0.18, 0.28], [0.18, 0.28], [-0.18, -0.26], [0.18, -0.26]]) {
+      const hip = new THREE.Group(); hip.position.set(x, 0.46, z);
+      const thigh = legCyl(0.07, 0.22, fur); thigh.position.y = -0.11; hip.add(thigh);
+      const knee = new THREE.Group(); knee.position.y = -0.22; hip.add(knee);
+      const shin = legCyl(0.045, 0.16, fur); shin.position.y = -0.08; knee.add(shin);
+      const paw = sph(0.05, furH === 0x2a2a2c ? light : fur, 1.25, 0.45, 1.3); paw.position.set(0, -0.16, 0.02); knee.add(paw);
+      g.add(hip); knees.push(knee);
+    }
+    const tail = new THREE.Group(); tail.position.set(0, 0.7, -0.62);
+    tail.add(new THREE.Mesh(this.petTailGeo(), fur));
+    const tailTip = new THREE.Group(); tailTip.position.set(Math.sin(1.1) * 0.08, 0.47, -0.72);
+    tailTip.add(sph(0.035, fur, 1, 1, 1.2));
+    tail.add(tailTip);
+    g.add(tail);
+    const sc = cat ? 0.8 : 1;
+    g.scale.setScalar(sc);
     outline(g, this.outline);
-    const x = this.wx(2.0), z = this.wz(1.2);
+    const x = this.wx(1.55), z = this.wz(0.35);
     g.position.set(x, 0.02, z);
     this.roomRoot.add(g);
-    this.pet = { kind: home.pet, mesh: g, x, z, state: 'sleep', t: 0, cool: 0 };
+    this.pet = { kind: home.pet, mesh: g, body: g, head, ears, knees, tail, tailTip, sc, x, z, state: 'nap', t: 0 };
+  }
+
+  petTailGeo() {
+    if (this._tailGeo) return this._tailGeo;
+    const curve = new THREE.CatmullRomCurve3([0, 1, 2, 3, 4, 5].map((i) => {
+      const t = i / 5;
+      return new THREE.Vector3(Math.sin(t * 1.1) * 0.08, 0.05 + t * 0.42, -t * 0.72);
+    }));
+    const geo = new THREE.TubeGeometry(curve, 8, 0.055, 6, false);
+    geo.computeVertexNormals();
+    this._tailGeo = geo;
+    return geo;
   }
 
   makeBaby(home) {
@@ -643,6 +868,7 @@ export class Places {
       if (f.cool > 0) f.cool = Math.max(0, f.cool - dt);
     }
     if (this.leaveCool > 0) this.leaveCool = Math.max(0, this.leaveCool - dt);
+    if (this.towerCool > 0) this.towerCool = Math.max(0, this.towerCool - dt);
     if (this.phase) { this.stepPhase(dt, o); return; }
     if (this.indoor) this.updateIndoor(dt, o);
     else this.updateOutdoor(dt, o);
@@ -667,7 +893,9 @@ export class Places {
   }
 
   arrive(o) {
-    const home = this.pending;
+    const pending = this.pending;
+    if (pending?.kind === 'tower') { this.arriveTower(o, pending.plan); return; }
+    const home = pending;
     this.outdoor = { x: o.x, z: o.z, heading: o.heading };
     this.indoor = home;
     this.buildRoom(home);
@@ -685,6 +913,7 @@ export class Places {
     this.leaveArmed = false;
     this.game.journal?.seeHow('place:home');
     this.game.journal?.seeHow('place:' + home.layout);
+    for (const room of home.rooms || []) this.game.journal?.seeHow('place:' + room.kind);
     this.game.levels?.did('homevisit', home.id);
     this.game.camInit = false;
     this.phase = null;
@@ -695,7 +924,35 @@ export class Places {
     this.game.saveSoon?.('home');
   }
 
+  arriveTower(o, plan) {
+    this.outdoor = { x: o.x, z: o.z, heading: o.heading };
+    this.tower = true;
+    this.towerPlan = plan;
+    this.indoor = { kind: 'tower', entry: plan.base, y: plan.base, door: { x: plan.gap.x, z: plan.gap.z } };
+    this.buildTower(plan);
+    this.roomRoot.visible = true;
+    if (this.game.view) this.game.view.root.visible = true;
+    const step = plan.steps[2] || plan.steps[0];
+    o.x = step.x;
+    o.z = step.z;
+    o.y = step.y + 0.08;
+    o.heading = Math.atan2(-Math.sin(step.a), Math.cos(step.a));
+    o.hiddenIn = null;
+    o.speed = 0;
+    this.towerCool = FLAP_COOL;
+    this.towerArmed = false;
+    this.game.journal?.seeHow('place:light');
+    this.game.levels?.did('poi', 'light');
+    this.game.camInit = false;
+    this.phase = null;
+    this.pending = null;
+    this.locking = false;
+    this.fade(0);
+    o.group.scale.setScalar(o.sz);
+  }
+
   finishLeave(o) {
+    if (this.tower) { this.finishLeaveTower(o); return; }
     const home = this.indoor;
     const d = home?.door || this.outdoor || { x: o.x, z: o.z };
     const spot = flapOutside(d);
@@ -718,10 +975,40 @@ export class Places {
     this.game.camInit = false;
   }
 
+  finishLeaveTower(o) {
+    const plan = this.towerPlan;
+    const g = plan?.gap || this.outdoor || { x: o.x, z: o.z };
+    const dx = g.x - (plan?.cx ?? g.x), dz = g.z - (plan?.cz ?? g.z);
+    const d = Math.hypot(dx, dz) || 1;
+    o.x = g.x + (dx / d) * 1.15;
+    o.z = g.z + (dz / d) * 1.15;
+    o.y = this.game.world.heightAt(o.x, o.z);
+    o.heading = Math.atan2(dx, dz);
+    o.speed = 0;
+    this.clearRoom();
+    this.tower = false;
+    this.indoor = null;
+    this.roomRoot.visible = false;
+    if (this.game.view) this.game.view.root.visible = true;
+    this.towerCool = FLAP_COOL;
+    this.towerArmed = false;
+    this.phase = null;
+    this.locking = false;
+    this.fade(0);
+    o.group.scale.setScalar(o.sz);
+    this.game.camInit = false;
+  }
+
   leaveNow() {
     if (!this.indoor && this.phase !== 'in') { this.phase = null; this.locking = false; return; }
     const o = this.game.octopus;
-    if (this.phase === 'in' && this.pending) this.indoor = this.pending;
+    if (this.phase === 'in' && this.pending) {
+      if (this.pending.kind === 'tower') {
+        this.tower = true;
+        this.towerPlan = this.pending.plan;
+        this.indoor = { kind: 'tower', entry: this.pending.plan.base, y: this.pending.plan.base, door: { x: this.pending.plan.gap.x, z: this.pending.plan.gap.z } };
+      } else this.indoor = this.pending;
+    }
     if (o && this.indoor) this.finishLeave(o);
   }
 
@@ -743,6 +1030,17 @@ export class Places {
     this.locking = true;
   }
 
+  tryEnterTower() {
+    if (this.phase || this.indoor) return;
+    const o = this.game.octopus;
+    const plan = this.towerPlanOf();
+    if (!o?.alive || o.tunnel || o.carried || !plan) return;
+    this.phase = 'in';
+    this.phaseT = 0;
+    this.pending = { kind: 'tower', plan };
+    this.locking = true;
+  }
+
   tryLeave() {
     if (this.phase || !this.indoor) return;
     this.phase = 'out';
@@ -758,6 +1056,13 @@ export class Places {
       const inside = (o.x - d.x) ** 2 + (o.z - d.z) ** 2 < rad * rad;
       if (!inside) f.armed = true;
       if (o.moving && flapAllows(f, inside)) { this.tryEnter(f.home); return; }
+    }
+    const tw = this.towerPlanOf();
+    if (tw && o.alive && !o.tunnel && !o.carried) {
+      const g = tw.gap;
+      const near = (o.x - g.x) ** 2 + (o.z - g.z) ** 2 < 0.62 * 0.62;
+      if (!near) this.towerArmed = true;
+      if (o.moving && this.towerArmed && this.towerCool <= 0 && near) { this.tryEnterTower(); return; }
     }
     this.soak(dt, o);
     const m = this.plan.maze;
@@ -794,6 +1099,9 @@ export class Places {
       const show = st.homes.size > 0 && st.maze && !st.secret;
       this.secret.visible = show;
       if (show) {
+        if (this.secret.userData.baseY == null) this.secret.userData.baseY = this.secret.position.y;
+        this.secret.position.y = this.secret.userData.baseY + Math.sin((this._hop || 0) * 2.1) * 0.045;
+        this.secret.rotation.y = (this._hop || 0) * 0.35;
         const s = this.secret.position;
         if ((o.x - s.x) ** 2 + (o.z - s.z) ** 2 < 0.45) {
           this.game.levels.did('secret');
@@ -840,6 +1148,7 @@ export class Places {
   }
 
   updateIndoor(dt, o) {
+    if (this.tower) { this.updateTower(dt, o); return; }
     const spot = flapInsideLocal();
     const doorZ = this.wz(spot.doorZ);
     const inside = (o.x - this.wx(0)) ** 2 + (o.z - doorZ) ** 2 < 0.42 * 0.42;
@@ -862,41 +1171,93 @@ export class Places {
     if (this.pet) this.updatePet(dt, o);
   }
 
+  updateTower(dt, o) {
+    const plan = this.towerPlan;
+    if (!plan) return;
+    const s0 = plan.steps[0];
+    const near = (o.x - s0.x) ** 2 + (o.z - s0.z) ** 2 < 0.72 * 0.72;
+    if (!near) this.towerArmed = true;
+    if (o.moving && this.towerArmed && this.towerCool <= 0 && near) { this.tryLeave(); return; }
+    if (this.lamp) {
+      const f = plan.find;
+      this.lamp.position.y = f.y + 0.12 + Math.sin((this._hop || 0) * 3) * 0.04;
+      if ((o.x - f.x) ** 2 + (o.z - f.z) ** 2 < 0.7 * 0.7) {
+        this.game.journal?.seeHow('place:lampglass');
+        this.roomRoot.remove(this.lamp);
+        this.lamp = null;
+      }
+    }
+    void dt;
+  }
+
   updatePet(dt, o) {
     const p = this.pet;
-    p.cool = Math.max(0, p.cool - dt);
     p.t += dt;
     const dx = o.x - p.x, dz = o.z - p.z, dist = Math.hypot(dx, dz) || 1;
-    if (o.camoProtected) p.state = 'sleep';
-    else if (p.state === 'sleep' && dist < 2.1) { p.state = 'wake'; p.t = 0; }
-    else if (p.state === 'wake' && p.t > 0.7) { p.state = 'creep'; p.t = 0; }
-    else if (p.state === 'creep') {
-      if (o.moving) { /* pause while the octopus moves */ }
-      else {
-        const step = 0.55 * dt;
+    const camo = !!o.camoProtected;
+    if (p.state !== 'pounce') {
+      const next = nextPetIdle(p.state, p.t, dist, camo);
+      if (next !== p.state) { p.state = next; p.t = 0; }
+    }
+    if (p.state === 'creep') {
+      if (!o.moving) {
+        const step = 0.5 * dt;
         p.x += (dx / dist) * step; p.z += (dz / dist) * step;
       }
-      if (dist < 0.85 && p.cool <= 0) { p.state = 'pounce'; p.t = 0; p.toX = o.x; p.toZ = o.z; }
+      if (dist < 0.85) { p.state = 'pounce'; p.t = 0; p.toX = o.x; p.toZ = o.z; }
     } else if (p.state === 'pounce') {
       const k = Math.min(1, p.t / 0.28);
       p.x += (p.toX - p.x) * Math.min(1, dt * 8);
       p.z += (p.toZ - p.z) * Math.min(1, dt * 8);
       if (k >= 1) {
         if (Math.hypot(o.x - p.x, o.z - p.z) < 0.5) o.damage(7, p.kind);
-        p.state = 'sit'; p.t = 0; p.cool = 2.5;
+        p.state = 'sit'; p.t = 0;
       }
-    } else if (p.state === 'sit' && p.t > 2.2) p.state = 'sleep';
-    if (dist < 0.32 && p.state !== 'pounce') { p.x -= dx / dist * 0.04; p.z -= dz / dist * 0.04; }
-    const minX = this.wx(-RW / 2 + 0.4), maxX = this.wx(RW / 2 - 0.4);
-    const minZ = this.wz(-RD / 2 + 0.4), maxZ = this.wz(RD / 2 - 0.4);
-    p.x = Math.max(minX, Math.min(maxX, p.x));
-    p.z = Math.max(minZ, Math.min(maxZ, p.z));
-    p.mesh.position.set(p.x, p.state === 'creep' ? 0.01 : 0.02, p.z);
+    }
+    if (dist < 0.32 && p.state !== 'pounce') { p.x -= (dx / dist) * 0.04; p.z -= (dz / dist) * 0.04; }
+    this.clampPet(p);
+    p.mesh.position.set(p.x, 0.02, p.z);
     p.mesh.rotation.y = Math.atan2(dx, dz);
-    const crouch = p.state === 'creep' || p.state === 'pounce' ? 0.72 : 1;
-    p.mesh.scale.y = crouch;
-    if (p.state === 'sleep') p.mesh.rotation.z = Math.sin(p.t * 2) * 0.04;
-    else p.mesh.rotation.z = 0;
+    this.posePet(p, dist);
+  }
+
+  clampPet(p) {
+    const b = this.petBox || { minX: -RW / 2 + 0.45, maxX: RW / 2 - 0.45, minZ: -RD / 2 + 0.45, maxZ: RD / 2 - 0.45 };
+    p.x = Math.max(IX + b.minX, Math.min(IX + b.maxX, p.x));
+    p.z = Math.max(IZ + b.minZ, Math.min(IZ + b.maxZ, p.z));
+    if (b.north && b.east) {
+      const x1 = IX + RW / 2 - 0.2, z1 = IZ + RD / 2 - 0.2;
+      if (p.x > x1 && p.z > z1) { if (p.x - x1 < p.z - z1) p.x = x1; else p.z = z1; }
+    }
+  }
+
+  posePet(p, dist) {
+    const t = p.t, st = p.state, cat = p.kind === 'cat';
+    const lock = st === 'notice' || st === 'creep' || st === 'pounce';
+    const breathe = 1 + Math.sin(t * 2.2) * (st === 'nap' ? 0.04 : 0.015);
+    if (p.ears) p.ears.forEach((e, i) => {
+      const s = i ? 1 : -1;
+      e.rotation.z = lock ? s * 0.22 : Math.sin(t * 1.4 + i) * 0.08;
+      e.rotation.x = lock ? -0.28 : (st === 'nap' ? 0.35 : 0);
+    });
+    if (p.knees) p.knees.forEach((k, i) => {
+      const bend = st === 'creep' || st === 'pounce' ? 0.85 : st === 'stretch' ? (i < 2 ? -0.4 : 0.9) : st === 'nap' ? 1.15 : 0.2;
+      k.rotation.x = bend;
+    });
+    if (p.tail) p.tail.rotation.y = st === 'notice' ? Math.sin(t * 3) * 0.08 : st === 'creep' ? Math.sin(t * 2.4) * 0.35 : Math.sin(t * 1.6) * 0.22;
+    if (p.tailTip) p.tailTip.rotation.y = st === 'notice' ? Math.sin(t * 14) * 0.7 : Math.sin(t * 3) * 0.25;
+    if (p.head) {
+      p.head.rotation.x = st === 'groom' ? 0.8 : st === 'nap' ? 0.35 : st === 'stretch' ? -0.25 : 0;
+      p.head.rotation.y = st === 'groom' ? Math.sin(t * 6) * 0.35 : (lock ? 0 : Math.sin(t * 0.7) * 0.12);
+      p.head.position.y = (cat ? 0.9 : 0.95) + (lock ? 0.04 : 0) - (st === 'nap' ? 0.08 : 0);
+    }
+    const sc = p.sc || (cat ? 0.8 : 1);
+    const low = st === 'nap' || st === 'creep' ? 0.78 : st === 'pounce' ? 1.08 : st === 'stretch' ? 0.9 : 1;
+    p.mesh.scale.set(sc, sc * low * breathe, sc * (st === 'stretch' ? 1.12 : 1));
+    if (st === 'stretch') p.mesh.rotation.x = 0.18;
+    else if (st === 'groom') p.mesh.rotation.x = 0.12;
+    else p.mesh.rotation.x = 0;
+    void dist;
   }
 
   animateFlaps(dt, o) {

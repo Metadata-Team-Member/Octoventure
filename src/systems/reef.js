@@ -1,7 +1,7 @@
 // Shallow reef life, a longshore current, and one quiet grotto.
 // Props are built once and reused. Fish state lives in typed arrays (no per-frame alloc).
 import * as THREE from 'three';
-import { toonMat, outlineMat, outline } from '../world/toon.js';
+import { toonMat, outlineMat, outline, addPatch } from '../world/toon.js';
 import { merge, at } from '../world/models.js';
 import { damp, smoothstep as ss } from '../util/rng.js';
 import { EDGE } from '../world/bands.js';
@@ -9,6 +9,132 @@ import { EDGE } from '../world/bands.js';
 const FISH = 18;
 const STARS = 7;
 const BABIES = 5;
+const _wag = { value: 0 };
+
+function wagPatch(sh) {
+  sh.uniforms.uWag = _wag;
+  if (!sh.vertexShader.includes('attribute float aWag')) {
+    const line = 'attribute float aWag;\nuniform float uWag;\n';
+    if (sh.vertexShader.includes('#include <common>')) sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + line);
+    else sh.vertexShader = line + sh.vertexShader;
+  }
+  if (!sh.vertexShader.includes('uWag * 5.5')) {
+    sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      {
+        float wag = sin(uWag * 5.5 + float(gl_InstanceID) * 1.7);
+        transformed.x += wag * aWag * 0.22;
+        transformed.y += wag * aWag * 0.03;
+      }`);
+  }
+}
+
+/** five thick arms, one mesh, low poly */
+export function starGeometry() {
+  const pos = [];
+  const idx = [];
+  const V = (x, y, z) => { pos.push(x, y, z); return pos.length / 3 - 1; };
+  const yb = 0.02, yt = 0.1;
+  const hubB = [], hubT = [];
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    hubB.push(V(Math.cos(a) * 0.1, yb, Math.sin(a) * 0.1));
+    hubT.push(V(Math.cos(a) * 0.1, yt, Math.sin(a) * 0.1));
+  }
+  const cB = V(0, yb, 0), cT = V(0, yt + 0.015, 0);
+  for (let i = 0; i < 5; i++) {
+    const j = (i + 1) % 5;
+    idx.push(cT, hubT[i], hubT[j], cB, hubB[j], hubB[i]);
+    idx.push(hubB[i], hubB[j], hubT[j], hubB[i], hubT[j], hubT[i]);
+    const a = (i / 5) * Math.PI * 2 + Math.PI / 5;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const px = Math.cos(a + Math.PI / 2), pz = Math.sin(a + Math.PI / 2);
+    const bL = hubB[i], bR = hubB[j], tL = hubT[i], tR = hubT[j];
+    const mL = V(ca * 0.28 + px * 0.07, yb, sa * 0.28 + pz * 0.07);
+    const mR = V(ca * 0.28 - px * 0.07, yb, sa * 0.28 - pz * 0.07);
+    const mTL = V(ca * 0.28 + px * 0.055, yt * 0.85, sa * 0.28 + pz * 0.055);
+    const mTR = V(ca * 0.28 - px * 0.055, yt * 0.85, sa * 0.28 - pz * 0.055);
+    const tipB = V(ca * 0.5, yb + 0.01, sa * 0.5);
+    const tipT = V(ca * 0.48, yt * 0.45, sa * 0.48);
+    idx.push(bL, mL, tL, tL, mL, mTL);
+    idx.push(bR, tR, mR, tR, mTR, mR);
+    idx.push(mL, tipB, mTL, mTL, tipB, tipT);
+    idx.push(mR, mTR, tipB, mTR, tipT, tipB);
+    idx.push(mTL, tipT, mTR, mL, mR, tipB);
+    idx.push(tL, mTL, mTR, tL, mTR, tR);
+    void tipT;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** body, side fins and a tail. aWag is 0 at the nose and 1 at the tail. */
+export function fishGeometry() {
+  const pos = [];
+  const wag = [];
+  const idx = [];
+  const ring = (z, rx, ry, w, n = 5) => {
+    const s = pos.length / 3;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      pos.push(Math.cos(a) * rx, Math.sin(a) * ry, z);
+      wag.push(w);
+    }
+    return s;
+  };
+  const nose = pos.length / 3;
+  pos.push(0, 0, 0.4); wag.push(0);
+  const rings = [
+    ring(0.22, 0.09, 0.07, 0),
+    ring(0.04, 0.14, 0.09, 0.08),
+    ring(-0.12, 0.11, 0.075, 0.28),
+    ring(-0.26, 0.045, 0.035, 0.62),
+  ];
+  const N = 5;
+  const fan = (a, b, flip) => {
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      if (flip) idx.push(a, b + j, b + i);
+      else idx.push(a, b + i, b + j);
+    }
+  };
+  fan(nose, rings[0], false);
+  for (let r = 0; r < rings.length - 1; r++) {
+    const a = rings[r], b = rings[r + 1];
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      idx.push(a + i, b + i, a + j, a + j, b + i, b + j);
+    }
+  }
+  const tail = pos.length / 3;
+  pos.push(0, 0.07, -0.46, 0, -0.07, -0.46, 0.16, 0, -0.4, -0.16, 0, -0.4);
+  wag.push(1, 1, 0.85, 0.85);
+  const base = rings[3];
+  idx.push(base, tail, tail + 2, base + 1, tail + 2, tail);
+  idx.push(base + 2, tail + 1, tail + 3, base + 3, tail + 3, tail + 1);
+  idx.push(tail, tail + 1, tail + 2, tail, tail + 3, tail + 1);
+  const fin = (x, y, z, w) => {
+    const s = pos.length / 3;
+    pos.push(x, y, z, x * 1.8, y + 0.02, z - 0.08, x * 1.4, y - 0.01, z + 0.06);
+    wag.push(w, w, w * 0.6);
+    idx.push(s, s + 1, s + 2);
+    return s;
+  };
+  fin(0.1, 0.02, 0.02, 0.15);
+  fin(-0.1, 0.02, 0.02, 0.15);
+  const dorsal = pos.length / 3;
+  pos.push(0, 0.08, 0.05, 0, 0.2, -0.02, 0, 0.06, -0.12);
+  wag.push(0.05, 0.2, 0.35);
+  idx.push(dorsal, dorsal + 1, dorsal + 2);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aWag', new THREE.Float32BufferAttribute(wag, 1));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
 
 /** a fixed place in the sea for this world (same seed, same grotto) */
 export function grottoOf(world) {
@@ -93,6 +219,7 @@ export class Reef {
       kill(c);
     }
     this.fishMesh = null; this.starMesh = null; this.turtle = null; this.babies = null; this.caustic = null; this.arches = null;
+    this.fishMat = null; this.fishOutlineMat = null;
   }
 
   ensure() {
@@ -104,7 +231,8 @@ export class Reef {
     const kelpMat = toonMat({ color: 0x2f8f4e });
     const rockMat = toonMat({ color: 0x6d7c78 });
     const starMat = toonMat({ color: 0xe07a3d });
-    const fishMat = toonMat({ color: 0xf2c14e });
+    const fishMat = addPatch(toonMat({ color: 0xf2c14e }), 'wag1', wagPatch);
+    this.fishMat = fishMat;
     const shellMat = toonMat({ color: 0xf4e2c4 });
 
     const coralGeo = new THREE.SphereGeometry(0.45, 6, 5);
@@ -142,12 +270,7 @@ export class Reef {
     }
     this.root.add(this.arches);
 
-    const starBits = [at(new THREE.SphereGeometry(0.2, 6, 4), 0, 0.08, 0, 0, 0, 0, 1, 0.55, 1)];
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
-      starBits.push(at(new THREE.SphereGeometry(0.12, 5, 4), Math.cos(a) * 0.3, 0.07, Math.sin(a) * 0.3, 0, -a, 0, 0.72, 0.55, 1.45));
-    }
-    const starGeo = merge(starBits);
+    const starGeo = starGeometry();
     this.starMesh = new THREE.InstancedMesh(starGeo, starMat, STARS);
     this.starMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < STARS; i++) {
@@ -162,17 +285,14 @@ export class Reef {
     this.root.add(this.starMesh);
     outline(this.starMesh, outlineMat());
 
-    const fishGeo = merge([
-      at(new THREE.SphereGeometry(0.16, 6, 5), 0, 0, 0, 0, 0, 0, 1.7, 0.75, 0.85),
-      at(new THREE.SphereGeometry(0.08, 5, 4), -0.26, 0.01, 0, 0, 0, 0, 0.7, 1.15, 0.28),
-      at(new THREE.SphereGeometry(0.06, 4, 3), 0.02, 0.08, 0.12, 0.5, 0, 0.3, 0.35, 1.3, 0.7),
-      at(new THREE.SphereGeometry(0.06, 4, 3), 0.02, 0.08, -0.12, -0.5, 0, -0.3, 0.35, 1.3, 0.7),
-    ]);
+    const fishGeo = fishGeometry();
     this.fishMesh = new THREE.InstancedMesh(fishGeo, fishMat, FISH);
     this.fishMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.fishMesh.frustumCulled = false;
     this.root.add(this.fishMesh);
-    this.fishHull = outline(this.fishMesh, outlineMat())[0];
+    const fishOutline = addPatch(outlineMat(), 'wag1', wagPatch);
+    this.fishOutlineMat = fishOutline;
+    this.fishHull = outline(this.fishMesh, fishOutline)[0];
 
     const shell = toonMat({ color: 0x2f7a52 });
     const skin = toonMat({ color: 0x3d8f62 });
@@ -283,6 +403,7 @@ export class Reef {
     this.fishMesh.instanceMatrix.needsUpdate = true;
     this.fishMesh.count = near || sea ? FISH : 0;
     if (this.fishHull) this.fishHull.count = this.fishMesh.count;
+    _wag.value = this.t;
 
     const ta = this.t * 0.15;
     const tx = this.grotto.x + Math.cos(ta) * 10;

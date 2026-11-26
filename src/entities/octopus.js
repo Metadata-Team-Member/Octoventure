@@ -20,6 +20,7 @@ const INK_TINT = new THREE.Color(0x3a3350), VENOM_TINT = new THREE.Color(0xffd23
 // scratch objects for animate() (no per-frame allocation)
 const _ground = new THREE.Color(), _camoT = new THREE.Color(), _camoD = new THREE.Color(), _grey = new THREE.Color();
 const _qN = new THREE.Quaternion(), _qY = new THREE.Quaternion(), _UP = new THREE.Vector3(0, 1, 0), _nV = new THREE.Vector3(), _tipV = new THREE.Vector3();
+const _pollenM = new THREE.Matrix4(), _pollenInv = new THREE.Matrix4();
 
 const ARMS = 8;
 const SKIN = new THREE.Color(OCTO_HEX.body);
@@ -112,14 +113,19 @@ export class Octopus {
     ];
     const pollenGeo = new THREE.SphereGeometry(0.008, 5, 4);
     this.pollenMat = toonMat({ color: 0xffe066 });
-    this.pollenDots = [];
+    this.pollenBones = [];
     for (let i = 0; i < ARMS; i++) {
       const bone = model.getObjectByName(`arm${i}_tip`);
-      if (!bone) continue;
-      const dot = new THREE.Mesh(pollenGeo, this.pollenMat);
-      dot.visible = false; dot.castShadow = false; dot.userData.noOutline = true; dot.frustumCulled = false;
-      bone.add(dot); this.pollenDots.push(dot);
+      if (bone) this.pollenBones.push(bone);
     }
+    // one instanced mesh, not a mesh per arm: the draw stays cheap while the tips are dusted
+    this.pollenMesh = new THREE.InstancedMesh(pollenGeo, this.pollenMat, Math.max(1, this.pollenBones.length));
+    this.pollenMesh.count = this.pollenBones.length;
+    this.pollenMesh.visible = false;
+    this.pollenMesh.castShadow = false;
+    this.pollenMesh.frustumCulled = false;
+    this.pollenMesh.userData.noOutline = true;
+    this.meshRoot.add(this.pollenMesh);
     this.pollenT = 0; this.pollenCol = new THREE.Color(0xffe066); this._tipOn = false;
     if (!CONFIG.graphics.shadows) {      // phones / ?shadows=0: a soft blob shadow under the octopus instead of the shadow map
       this.blob = new THREE.Mesh(new THREE.CircleGeometry(1.05, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
@@ -182,6 +188,8 @@ export class Octopus {
     this.health = CONFIG.octopus.maxHealth;
     this.energy = CONFIG.camo.maxEnergy;
     this.pollenT = 0;
+    if (this.pollenMesh) this.pollenMesh.visible = false;
+    this._tipOn = false;
     if (this.scoops) { this.scoops[0].on = false; this.scoops[1].on = false; }
     this.camoWanted = false;
     this.camoBlend = 0;
@@ -588,14 +596,23 @@ export class Octopus {
     if (this.pollenT > 0) {
       this.pollenT = Math.max(0, this.pollenT - dt);
       this.pollenMat.color.copy(this.pollenCol);
-      const on = this.pollenT > 0;
-      for (const d of this.pollenDots) d.visible = on;
-      this._tipOn = on;
-    } else if (this._tipOn) {
-      for (const d of this.pollenDots) d.visible = false;
-      this._tipOn = false;
     }
     this.mixer.update(dt);
+    const dusted = this.pollenT > 0;
+    if (dusted) {
+      this.pollenMesh.visible = true;
+      this.group.updateMatrixWorld(true);
+      _pollenInv.copy(this.meshRoot.matrixWorld).invert();
+      for (let i = 0; i < this.pollenBones.length; i++) {
+        _pollenM.copy(this.pollenBones[i].matrixWorld).premultiply(_pollenInv);
+        this.pollenMesh.setMatrixAt(i, _pollenM);
+      }
+      this.pollenMesh.instanceMatrix.needsUpdate = true;
+      this._tipOn = true;
+    } else if (this._tipOn) {
+      this.pollenMesh.visible = false;
+      this._tipOn = false;
+    }
     // outlines fade with camouflage (an outline would give the hiding octopus away)
     const showLine = camo < 0.45 && this.hideBlend < 0.5;
     for (const h of this.outlines) h.visible = showLine;

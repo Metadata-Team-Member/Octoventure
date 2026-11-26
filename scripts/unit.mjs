@@ -29,6 +29,7 @@ import { crabTemplate } from '../src/world/crabModel.js';
 import { octopusTemplate, OCTO_HEX } from '../src/world/octopusModel.js';
 import { Predator, humanCanStep, HUMAN_WADE } from '../src/entities/predators.js';
 import { flapInsideLocal, flapOutside, flapAllows, FLAP_STEP, FLAP_COOL } from '../src/systems/places.js';
+import { planRooms, planTower, towerFloor, nextPetIdle, ROOM_KINDS } from '../src/world/places.js';
 
 let checks = 0;
 const ok = (c, m) => { assert.ok(c, m); checks++; };
@@ -800,15 +801,15 @@ for (const seed of [1, 42, 2026]) {
   d.update(1);
   ok(d.carry == null && d.list.length === 1, 'walking past a decoration does not pick it up');
   game.octopus.moving = false;
-  d.update(0.2);
-  ok(d.carry == null && d.list.length === 1, 'a brief pause is not enough to pick a decoration up');
-  d.update(0.4);
-  ok(d.carry === 'pebble' && d.list.length === 0, 'standing still on a decoration for half a second picks it up');
+  d.update(0.6);
+  ok(d.carry == null && d.list.length === 1, 'standing on a decoration does not pick it up');
+  ok(d.interact() === true && d.carry === 'pebble' && d.list.length === 0, 'a beak nip picks the decoration up');
   d.carry = null; d.hold = 0; d.still = 0;
   d.list.push({ id: 'kelp', x: 0.1, z: 0, rot: 0, denx: 0, denz: 0, cool: 0 });
   game.octopus.camoActive = true;
   d.update(0.8);
   ok(d.carry == null && d.list.length === 1 && d.list[0].rot !== 0, 'camouflage turns a decoration instead of picking it up');
+  ok(d.interact() === false, 'camouflage does not nip a decoration into the satchel');
 }
 
 { // the reef: one grotto per seed, current only while swimming at sea
@@ -914,6 +915,73 @@ for (const seed of [1, 42, 2026]) {
   ok(out.heading === 0 && Math.abs(out.x - 3) < 1e-9 && Math.abs(out.z - (8 + FLAP_STEP)) < 1e-9, 'exit is 1.5 m outside the flap, facing away');
   ok(Math.abs(FLAP_STEP * 0.32 - 1.5) < 1e-9 && FLAP_COOL === 1, 'the step is 1.5 m and the flap waits a second');
   ok(!flapAllows({ armed: false, cool: 0 }, true) && !flapAllows({ armed: true, cool: 0.4 }, true) && !flapAllows({ armed: true, cool: 0 }, false) && flapAllows({ armed: true, cool: 0 }, true), 'a flap fires only when it is armed, cooled down, and you are in it');
+}
+
+{ // multi-room houses, the lighthouse stair, bent roads
+  const w = worlds[WORLD];
+  const { planPlaces } = await import('../src/world/places.js');
+  const plan = planPlaces(w);
+  ok(plan.homes.every((h) => h.rooms && h.rooms.length >= 2 && h.rooms.length <= 3), 'each house is two or three rooms');
+  ok(plan.homes.every((h) => h.rooms.every((r) => ROOM_KINDS.includes(r.kind)) && h.rooms[0].link == null && h.rooms[1].link === 'north' && (h.rooms.length < 3 || h.rooms[2].link === 'east')), 'rooms join north, then east');
+  const again = planRooms(w.seed, 4);
+  ok(JSON.stringify(again) === JSON.stringify(planRooms(w.seed, 4)) && again.length >= 2, 'a house plan does not change between visits');
+  const shapes = new Set(plan.homes.map((h) => h.rooms.map((r) => r.kind).join('>')));
+  ok(shapes.size >= 2, `houses are not all the same (${shapes.size} layouts)`);
+  let peak = 0;
+  for (let k = -8; k <= 8; k++) {
+    ok(w.roadBow(120, k, false, false) === 0 || (((k % 4) + 4) % 4) !== 0, 'only every fourth street is straight');
+    if ((((k % 4) + 4) % 4) === 0) ok(w.roadBow(40, k, true, true) === 0 && w.roadBow(-80, k, false, false) === 0, 'a straight street has no bow');
+    for (let x = 0; x < 200; x += 3) peak = Math.max(peak, Math.abs(w.roadBow(1000 + x, k, false, false)));
+  }
+  ok(peak > 6, `a bent street leans (${peak.toFixed(1)})`);
+  const feat = w.roadFeatures();
+  ok(feat.deads.length >= 1, 'a suburb street ends in a cul-de-sac');
+  for (const d of feat.deads) {
+    ok(w.isRoad(d.x, d.z), 'the cul-de-sac bulb is road');
+    ok(!w.isRoad(d.x - d.dir * (d.r + 16), d.z), 'the street does not continue past the bulb');
+  }
+  ok(feat.rb, 'the town has a roundabout');
+  if (feat.rb) {
+    const rb = feat.rb;
+    ok(w.isRoad(rb.x + (rb.inner + rb.r) * 0.5, rb.z), 'the roundabout ring is road');
+    ok(!w.isRoad(rb.x, rb.z), 'the roundabout island is not road');
+  }
+  let straight = false;
+  {
+    const P = 64;
+    for (let k = -12; k <= 12 && !straight; k++) {
+      if ((((k % 4) + 4) % 4) !== 0) continue;
+      const z = w.roadOff.z + k * P;
+      for (let x = -400; x <= 400 && !straight; x += 10) {
+        if (w.biomes.weights(x, z)[1] <= 0.45) continue;
+        if ([-14, -6, 0, 9, 14].every((d) => w.isRoad(x + d, z))) straight = true;
+      }
+    }
+  }
+  ok(straight, 'a town street still has a straight run a car can use');
+  for (const hm of plan.homes) {
+    ok(!w.isRoad(hm.x, hm.z) && !w.isRoad(hm.door.x, hm.door.z), `${hm.id} and its flap are off the street`);
+    ok(Math.abs(w.heightAt(hm.door.x, hm.door.z) - hm.door.y) <= 0.05, `${hm.id} flap stays on the ground`);
+  }
+  const lh = w.landmarks.find((l) => l.kind === 'lighthouse');
+  const tw = planTower(lh, w);
+  ok(tw && tw.steps.length > 8, 'the lighthouse has a stair');
+  for (let i = 1; i < tw.steps.length; i++) ok(tw.steps[i].y > tw.steps[i - 1].y + 0.4, 'each step is higher');
+  ok(Math.hypot(tw.gap.x - lh.x, tw.gap.z - lh.z) > 3.6, 'the gap is outside the tower wall');
+  ok(tw.top.y - lh.y >= 20, 'the stair climbs to the lamp');
+  ok(Math.abs(w.heightAt(tw.gap.x, tw.gap.z) - lh.y) < 4, 'the gap sits on the ground by the tower');
+  ok(Math.hypot(tw.gap.x - tw.steps[0].x, tw.gap.z - tw.steps[0].z) < 2.2, 'the gap meets the bottom step');
+  for (const s of tw.steps) ok(Math.hypot(s.x - lh.x, s.z - lh.z) > 3.5, 'the route stays outside the wall');
+  ok(tw.find.y >= tw.top.y && Math.hypot(tw.find.x - tw.top.x, tw.find.z - tw.top.z) < 0.8, 'the find sits on the top step');
+  for (const s of tw.steps) ok(Math.abs(towerFloor(tw, s.x, s.z) - s.y) < 0.08, `the ramp matches step ${s.i}`);
+  ok(nextPetIdle('nap', 4.6, 9, false) === 'stretch' && nextPetIdle('stretch', 1.3, 9, false) === 'groom' && nextPetIdle('groom', 2.4, 9, false) === 'nap', 'a pet naps, stretches, then grooms');
+  ok(nextPetIdle('nap', 0.2, 1.2, false) === 'notice' && nextPetIdle('notice', 0.2, 1.0, false) === 'creep', 'a pet notices, then creeps in close');
+  ok(nextPetIdle('creep', 3, 0.4, true) === 'nap' && nextPetIdle('notice', 1, 4, false) === 'nap', 'camouflage, or walking off, sends the pet back to a nap');
+  const { starGeometry, fishGeometry } = await import('../src/systems/reef.js');
+  const trisOf = (g) => (g.index ? g.index.count : g.attributes.position.count) / 3;
+  const star = starGeometry(), fish = fishGeometry();
+  ok(trisOf(star) > 20 && trisOf(star) < 140, `a sea star is five thick arms (${trisOf(star)} tris)`);
+  ok(trisOf(fish) > 20 && trisOf(fish) < 180 && fish.getAttribute('aWag'), `a reef fish is one low mesh with a tail (${trisOf(fish)} tris)`);
 }
 
 // ================================================================ people at the shore, perched birds, frame delta

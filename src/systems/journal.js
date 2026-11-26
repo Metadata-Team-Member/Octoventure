@@ -68,18 +68,20 @@ export const ENTRIES = [
   { id: 'lay-lounge',  group: 'home', glyph: 'b_home',    title: 'A lounge',      note: 'A couch to go under, and a sunny patch by the window.', how: 'place:lounge' },
   { id: 'lay-kitchen', group: 'home', glyph: 'b_home',    title: 'A kitchen',     note: 'A table to climb, and a sink left dripping.', how: 'place:kitchen' },
   { id: 'lay-laundry', group: 'home', glyph: 'b_home',    title: 'A laundry',     note: 'A bath with the tap left on.', how: 'place:laundry' },
+  { id: 'lay-bedroom', group: 'home', glyph: 'b_home',    title: 'A bedroom',     note: 'A bed, and a quiet corner past the doorway.', how: 'place:bedroom' },
   { id: 'lay-hall',    group: 'home', glyph: 'b_home',    title: 'A hallway',     note: 'A rug, a shelf, and the long way through.', how: 'place:hall' },
   { id: 'find-button', group: 'home', glyph: 'cap',       title: 'A lost button', note: 'A small round button, under something.', how: 'place:button' },
   { id: 'find-marble', group: 'home', glyph: 'pebble',    title: 'A marble',      note: 'A glass marble, rolled where the floor is quiet.', how: 'place:marble' },
   { id: 'find-glass',  group: 'home', glyph: 'r_pearl',   title: 'Sea glass',     note: 'A piece of sea glass, sitting up on a shelf.', how: 'place:glass' },
   { id: 'find-photo',  group: 'home', glyph: 'b_map',     title: 'A beach photo', note: 'A picture of sand and water, left on the shelf.', how: 'place:photo' },
+  { id: 'find-lamp',   group: 'place', glyph: 'b_sun',    title: 'Lamp glass',    note: 'A warm shard of the lamp, at the top of the stair.', how: 'place:lampglass' },
   { id: 'maze',        group: 'place', glyph: 'b_maze',   title: 'The hedges',    note: 'A maze of round hedges. The middle has water.', how: 'place:maze' },
   { id: 'poi-shed',    group: 'place', glyph: 'b_home',   title: 'A shed',        note: 'Webs, a shelf of bits, and a watering can.', how: 'place:shed' },
   { id: 'poi-drain',   group: 'place', glyph: 'b_wave',   title: 'A storm drain', note: 'A dark pipe that comes out in another street.', how: 'place:drain' },
   { id: 'poi-garden',  group: 'place', glyph: 'b_leaf',   title: 'A shared garden', note: 'Vegetable beds, a scarecrow, and a hose that drips.', how: 'place:garden' },
-  { id: 'poi-light',   group: 'place', glyph: 'b_sun',    title: 'The light',     note: 'A tall light on the coast.', how: 'place:light' },
+  { id: 'poi-light',   group: 'place', glyph: 'b_sun',    title: 'The light',     note: 'A tall light on the coast. A gap at its foot leads up.', how: 'place:light' },
   { id: 'poi-play',    group: 'place', glyph: 'b_star',   title: 'A playground',  note: 'Sand, and a little fountain.', how: 'place:play' },
-  { id: 'secret-nest', group: 'place', glyph: 'b_secret', title: 'A little light', note: 'It was not there until a house and the maze were both known.', how: 'place:secret' },
+  { id: 'secret-nest', group: 'place', glyph: 'b_secret', title: 'A jar of light', note: 'Fireflies in a jar, near the middle of the hedges, once a house and the maze are both known.', how: 'place:secret' },
 ];
 export const ENTRY_IDS = ENTRIES.map((e) => e.id);
 export const ENTRY_BY = Object.fromEntries(ENTRIES.map((e) => [e.id, e]));
