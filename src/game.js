@@ -82,6 +82,7 @@ export class Game {
     this.input = new Input(canvas);
     this.audio = new GameAudio();
     this._croakHeard = 0;
+    this._chirpHeard = 0;
     this.music = new Music();
     this.hemi = new THREE.HemisphereLight(0xcfe8ff, 0x8d8466, 1.35);
     this.sun = new THREE.DirectionalLight(0xfff1d6, 2.6);
@@ -521,6 +522,10 @@ void main(){
     if (this.audio.croakBeat !== this._croakHeard) {
       this._croakHeard = this.audio.croakBeat;
       if (!this.places?.indoor) this.critters?.croakNear(this.camera.position);
+    }
+    if (this.audio.chirpBeat !== this._chirpHeard) {
+      this._chirpHeard = this.audio.chirpBeat;
+      if (!this.places?.indoor) this.critters?.songNear(this.camera.position);
     }
     this.music.update(dt, this);
     if (this.params.get('debug') === '1') {

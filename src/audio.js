@@ -8,7 +8,7 @@ import { clamp, lerp } from './util/rng.js';
 const R = () => Math.random();      // audio-only randomness: never affects the world
 
 export class GameAudio {
-  constructor() { this.ctx = null; this.muted = false; this.nextGull = 3; this.t = 0; this.timers = {}; this.log = []; this.last = {}; this.croakBeat = 0; }
+  constructor() { this.ctx = null; this.muted = false; this.nextGull = 3; this.t = 0; this.timers = {}; this.log = []; this.last = {}; this.croakBeat = 0; this.chirpBeat = 0; }
 
   start() {
     if (this.ctx || !CONFIG.audio.enabled) return;
@@ -151,7 +151,7 @@ export class GameAudio {
 
   // ------------------------------------------------------------ ambient one-shots
   gull(v = 0.1, pos = null) { const d = pos ? this.at(pos.x, pos.y, pos.z) : null; for (let i = 0; i < 2 + Math.floor(R() * 2); i++) this.tone(1500 + R() * 300, 0.32, 'sawtooth', v, -700, i * 0.34, d); }
-  chirp(v = 0.05) { const d = this.at(this.listenerNear(35).x, 6, this.listenerNear(35).z); const f = 2200 + R() * 1400; for (let i = 0; i < 3; i++) this.tone(f + i * 150, 0.09, 'sine', v, 500, i * 0.11, d); }
+  chirp(v = 0.05) { this.chirpBeat++; const d = this.at(this.listenerNear(35).x, 6, this.listenerNear(35).z); const f = 2200 + R() * 1400; for (let i = 0; i < 3; i++) this.tone(f + i * 150, 0.09, 'sine', v, 500, i * 0.11, d); }
   moo(v = 0.07) { const p = this.listenerNear(60); const d = this.at(p.x, 1, p.z); this.tone(150, 1.4, 'sawtooth', v * 0.6, -45, 0, d); this.tone(160, 1.3, 'triangle', v, -40, 0.05, d); }
   croak(v = 0.05) { this.croakBeat++; const p = this.listenerNear(30); const d = this.at(p.x, 0.5, p.z); for (let i = 0; i < 3; i++) this.tone(260 + R() * 60, 0.08, 'square', v, -90, i * 0.1, d); }
   listenerNear(r) { const l = this.ctx.listener, x = l.positionX ? l.positionX.value : 0, z = l.positionZ ? l.positionZ.value : 0, a = R() * 6.28; return { x: x + Math.cos(a) * r, z: z + Math.sin(a) * r }; }

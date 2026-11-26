@@ -246,6 +246,67 @@ await sleep(400);
   ok(k.rats.rats > 0 && k.rats.ratMesh === k.rats.rats && k.rats.samples.filter((s) => s.as === 'rat').every((s) => s.procedural && !s.skinned), `wasteland rats keep the procedural mesh (${k.rats.rats} rats, mesh ${k.rats.ratMesh})`);
   ok(k.packed === 0, `skinks pack up at night (${k.packed} left)`);
 }
+// ---- the wren model (on the ground, hop and fly, female map, waders stay procedural)
+{
+  await page.waitForFunction(() => window.__game.game.critters.wrenReady || window.__game.game.critters.wrenError, { timeout: 20000 });
+  const w = await E(() => {
+    const G = window.__game, g = G.game, C = g.critters, o = g.octopus, world = g.world;
+    G.clearPredators(); G.setWeather('clear'); g.env.rain = 0; g.env.apply(); G.setTime(0.45);
+    if (g.audio) g.audio.timers.bird = 999;
+    G.teleportToBiome('bush');
+    for (let i = 0; i < 90 && C.counts().wrens < 1; i++) G.advance(0.1);
+    const anchor = C.wr.find((c) => c.on) || C.wr[0];
+    const male = C.wr[0], female = C.wr[1];
+    const hy = world.heightAt(anchor.x, anchor.z);
+    const placeAt = (c, x, z) => {
+      c.on = true; c.as = 'wren'; c.x = x; c.z = z; c.y = world.heightAt(x, z); c.g = c.y;
+      c.h = 0.4; c.hop = 0; c.fly = 0; c.peck = 0; c.song = 0; c.launched = 0; c.t = 40;
+      c.tx = x; c.tz = z; c.ty = c.y;
+    };
+    for (const c of C.wr) c.on = false;
+    placeAt(male, anchor.x, anchor.z);
+    placeAt(female, anchor.x + 0.35, anchor.z);
+    G.teleport(male.x + 4, male.z);
+    o.speed = 0;
+    G.advance(0.35);
+    placeAt(male, male.x, male.z);
+    placeAt(female, female.x, female.z);
+    G.advance(0.08);
+    const sit = C.wrenProbe();
+    const sitter = sit.samples.find((s) => s.i === 0);
+    const hen = sit.samples.find((s) => s.i === 1);
+    placeAt(male, male.x, male.z);
+    male.hop = 1; male.launched = 1;
+    for (const c of C.wr) if (c !== male) c.on = false;
+    G.advance(0.12);
+    const hopping = C.wrenProbe();
+    const hopper = hopping.samples.find((s) => s.i === 0);
+    placeAt(male, male.x, male.z);
+    male.fly = 1; male.launched = 1;
+    male.tx = male.x + 3; male.tz = male.z; male.ty = world.heightAt(male.x, male.z) + 0.7;
+    G.advance(0.12);
+    const flying = C.wrenProbe();
+    const flier = flying.samples.find((s) => s.i === 0);
+    const hover = sit.samples.filter((s) => s.as === 'wren' && s.fly <= 0 && s.hop <= 0).reduce((m, s) => Math.max(m, Math.abs(s.meshY - s.ground)), 0);
+    const journal = g.journal.has('wren');
+    G.teleportToBiome('mudflat');
+    G.setTime(0.45); G.setWeather('clear');
+    for (let i = 0; i < 90; i++) G.advance(0.1);
+    const mud = C.wrenProbe();
+    return { sit, sitter, hen, hopper, flier, hover, journal, mud, hy };
+  });
+  ok(w.sit.ready && !w.sit.error && ['idle', 'hop', 'fly', 'peck', 'song'].every((n) => w.sit.clips.includes(n)), `the wren model loaded (${w.sit.clips.join('+') || w.sit.error})`);
+  ok(Math.abs(w.sit.dur.idle - 2.5) < 0.05 && Math.abs(w.sit.dur.hop - 0.333) < 0.02 && Math.abs(w.sit.dur.fly - 0.417) < 0.02 && Math.abs(w.sit.dur.peck - 0.5) < 0.02 && Math.abs(w.sit.dur.song - 1) < 0.02, `idle 2.5s, hop 0.33s, fly 0.42s, peck 0.5s, song 1s (${w.sit.dur.idle}, ${w.sit.dur.hop}, ${w.sit.dur.fly}, ${w.sit.dur.peck}, ${w.sit.dur.song})`);
+  ok(w.sit.tris > 2000 && w.sit.farTris > 40 && w.sit.farTris < 500, `the wren uses the glb (${w.sit.tris} tris) and a cheap stand-in (${w.sit.farTris})`);
+  ok(w.sit.minY > -0.01 && w.sit.minY < 0.01, `the wren origin is on the ground (min y ${w.sit.minY.toFixed(4)})`);
+  ok(w.sitter && w.hover < 0.03 && w.sitter.scale === 1 && w.sitter.skinned && w.sitter.clip === 'idle', `wrens sit on heightAt (${w.sitter ? w.sitter.clip + ' off ' + w.hover.toFixed(4) : 'none'})`);
+  ok(w.hopper && w.hopper.skinned && w.hopper.clip === 'hop' && w.hopper.hop > 0.2 && w.hopper.scale === 1, `hop plays while hopping (${w.hopper ? w.hopper.clip + ' hop ' + w.hopper.hop.toFixed(2) : 'none'})`);
+  ok(w.flier && w.flier.skinned && w.flier.clip === 'fly' && w.flier.fly > 0 && w.flier.meshY > w.flier.ground + 0.05, `fly plays during a flit (${w.flier ? w.flier.clip + ' y ' + w.flier.meshY.toFixed(2) : 'none'})`);
+  ok(w.hen && w.hen.female && w.hen.skinned && w.hen.femaleMap && w.hen.body === 'body' && w.hen.flipY === false && w.hen.colorSpace === 'srgb' && w.sitter && !w.sitter.femaleMap && w.sitter.flipY === false, `female plumage swaps the body map (${w.hen ? w.hen.colorSpace + ' flipY ' + w.hen.flipY : 'none'})`);
+  ok(w.sit.femaleFlipY === false && w.sit.maleFlipY === false && w.sit.femaleSpace === 'srgb' && w.sit.maleSpace === 'srgb', 'both plumage maps stay sRGB and unflipped');
+  ok(w.journal, 'wrens still fill the field journal');
+  ok(w.mud.waders > 0 && w.mud.waderMesh === w.mud.waders && w.mud.samples.filter((s) => s.as === 'wader').every((s) => s.procedural && !s.skinned), `mudflat waders keep the procedural mesh (${w.mud.waders} waders, mesh ${w.mud.waderMesh})`);
+}
 ok(problems.length === 0, `no page errors${problems.length ? ': ' + problems.join(' | ') : ''}`);
 await browser.close();
 console.log(failed ? `\n${failed} FAILED` : '\nall levels / badges / day-night / weather checks passed');

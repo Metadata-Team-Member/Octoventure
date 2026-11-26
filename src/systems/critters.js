@@ -10,22 +10,25 @@
 //
 //  Performance: one InstancedMesh per kind (plus thin outline hulls except for
 //  ants), small fixed pools recycled around the player, all scratch objects
-//  preallocated. Ants, frogs and skinks are the soft-toon glbs: one shared skinned
-//  mesh for the ones close enough to see move, and one instanced bind-pose
-//  stand-in (same colours, far fewer triangles) for the rest. Mixers run only
-//  for that nearby cap — never the whole pool. Wasteland rats reuse the
-//  procedural skink shape; the goanna is not a critter.
+//  preallocated. Ants, frogs, skinks and fairy-wrens are the soft-toon glbs: one
+//  shared skinned mesh for the ones close enough to see move, and one instanced
+//  bind-pose stand-in (same colours, far fewer triangles) for the rest. Mixers
+//  run only for that nearby cap — never the whole pool. Wasteland rats reuse the
+//  procedural skink shape; mudflat waders reuse the procedural wren. The goanna
+//  and the hunting birds are not critters.
 // =====================================================================
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
-import { bakeToonSkinned, crossFadeGait } from '../world/toonGlb.js';
+import { bakeToonSkinned, bakeToonMapped, toonMappedMat, crossFadeGait } from '../world/toonGlb.js';
 import { tint, merge, at } from '../world/models.js';
 import { separate } from '../util/separate.js';
 import antUrl from '../assets/models/ant.glb?url';
 import frogUrl from '../assets/models/frog.glb?url';
 import skinkUrl from '../assets/models/skink.glb?url';
+import wrenUrl from '../assets/models/wren.glb?url';
+import wrenFemaleUrl from '../assets/models/wren_female.png?url';
 
 const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank', 'wasteland']);
 const ANT_B = new Set(['desert', 'bush', 'suburb', 'farm', 'town', 'dunes', 'rainforest']);
@@ -89,6 +92,25 @@ const SKINK_BUDGET = {
   p1: 14, p2: 8, p3: 6, p4: 3, p5: 4,
 };
 const SKINK_CLIPS = ['idle', 'walk', 'bask', 'threat', 'tongueFlick'];
+const WREN_NEAR = 16;                     // metres: skinned idle / hop / fly / peck / song
+const WREN_HOP = 0.33;                    // air time, matched to the hop clip (was 1/3.2 ~ 0.31 s)
+const WREN_SONG_R = 22;                   // nearest wren within this of the camera takes the chirp
+const WREN_TINT = {
+  body: 0xB08452, beak: 0x2C241C, eye: 0x141416, highlight: 0xffffff,
+  wing: 0x8A6C4C, wingEdge: 0x5C442C, tail: 0x4A729A, leg: 0x322820,
+};
+const WREN_PART = {
+  body: 0, wing: 0, wingEdge: 0, tail: 0, leg: 0,
+  beak: 1, eye: 2, highlight: 3,
+};
+const WREN_BUDGET = {
+  root: 2, body: 16, neck: 4, head: 10, jaw: 2,
+  tail1: 5, tail2: 4,
+  wing_L: 7, wing_L2: 4, wing_R: 7, wing_R2: 4,
+  leg_L: 3, foot_L: 4, leg_R: 3, foot_R: 4,
+  p1: 5, p2: 6, p3: 3,
+};
+const WREN_CLIPS = ['idle', 'hop', 'fly', 'peck', 'song'];
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _zero = new THREE.Vector3(0, 0, 0), _c = new THREE.Color();
 
 const sph = (r, s = 6, t = 5) => new THREE.SphereGeometry(r, s, t);
@@ -145,6 +167,42 @@ function skinkTemplate() {
     });
   }
   return _skinkTplP;
+}
+let _wrenTpl = null, _wrenTplP = null;
+function prepFemaleMap(tex, male) {
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = false;
+  tex.wrapS = male?.wrapS ?? THREE.ClampToEdgeWrapping;
+  tex.wrapT = male?.wrapT ?? THREE.ClampToEdgeWrapping;
+  tex.magFilter = male?.magFilter ?? THREE.LinearFilter;
+  tex.minFilter = male?.minFilter ?? THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.needsUpdate = true;
+  return tex;
+}
+function wrenTemplate() {
+  if (_wrenTpl) return Promise.resolve(_wrenTpl);
+  if (!_wrenTplP) {
+    const femaleP = new Promise((res, rej) => {
+      new THREE.TextureLoader().load(wrenFemaleUrl, res, undefined, rej);
+    });
+    _wrenTplP = Promise.all([
+      new GLTFLoader().loadAsync(wrenUrl),
+      femaleP,
+    ]).then(([gltf, female]) => {
+      _wrenTpl = bakeToonMapped(gltf, {
+        mapped: 'body', tint: WREN_TINT, part: WREN_PART, budget: WREN_BUDGET, fallback: 0xB08452,
+        keepLow: true, clipNames: WREN_CLIPS,
+      });
+      _wrenTpl.female = prepFemaleMap(female, _wrenTpl.map);
+      if (_wrenTpl.map) {
+        _wrenTpl.map.colorSpace = THREE.SRGBColorSpace;
+        _wrenTpl.map.flipY = false;
+      }
+      return _wrenTpl;
+    });
+  }
+  return _wrenTplP;
 }
 function flyGeo() {
   return merge([
@@ -221,11 +279,16 @@ export class Critters {
     this.skMesh.visible = false;
     this.flyMesh = mk(flyGeo(), NF); this.crMesh = mk(crabGeo(), NC);
     this.hmMesh = mk(hermitGeo(), NH);
-    this.buMesh = mk(butterflyGeo(), NB); this.wrMesh = mk(wrenGeo(), NW);
+    this.buMesh = mk(butterflyGeo(), NB);
+    this.wrMesh = mk(wrenGeo(), NW);
+    this.wrMesh.count = 0;
+    this.wrMesh.visible = false;
     this.lineMat = this.mobile ? null : outlineMat(0x231a12);
     this.ratHull = this.lineMat ? (outline(this.skMesh, this.lineMat)[0] || null) : null;
     if (this.ratHull) this.ratHull.count = 0;
-    this.hulls = this.lineMat ? [this.flyMesh, this.crMesh, this.hmMesh, this.buMesh, this.wrMesh].flatMap((m) => outline(m, this.lineMat)) : [];
+    this.waderHull = this.lineMat ? (outline(this.wrMesh, this.lineMat)[0] || null) : null;
+    if (this.waderHull) this.waderHull.count = 0;
+    this.hulls = this.lineMat ? [this.flyMesh, this.crMesh, this.hmMesh, this.buMesh].flatMap((m) => outline(m, this.lineMat)) : [];
     this.sk = Array.from({ length: NS }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, run: 0, walk: 0, bask: 0, t: Math.random() * 5, cur: 0, threat: 0, flick: 0, fleeH: 0, launched: 0, sp: 0 }));
     this.tr = Array.from({ length: NT }, () => ({ on: false, x: 0, z: 0, a: 0, len: 3, hs: new Float32Array(9), ph: Math.random() }));
     this.fl = Array.from({ length: NF }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, g: 0, t: 0, h: 0 }));
@@ -233,7 +296,7 @@ export class Critters {
     this.fr = Array.from({ length: NFR }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, hop: 0, air: 0, t: Math.random() * 3, wet: 0, croak: 0, flick: 0, launched: 0 }));
     this.hm = Array.from({ length: NH }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, dir: 1, t: 0, run: 0, hide: 0 }));
     this.bu = Array.from({ length: NB }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, t: 0, h: 0, land: 0 }));
-    this.wr = Array.from({ length: NW }, () => ({ on: false, x: 0, z: 0, y: 0, g: 0, h: 0, hop: 0, fly: 0, t: 0, tx: 0, tz: 0, ty: 0 }));
+    this.wr = Array.from({ length: NW }, (_, i) => ({ on: false, x: 0, z: 0, y: 0, g: 0, h: 0, hop: 0, fly: 0, t: 0, tx: 0, tz: 0, ty: 0, peck: 0, song: 0, launched: 0, female: i % 2 === 1 }));
     this.slot = 0; this.T = 0;
     this.antPace = 1; this.antReady = false; this.antError = ''; this.antClips = []; this.antDur = {};
     this.antCap = mobile ? 8 : 16; this.antSlots = []; this._antSim = 0; this._march = 0;
@@ -246,6 +309,11 @@ export class Critters {
     this.skinkCap = mobile ? 6 : 8; this.skinkSlots = []; this._skinkSim = 0;
     this.skinkTris = 0; this.skinkFarTris = 0; this.skinkMinY = 0; this.skFar = null; this.skinkHull = null;
     this._spick = new Int16Array(8); this._spickD = new Float32Array(8); this._snear = new Uint8Array(NS); this._sslotUsed = new Uint8Array(8);
+    this.wrenReady = false; this.wrenError = ''; this.wrenClips = []; this.wrenDur = {};
+    this.wrenCap = mobile ? 4 : 6; this.wrenSlots = []; this._wrenSim = 0;
+    this.wrenTris = 0; this.wrenFarTris = 0; this.wrenMinY = 0; this.wrFar = null; this.wrenHull = null;
+    this.wrenMaleMap = null; this.wrenFemaleMap = null;
+    this._wpick = new Int16Array(6); this._wpickD = new Float32Array(6); this._wnear = new Uint8Array(NW); this._wslotUsed = new Uint8Array(6);
     this._ax = new Float32Array(ANT_N); this._ay = new Float32Array(ANT_N); this._az = new Float32Array(ANT_N);
     this._ayaw = new Float32Array(ANT_N); this._aon = new Uint8Array(ANT_N); this._anear = new Uint8Array(ANT_N);
     this._ad2 = new Float32Array(ANT_N); this._pick = new Int16Array(16); this._pickD = new Float32Array(16);
@@ -256,6 +324,8 @@ export class Critters {
     if (_frogTpl) mountFrog(_frogTpl); else frogTemplate().then(mountFrog).catch((err) => { this.frogError = String(err && err.message || err); });
     const mountSkink = (tpl) => { if (!this.disposed) this._mountSkinks(tpl); };
     if (_skinkTpl) mountSkink(_skinkTpl); else skinkTemplate().then(mountSkink).catch((err) => { this.skinkError = String(err && err.message || err); });
+    const mountWren = (tpl) => { if (!this.disposed) this._mountWrens(tpl); };
+    if (_wrenTpl) mountWren(_wrenTpl); else wrenTemplate().then(mountWren).catch((err) => { this.wrenError = String(err && err.message || err); });
   }
 
   /** One shared skeleton template, cloned per nearby ant. Far ants share one instanced bind pose. */
@@ -456,6 +526,109 @@ export class Critters {
     slot.clip = name;
   }
 
+  /** Clone keeps the toon patch (Material.clone drops onBeforeCompile) and swaps the body map. */
+  _cloneBody(src, map) {
+    const m = src.clone();
+    m.name = 'body';
+    m.map = map;
+    m.onBeforeCompile = src.onBeforeCompile;
+    m.customProgramCacheKey = src.customProgramCacheKey;
+    m._patches = src._patches;
+    m.needsUpdate = true;
+    return m;
+  }
+
+  /** One shared skeleton, cloned per nearby fairy-wren. Far wrens share one instanced bind pose. Waders do not use this. */
+  _mountWrens(tpl) {
+    const male = this.wrenMaleMap = tpl.map;
+    const female = this.wrenFemaleMap = tpl.female;
+    const mat = this.wrenMat = toonMappedMat(male);
+    const farMat = this.wrenFarMat = toonMat({ vertexColors: true });
+    const inst = this.wrFar = new THREE.InstancedMesh(tpl.farGeo, farMat, NW);
+    inst.frustumCulled = false; inst.castShadow = false; inst.receiveShadow = false; inst.count = 0;
+    this.scene.add(inst);
+    if (this.lineMat) {
+      this.wrenHull = outline(inst, this.lineMat)[0] || null;
+      if (this.wrenHull) this.wrenHull.count = 0;
+    }
+    const byName = {};
+    for (const c of tpl.clips) byName[c.name] = c;
+    this.wrenClips = WREN_CLIPS.filter((n) => byName[n]);
+    this.wrenDur = {};
+    for (const n of this.wrenClips) this.wrenDur[n] = byName[n].duration;
+    this.wrenTris = tpl.geo.index ? tpl.geo.index.count / 3 : tpl.geo.attributes.position.count / 3;
+    this.wrenFarTris = tpl.farGeo.attributes.position.count / 3;
+    this.wrenMinY = tpl.geo.boundingBox.min.y;
+    this.wrenLine = this.mobile ? null : outlineMat(0x1A1C22);
+    for (let i = 0; i < this.wrenCap; i++) {
+      const root = SkeletonUtils.clone(tpl.scene);
+      let skinned = null;
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = mat; o.frustumCulled = false; o.castShadow = false; o.receiveShadow = false;
+        if (o.isSkinnedMesh) skinned = o;
+      });
+      root.visible = false; root.scale.set(1, 1, 1); root.position.y = -999;
+      this.scene.add(root);
+      const hull = skinned && this.wrenLine ? this._skinnedHull(skinned, this.wrenLine) : null;
+      const mixer = new THREE.AnimationMixer(root);
+      const actions = {};
+      for (const n of this.wrenClips) {
+        const a = mixer.clipAction(byName[n]);
+        if (n === 'idle' || n === 'fly') a.setLoop(THREE.LoopRepeat, Infinity);
+        else { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+        actions[n] = a;
+      }
+      const matF = female ? this._cloneBody(mat, female) : null;
+      const slot = { root, skinned, mixer, actions, hull, matF, id: -1, live: false, clip: null, female: false };
+      mixer.addEventListener('finished', (e) => {
+        const name = e.action?.getClip?.()?.name;
+        if (name !== 'peck' && name !== 'song') return;
+        if (slot.clip !== name) return;
+        slot.clip = null;
+        const c = slot.id >= 0 ? this.wr[slot.id] : null;
+        if (!c) return;
+        if (name === 'peck') c.peck = 0;
+        if (name === 'song') c.song = 0;
+      });
+      this.wrenSlots.push(slot);
+    }
+    this.wrenReady = true;
+  }
+
+  _playWren(slot, name, restart) {
+    const next = slot.actions[name];
+    if (!next) return;
+    next.timeScale = 1;
+    if (!restart && slot.clip === name) return;
+    const prev = slot.clip && slot.clip !== name ? slot.actions[slot.clip] : null;
+    if (!prev) {
+      for (const k of this.wrenClips) if (k !== name) slot.actions[k].stop();
+      next.reset().setEffectiveWeight(1).play();
+    } else {
+      next.reset().play();
+      prev.crossFadeTo(next, restart ? 0.06 : 0.12, false);
+    }
+    slot.clip = name;
+  }
+
+  /** the chirp in audio.js: the nearest wren on the ground opens its beak. A hop or a flit still wins. */
+  songNear(pos) {
+    if (!pos) return false;
+    let best = null, bd = WREN_SONG_R * WREN_SONG_R;
+    for (let i = 0; i < NW; i++) {
+      const c = this.wr[i];
+      if (!c.on || c.as === 'wader' || c.fly > 0 || c.hop > 0) continue;
+      const d = (c.x - pos.x) ** 2 + (c.z - pos.z) ** 2;
+      if (d < bd) { bd = d; best = c; }
+    }
+    if (!best) return false;
+    best.song = 1;
+    best.peck = 0;
+    best.launched = 1;
+    return true;
+  }
+
   /** a random ground spot 8..34 m from the player whose biome allows `set` (null if none on this try) */
   spot(o, set, { wet = false, nearWater = false } = {}) {
     const w = this.world, a = Math.random() * 6.2832, d = 8 + Math.random() * 26;
@@ -525,7 +698,7 @@ export class Critters {
       if (!place(c, WREN_B, mudW ? { nearWater: true } : {}) && mudW) place(c, WREN_B);
       if (!c.on) return;
       c.as = w.biomeAt(c.x, c.z) === 'mudflat' ? 'wader' : 'wren';
-      c.g = c.y; c.h = Math.random() * 6.28; c.hop = 0; c.fly = 0; c.t = Math.random() * 2; c.tx = c.x; c.tz = c.z; c.ty = c.y;
+      c.g = c.y; c.h = Math.random() * 6.28; c.hop = 0; c.fly = 0; c.peck = 0; c.song = 0; c.launched = 0; c.t = Math.random() * 2; c.tx = c.x; c.tz = c.z; c.ty = c.y;
     }
   }
 
@@ -951,18 +1124,36 @@ export class Critters {
     }
     this.buMesh.instanceMatrix.needsUpdate = true;
 
-    // ---- fairy-wrens: hop and peck on the ground, short flits, fly up when startled
+    // ---- fairy-wrens: hop and peck on the ground, short flits, fly up when startled.
+    // The glb is already ~14 cm. Scale stays 1. Hop and flit stay code along +Z
+    // (no root motion). About half wear the female map. Waders keep the old mesh.
+    const wrenHopRate = 1 / WREN_HOP;
     for (let i = 0; i < NW; i++) {
       const c = this.wr[i];
-      if (!c.on) { hide(this.wrMesh, i); continue; }
+      if (!c.on) continue;
       const s = scare(c, 7);
+      const wade = c.as === 'wader';
       if (c.fly <= 0) {
-        if (s.close) { c.fly = 1; c.h = s.heading; c.tx = c.x + Math.sin(c.h) * 5; c.tz = c.z + Math.cos(c.h) * 5; c.ty = w.heightAt(c.tx, c.tz) + 1.6; }
-        else { c.t -= dt; if (c.t <= 0) { c.t = 0.6 + Math.random() * 2; if (Math.random() < 0.7) { c.hop = 1; c.h += (Math.random() - 0.5) * 1.8; } else { c.fly = 1; c.tx = c.x + Math.sin(c.h) * (1 + Math.random() * 2); c.tz = c.z + Math.cos(c.h) * (1 + Math.random() * 2); c.ty = w.heightAt(c.x, c.z) + 0.5 + Math.random() * 0.5; } } }
+        if (s.close) {
+          c.fly = 1; c.launched = 1; c.hop = 0; c.peck = 0; c.song = 0;
+          c.h = s.heading; c.tx = c.x + Math.sin(c.h) * 5; c.tz = c.z + Math.cos(c.h) * 5; c.ty = w.heightAt(c.tx, c.tz) + 1.6;
+        } else if (c.hop <= 0 && c.peck <= 0 && c.song <= 0) {
+          c.t -= dt;
+          if (c.t <= 0) {
+            c.t = 0.6 + Math.random() * 2;
+            const r = Math.random();
+            if (r < 0.55) { c.hop = 1; c.launched = 1; c.h += (Math.random() - 0.5) * 1.8; }
+            else if (!wade && r < 0.72) { c.peck = 0.5; c.launched = 1; }
+            else if (!wade && r < 0.84) { c.song = 1; c.launched = 1; }
+            else { c.fly = 1; c.launched = 1; c.tx = c.x + Math.sin(c.h) * (1 + Math.random() * 2); c.tz = c.z + Math.cos(c.h) * (1 + Math.random() * 2); c.ty = w.heightAt(c.x, c.z) + 0.5 + Math.random() * 0.5; }
+          }
+        }
       }
-      if (c.hop && c.fly <= 0) {
-        c.hop -= dt * 3.2; if (c.hop <= 0) c.hop = 0;
-        const nx = c.x + Math.sin(c.h) * 0.9 * dt * 3.2, nz = c.z + Math.cos(c.h) * 0.9 * dt * 3.2;
+      if (c.peck > 0 && c.fly <= 0 && c.hop <= 0) c.peck -= dt;
+      if (c.song > 0 && c.fly <= 0 && c.hop <= 0) c.song -= dt;
+      if (c.hop > 0 && c.fly <= 0) {
+        c.hop -= dt * wrenHopRate; if (c.hop <= 0) c.hop = 0;
+        const nx = c.x + Math.sin(c.h) * 0.9 * dt * wrenHopRate, nz = c.z + Math.cos(c.h) * 0.9 * dt * wrenHopRate;
         if (!w.waterAt?.(nx, nz) && !w._blocked?.(nx, nz, 0.12)) { c.x = nx; c.z = nz; }
         c.g = w.heightAt(c.x, c.z); c.y = c.g + Math.sin(Math.max(0, c.hop) * Math.PI) * 0.12;
       } else if (c.fly > 0) {
@@ -971,13 +1162,100 @@ export class Critters {
         c.g = w.heightAt(c.x, c.z);
         if (Math.hypot(c.x - c.tx, c.z - c.tz) < 0.25) { c.fly = 0; c.y = c.g; c.t = 0.4 + Math.random(); }
       } else { c.g = w.heightAt(c.x, c.z); c.y = c.g; }
-      const bob = c.fly > 0 ? Math.sin(this.T * 28 + i) * 0.02 : 0;
-      const wade = c.as === 'wader';
-      pose(this.wrMesh, i, c.x, c.y + bob, c.z, c.h, wade ? 0.9 : 1, wade ? 1.45 : 1, wade ? 0.85 : 1);
-      this.wrMesh.setColorAt(i, _c.set(wade ? 0xd5d0c4 : 0xffffff));
     }
-    this.wrMesh.instanceMatrix.needsUpdate = true;
-    if (this.wrMesh.instanceColor) this.wrMesh.instanceColor.needsUpdate = true;
+    const wrenNear = WREN_NEAR * WREN_NEAR, wrenCap = this.wrenCap;
+    const wpick = this._wpick, wpickD = this._wpickD;
+    for (let k = 0; k < wrenCap; k++) { wpick[k] = -1; wpickD[k] = Infinity; }
+    if (this.wrenReady) {
+      for (let i = 0; i < NW; i++) {
+        const c = this.wr[i];
+        if (!c.on || c.as === 'wader') continue;
+        const dx = c.x - o.x, dz = c.z - o.z, d2 = dx * dx + dz * dz;
+        if (d2 > wrenNear) continue;
+        let worst = 0;
+        for (let k = 1; k < wrenCap; k++) if (wpickD[k] > wpickD[worst]) worst = k;
+        if (d2 < wpickD[worst]) { wpickD[worst] = d2; wpick[worst] = i; }
+      }
+    }
+    this._wnear.fill(0);
+    for (let k = 0; k < wrenCap; k++) if (wpick[k] >= 0) this._wnear[wpick[k]] = 1;
+    const wslots = this.wrenSlots, wused = this._wslotUsed;
+    wused.fill(0);
+    let wsim = 0;
+    if (this.wrenReady) {
+      for (let s = 0; s < wslots.length; s++) {
+        const slot = wslots[s];
+        if (!slot.live) continue;
+        let keep = -1;
+        for (let k = 0; k < wrenCap; k++) if (wpick[k] === slot.id) { keep = k; break; }
+        if (keep < 0) {
+          slot.live = false; slot.id = -1; slot.clip = null; slot.mixer.stopAllAction();
+          slot.root.visible = false; slot.root.position.y = -999;
+        } else wused[keep] = 1;
+      }
+      for (let k = 0; k < wrenCap; k++) {
+        if (wpick[k] < 0 || wused[k]) continue;
+        let slot = null;
+        for (let s = 0; s < wslots.length; s++) if (!wslots[s].live) { slot = wslots[s]; break; }
+        if (!slot) break;
+        slot.live = true; slot.id = wpick[k]; slot.clip = null; wused[k] = 1;
+      }
+      for (let s = 0; s < wslots.length; s++) {
+        const slot = wslots[s];
+        if (!slot.live) continue;
+        const c = this.wr[slot.id];
+        const bob = c.fly > 0 ? Math.sin(this.T * 28 + slot.id) * 0.02 : 0;
+        const mat = c.female && slot.matF ? slot.matF : this.wrenMat;
+        if (slot.skinned && slot.skinned.material !== mat) slot.skinned.material = mat;
+        slot.female = !!c.female;
+        slot.root.position.set(c.x, c.y + bob, c.z);
+        slot.root.rotation.set(0, c.h, 0);
+        slot.root.scale.set(1, 1, 1);
+        slot.root.visible = true;
+        let want = 'idle';
+        if (c.fly > 0) want = 'fly';
+        else if (c.hop > 0) want = 'hop';
+        else if (c.song > 0) want = 'song';
+        else if (c.peck > 0) want = 'peck';
+        const restart = !!c.launched && (want === 'hop' || want === 'fly' || want === 'peck' || want === 'song');
+        if (restart) c.launched = 0;
+        this._playWren(slot, want, restart);
+        slot.mixer.update(dt);
+        if (want === 'hop' && slot.actions.hop) {
+          const u = 1 - Math.max(0, Math.min(1, c.hop));
+          slot.actions.hop.time = u * slot.actions.hop.getClip().duration;
+        }
+        wsim++;
+      }
+    }
+    this._wrenSim = wsim;
+    const wrFarMesh = this.wrFar;
+    if (wrFarMesh) {
+      let n = 0;
+      for (let i = 0; i < NW; i++) {
+        const c = this.wr[i];
+        if (!c.on || c.as === 'wader' || this._wnear[i]) continue;
+        const bob = c.fly > 0 ? Math.sin(this.T * 28 + i) * 0.02 : 0;
+        pose(wrFarMesh, n++, c.x, c.y + bob, c.z, c.h, 1, 1, 1);
+      }
+      wrFarMesh.count = n; wrFarMesh.visible = n > 0; wrFarMesh.instanceMatrix.needsUpdate = true;
+      if (this.wrenHull) { this.wrenHull.count = n; this.wrenHull.visible = n > 0; }
+    }
+    {
+      const mesh = this.wrMesh;
+      let waders = 0;
+      for (let i = 0; i < NW; i++) {
+        const c = this.wr[i];
+        if (!c.on || c.as !== 'wader') continue;
+        const bob = c.fly > 0 ? Math.sin(this.T * 28 + i) * 0.02 : 0;
+        pose(mesh, waders, c.x, c.y + bob, c.z, c.h, 0.9, 1.45, 0.85);
+        mesh.setColorAt(waders, _c.set(0xd5d0c4));
+        waders++;
+      }
+      mesh.count = waders; mesh.visible = waders > 0; mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (this.waderHull) { this.waderHull.count = waders; this.waderHull.visible = waders > 0; }
+    }
   }
 
   /** how many of each are out right now (tests) */
@@ -1112,6 +1390,59 @@ export class Critters {
       idle, walk, bask, threat, tongue, samples,
     };
   }
+  /** model hookup, for tests: clips, feet on the ground, hop and fly, female map, waders stay procedural. */
+  wrenProbe() {
+    const samples = [];
+    let waders = 0, females = 0, males = 0;
+    for (let i = 0; i < NW; i++) {
+      const c = this.wr[i];
+      if (!c.on) continue;
+      const wade = c.as === 'wader';
+      if (wade) waders++;
+      else if (c.female) females++;
+      else males++;
+      let clip = null, scale = 1, skinned = false, meshY = c.y, femaleMap = false, flipY = null, colorSpace = null, body = null;
+      for (let s = 0; s < this.wrenSlots.length; s++) {
+        const slot = this.wrenSlots[s];
+        if (slot.live && slot.id === i) {
+          skinned = true; clip = slot.clip; scale = slot.root.scale.x; meshY = slot.root.position.y;
+          const mat = slot.skinned?.material;
+          femaleMap = !!(mat && this.wrenMaleMap && mat.map && mat.map !== this.wrenMaleMap);
+          flipY = mat?.map ? mat.map.flipY : null;
+          colorSpace = mat?.map ? mat.map.colorSpace : null;
+          body = mat?.name || null;
+          break;
+        }
+      }
+      samples.push({
+        i, x: c.x, z: c.z, y: c.y, meshY, ground: this.world.heightAt(c.x, c.z),
+        as: c.as || 'wren', procedural: wade, skinned, clip, scale, female: !!c.female && !wade,
+        femaleMap, flipY, colorSpace, body,
+        hop: c.hop || 0, fly: c.fly || 0, peck: c.peck || 0, song: c.song || 0,
+      });
+    }
+    let idle = 0, hop = 0, fly = 0, peck = 0, song = 0;
+    for (let s = 0; s < this.wrenSlots.length; s++) {
+      const slot = this.wrenSlots[s];
+      if (!slot.live) continue;
+      if (slot.clip === 'hop') hop++;
+      else if (slot.clip === 'fly') fly++;
+      else if (slot.clip === 'peck') peck++;
+      else if (slot.clip === 'song') song++;
+      else idle++;
+    }
+    return {
+      ready: this.wrenReady, error: this.wrenError, clips: this.wrenClips.slice(), dur: { ...this.wrenDur },
+      scale: 1, tris: this.wrenTris, farTris: this.wrenFarTris, minY: this.wrenMinY, cap: this.wrenCap,
+      simulating: this._wrenSim, instanced: this.wrFar ? this.wrFar.count : 0,
+      waderMesh: this.wrMesh ? this.wrMesh.count : 0, waders, females, males,
+      maleFlipY: this.wrenMaleMap ? this.wrenMaleMap.flipY : null,
+      femaleFlipY: this.wrenFemaleMap ? this.wrenFemaleMap.flipY : null,
+      maleSpace: this.wrenMaleMap ? this.wrenMaleMap.colorSpace : null,
+      femaleSpace: this.wrenFemaleMap ? this.wrenFemaleMap.colorSpace : null,
+      idle, hop, fly, peck, song, samples,
+    };
+  }
   dispose() {
     this.disposed = true;
     for (const m of [this.skMesh, this.flyMesh, this.crMesh, this.hmMesh, this.buMesh, this.wrMesh]) {
@@ -1126,6 +1457,10 @@ export class Critters {
     if (this.skFar) this.scene.remove(this.skFar);
     for (const s of this.skinkSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); }
     this.skinkMat?.dispose(); this.skinkLine?.dispose();
+    if (this.wrFar) this.scene.remove(this.wrFar);
+    for (const s of this.wrenSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); s.matF?.dispose(); }
+    this.wrenMat?.dispose(); this.wrenFarMat?.dispose(); this.wrenLine?.dispose();
+    this.wrenFemaleMap?.dispose();
     this.mat.dispose(); this.lineMat?.dispose();
   }
 }
