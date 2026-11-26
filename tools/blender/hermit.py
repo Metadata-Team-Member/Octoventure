@@ -170,30 +170,26 @@ def attach_image(mat, image):
     return mat
 
 
-def make_band_image(path, name="hermit_shell", w=512, h=256):
+def make_band_image(path, name="hermit_shell", w=1024, h=256):
     """Soft terracotta spiral stripes on cream, anti-aliased along U."""
     import numpy as np
     arr = np.zeros((h, w, 4), dtype=np.float32)
     cream = SHELL_COL
     band = BAND_COL
     n_bands = 7
-    for x in range(w):
-        u = (x + 0.5) / w
-        phase = (u * n_bands) % 1.0
-        d = abs(phase - 0.5) * 2.0
-        if d < 0.20:
-            t = 1.0
-        elif d < 0.42:
-            t = 0.5 + 0.5 * math.cos((d - 0.20) / 0.22 * math.pi)
-        else:
-            t = 0.0
-        col = [cream[i] * (1.0 - t) + band[i] * t for i in range(3)] + [1.0]
-        arr[:, x, :] = col
-    # Slightly deeper tone near the V edges (the suture) for a little roundness.
-    yy = (np.arange(h) + 0.5) / h
-    suture = (np.minimum(yy, 1.0 - yy) < 0.08).astype(np.float32)
-    fade = np.clip((0.08 - np.minimum(yy, 1.0 - yy)) / 0.08, 0.0, 1.0) * 0.12
-    arr[:, :, :3] *= (1.0 - fade)[:, None, None]
+    xs = (np.arange(w) + 0.5) / w
+    phase = (xs * n_bands) % 1.0
+    d = np.abs(phase - 0.5) * 2.0
+    t = np.zeros(w, dtype=np.float32)
+    solid = d < 0.16
+    fade = (d >= 0.16) & (d < 0.50)
+    t[solid] = 1.0
+    t[fade] = 0.5 + 0.5 * np.cos((d[fade] - 0.16) / 0.34 * math.pi)
+    col = np.empty((w, 4), dtype=np.float32)
+    for i in range(3):
+        col[:, i] = cream[i] * (1.0 - t) + band[i] * t
+    col[:, 3] = 1.0
+    arr[:, :, :] = col[None, :, :]
     flat = arr.reshape(-1)
     img = bpy.data.images.new(name, w, h, alpha=True)
     img.pixels.foreach_set(flat)
@@ -215,11 +211,38 @@ def apply_all(obj):
 
 def shade_smooth(obj):
     mesh = obj.data
+    if hasattr(mesh, "use_auto_smooth"):
+        mesh.use_auto_smooth = False
     if hasattr(mesh, "shade_smooth"):
         mesh.shade_smooth()
     if mesh.polygons:
         mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
+    sharp = mesh.attributes.get("sharp_edge") if hasattr(mesh, "attributes") else None
+    if sharp is not None:
+        mesh.attributes.remove(sharp)
     mesh.update()
+
+
+def apply_subsurf(obj, levels=1):
+    """One level of Catmull-Clark, then smooth-shade with no sharp splits."""
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    mod = obj.modifiers.new("Subsurf", "SUBSURF")
+    mod.levels = levels
+    mod.render_levels = levels
+    if hasattr(mod, "uv_smooth"):
+        try:
+            mod.uv_smooth = "SMOOTH_ALL"
+        except Exception:
+            pass
+    if hasattr(mod, "boundary_smooth"):
+        try:
+            mod.boundary_smooth = "ALL"
+        except Exception:
+            pass
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    obj.select_set(False)
+    shade_smooth(obj)
 
 
 def add_uv_sphere(name, radius, segments, rings, loc, scale=None):
@@ -401,20 +424,21 @@ def triangle_count(obj):
 
 
 def add_spiral_shell(name, mats, img):
-    """Chubby 3.2-whorl gastropod. The tube-end aperture faces -Y so the
-    crab can peek out; the spire sits back and up. Tight overlapping
-    whorls, not a loose corkscrew.
+    """Chubby spiral gastropod, built as a Bezier curve with a round bevel
+    so the whorls and opening stay smooth. A slim rolled lip is part of the
+    shell; the aperture hugs the crab instead of flaring into a collar.
     """
     n_whorls = 3.3
     theta_max = n_whorls * 2.0 * math.pi
-    n_theta = 36
-    n_phi = 16
-    r_ap, t_ap = 1.55 * CM, 1.15 * CM
-    r_ax, t_ax = 0.24 * CM, 0.24 * CM
+    n_pts = 16
+    r_ap, t_ap = 1.68 * CM, 0.82 * CM
+    r_ax, t_ax = 0.26 * CM, 0.22 * CM
     k_exp = math.log(r_ap / r_ax) / theta_max
-    axis_len = 2.40 * CM
+    axis_len = 2.50 * CM
+    lip_r = 0.16 * CM
+    lip_angles = (0.70, 1.40, 2.10)
+    bevel_res = 8  # 20-sided cross-section
 
-    # Spire axis: mostly up, a little back and to the crab's left.
     axis = Vector((0.10, 0.48, 0.87)).normalized()
     open_fwd = Vector((0.0, -0.90, -0.44)).normalized()
     radial_end = open_fwd.cross(axis)
@@ -422,7 +446,6 @@ def add_spiral_shell(name, mats, img):
         radial_end = Vector((1.0, 0.0, 0.0))
     radial_end.normalize()
 
-    # Centre of the open tube-end (the mouth the crab comes out of).
     opening = Vector((0.10, -1.55, 2.20)) * CM
 
     def radius(theta):
@@ -435,145 +458,327 @@ def add_spiral_shell(name, mats, img):
         rot = Matrix.Rotation(theta - theta_max, 3, axis)
         rad = (rot @ radial_end).normalized()
         dist = (1.0 - theta / theta_max) * axis_len
-        # At theta_max, centre == opening.
         centre = opening + axis * dist + rad * radius(theta) - radial_end * radius(theta_max)
         return centre, rad
 
-    # Tangent at the mouth, used to aim the last rings and the interior.
-    c_end, rad_end = centre_and_rad(theta_max)
-    c_prev, _ = centre_and_rad(theta_max - theta_max / n_theta)
-    tangent = (c_end - c_prev)
+    centres = []
+    radials = []
+    tube_rs = []
+    thetas = []
+    for i in range(n_pts):
+        tt = i / (n_pts - 1)
+        theta = tt * theta_max
+        centre, rad = centre_and_rad(theta)
+        centres.append(centre)
+        radials.append(rad)
+        tube_rs.append(tube_r(theta))
+        thetas.append(theta)
+
+    c_end = centres[-1]
+    tangent = centres[-1] - centres[-2]
     if tangent.length < 1e-9:
         tangent = open_fwd
     tangent.normalize()
+    rad_end = radials[-1]
+    tr_end = tube_rs[-1]
 
-    bm = bmesh.new()
-    rings = []
-    uvs_plan = []
-    for i in range(n_theta + 1):
-        t = i / n_theta
-        theta = t * theta_max
-        centre, rad = centre_and_rad(theta)
-        tr = tube_r(theta)
-        # Slightly oval tube, flattened along the coiling axis so whorls sit snug.
-        ring = []
-        uv_row = []
-        for k in range(n_phi):
-            phi = (k / n_phi) * 2.0 * math.pi
-            offset = (rad * math.cos(phi) * 1.00 + axis * math.sin(phi) * 0.96) * tr
-            # Soft bead lip on the last two rings, along the tangent, not flared into a disc.
-            if t > 0.94:
-                flare = (t - 0.94) / 0.06
-                offset = offset * (1.0 + 0.08 * flare) + tangent * (0.06 * CM * flare)
-            ring.append(bm.verts.new(centre + offset))
-            uv_row.append((t, k / n_phi))
-        rings.append(ring)
-        uvs_plan.append(uv_row)
-    bm.verts.ensure_lookup_table()
+    curve_data = bpy.data.curves.new(name + "_path", "CURVE")
+    curve_data.dimensions = "3D"
+    curve_data.resolution_u = 3
+    curve_data.fill_mode = "FULL"
+    curve_data.twist_mode = "MINIMUM"
+    curve_data.use_fill_caps = False
+    curve_data.bevel_mode = "ROUND"
+    curve_data.bevel_depth = 1.0
+    curve_data.bevel_resolution = bevel_res
 
-    faces = []
-    face_uvs = []
-    for i in range(n_theta):
-        for k in range(n_phi):
-            a = rings[i][k]
-            b = rings[i][(k + 1) % n_phi]
-            c = rings[i + 1][(k + 1) % n_phi]
-            d = rings[i + 1][k]
-            f = bm.faces.new((a, b, c, d))
-            faces.append(f)
-            u10 = uvs_plan[i][(k + 1) % n_phi]
-            v_b = 1.0 if (k + 1) % n_phi == 0 else u10[1]
-            v_c = 1.0 if (k + 1) % n_phi == 0 else uvs_plan[i + 1][(k + 1) % n_phi][1]
-            face_uvs.append([
-                (uvs_plan[i][k][0], uvs_plan[i][k][1]),
-                (u10[0], v_b),
-                (uvs_plan[i + 1][(k + 1) % n_phi][0], v_c),
-                (uvs_plan[i + 1][k][0], uvs_plan[i + 1][k][1]),
-            ])
+    spline = curve_data.splines.new("BEZIER")
+    spline.bezier_points.add(n_pts - 1)
+    spline.resolution_u = 3
+    for i, bp in enumerate(spline.bezier_points):
+        bp.co = centres[i]
+        bp.radius = tube_rs[i]
+        bp.tilt = 0.0
+        bp.handle_left_type = "FREE"
+        bp.handle_right_type = "FREE"
+        prev = centres[max(0, i - 1)]
+        nxt = centres[min(n_pts - 1, i + 1)]
+        h = (nxt - prev) / 6.0
+        bp.handle_left = bp.co - h
+        bp.handle_right = bp.co + h
+    spline.bezier_points[0].handle_left = centres[0]
+    spline.bezier_points[-1].handle_right = centres[-1]
 
-    # Solid apex cap (a small rounded tip, no hole into the spiral).
-    apex_c, _ = centre_and_rad(0.0)
-    cap = bm.verts.new(apex_c + axis * (0.22 * CM))
-    for k in range(n_phi):
-        bm.faces.new((cap, rings[0][k], rings[0][(k + 1) % n_phi]))
-    # Extra ring of faces by pulling the first tube ring slightly closed already handled.
+    obj = bpy.data.objects.new(name, curve_data)
+    bpy.context.collection.objects.link(obj)
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.convert(target="MESH")
+    mesh = obj.data
+    mesh.name = name
+    obj.name = name
 
-    # Interior funnel, stepping back along -tangent so it stays inside the tube.
-    inner = []
-    for depth, scale in ((0.16 * CM, 0.78), (0.50 * CM, 0.48), (0.90 * CM, 0.22)):
-        centre = opening - tangent * depth
-        tr = tube_r(theta_max) * scale
-        ring = []
-        for k in range(n_phi):
-            phi = (k / n_phi) * 2.0 * math.pi
-            offset = (rad_end * math.cos(phi) + axis * math.sin(phi) * 0.96) * tr
-            ring.append(bm.verts.new(centre + offset))
-        inner.append(ring)
-    for k in range(n_phi):
-        a = rings[-1][k]
-        b = rings[-1][(k + 1) % n_phi]
-        c = inner[0][(k + 1) % n_phi]
-        d = inner[0][k]
-        bm.faces.new((a, d, c, b))
-    for i in range(len(inner) - 1):
-        for k in range(n_phi):
-            a = inner[i][k]
-            b = inner[i][(k + 1) % n_phi]
-            c = inner[i + 1][(k + 1) % n_phi]
-            d = inner[i + 1][k]
-            bm.faces.new((a, b, c, d))
-    mid = sum((v.co for v in inner[-1]), Vector()) / n_phi
-    pit = bm.verts.new(mid - tangent * (0.16 * CM))
-    for k in range(n_phi):
-        bm.faces.new((pit, inner[-1][k], inner[-1][(k + 1) % n_phi]))
+    n_sides = 4 + 2 * bevel_res
+    if len(mesh.vertices) % n_sides != 0:
+        raise RuntimeError(f"curve mesh verts {len(mesh.vertices)} not multiple of {n_sides}")
+    n_rings = len(mesh.vertices) // n_sides
+    keep_until = int(n_rings * 0.55)
+    keep = [0] + [r for r in range(1, keep_until) if r % 3 == 0] + list(range(keep_until, n_rings))
+    # Rebuild a clean tube from the kept rings so the fat last whorls stay
+    # 20-sided and finely sampled, while the tight tip is cheaper.
+    coords = [[mesh.vertices[r * n_sides + k].co.copy() for k in range(n_sides)] for r in keep]
+    bm_r = bmesh.new()
+    rings_v = []
+    for row in coords:
+        rings_v.append([bm_r.verts.new(co) for co in row])
+    bm_r.verts.ensure_lookup_table()
+    for i in range(len(rings_v) - 1):
+        for k in range(n_sides):
+            bm_r.faces.new((
+                rings_v[i][k],
+                rings_v[i][(k + 1) % n_sides],
+                rings_v[i + 1][(k + 1) % n_sides],
+                rings_v[i + 1][k],
+            ))
+    bm_r.to_mesh(mesh)
+    bm_r.free()
+    mesh.update()
+    print(f"  rebuilt tube: {n_rings} -> {len(keep)} rings, {len(mesh.vertices)} verts")
 
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    # A light relax on the outer tube, not the lip or interior, keeps the spiral soft.
-    outer_verts = [v for ring in rings[:-2] for v in ring]
-    for _ in range(3):
-        bmesh.ops.smooth_vert(bm, verts=outer_verts, factor=0.4)
+    n_rings = len(keep)
+    n_tube_verts = len(mesh.vertices)
+    ring_centres = []
+    for ring in range(n_rings):
+        acc = Vector((0.0, 0.0, 0.0))
+        for k in range(n_sides):
+            acc += mesh.vertices[ring * n_sides + k].co
+        ring_centres.append(acc / n_sides)
+    arc = [0.0]
+    for i in range(1, n_rings):
+        arc.append(arc[-1] + (ring_centres[i] - ring_centres[i - 1]).length)
+    total = arc[-1] if arc[-1] > 1e-12 else 1.0
+    vert_uv = {}
+    for ring in range(n_rings):
+        u = arc[ring] / total
+        for k in range(n_sides):
+            vert_uv[ring * n_sides + k] = (u, k / n_sides)
 
-    mesh = bpy.data.meshes.new(name)
-    bm.to_mesh(mesh)
-    bm.free()
-
-    n_outer = n_theta * n_phi
     if mesh.uv_layers.active is None:
         mesh.uv_layers.new(name="UVMap")
     loops = mesh.uv_layers.active.data
-    for fi, poly in enumerate(mesh.polygons):
-        if fi < n_outer and len(poly.loop_indices) == 4:
-            uvs = face_uvs[fi]
-            for j, loop_i in enumerate(poly.loop_indices):
-                loops[loop_i].uv = uvs[j]
-        else:
-            for loop_i in poly.loop_indices:
-                loops[loop_i].uv = (0.04, 0.5)
+    for poly in mesh.polygons:
+        uvs = [vert_uv[li] for li in poly.vertices]
+        vs = [u[1] for u in uvs]
+        if max(vs) - min(vs) > 0.5:
+            uvs = [(u, v + 1.0) if v < 0.5 else (u, v) for u, v in uvs]
+        for loop_i, uv in zip(poly.loop_indices, uvs):
+            loops[loop_i].uv = uv
 
-    obj = bpy.data.objects.new(name, mesh)
-    bpy.context.collection.objects.link(obj)
+    def boundary_loops(bm_obj):
+        bm_obj.edges.ensure_lookup_table()
+        used = set()
+        loops = []
+        for e in bm_obj.edges:
+            if not e.is_boundary or e.index in used:
+                continue
+            loop_edges = []
+            cur = e
+            while cur is not None and cur.index not in used:
+                used.add(cur.index)
+                loop_edges.append(cur)
+                nxt = None
+                for v in cur.verts:
+                    for e2 in v.link_edges:
+                        if e2.is_boundary and e2.index not in used:
+                            nxt = e2
+                            break
+                    if nxt is not None:
+                        break
+                cur = nxt
+            verts = []
+            seen = set()
+            for ed in loop_edges:
+                for v in ed.verts:
+                    if v.index not in seen:
+                        seen.add(v.index)
+                        verts.append(v)
+            if verts:
+                mid = sum((v.co for v in verts), Vector()) / len(verts)
+                rad = sum((v.co - mid).length for v in verts) / len(verts)
+                loops.append((verts, mid, rad))
+        return loops
+
+    # Switch to bmesh to add a slim rolled lip, apex cap and dark interior.
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.verts.ensure_lookup_table()
+    loops = boundary_loops(bm)
+    if len(loops) < 2:
+        n_list = [len(L[0]) for L in loops]
+        bm.free()
+        raise RuntimeError(f"shell expected 2 open rings, got {len(loops)} sizes={n_list}")
+    # Larger ring is the aperture; the smaller is the apex.
+    loops = sorted(loops, key=lambda L: L[2])
+    start_vs = loops[0][0]
+    end_vs, end_mid, end_rad = loops[-1]
+    # Walk the end ring in connected order, starting from an arbitrary vert.
+    n_phi = len(end_vs)
+    if n_phi < 6:
+        bm.free()
+        raise RuntimeError(f"shell opening ring too small: {n_phi}")
+    # Re-order end verts around the tangent so later bridges stay untwisted.
+    def end_angle(v):
+        rel = v.co - c_end
+        rel = rel - tangent * rel.dot(tangent)
+        nor = rad_end.normalized()
+        binor = tangent.cross(nor).normalized()
+        nor = binor.cross(tangent).normalized()
+        return math.atan2(rel.dot(binor), rel.dot(nor))
+    end_vs = sorted(end_vs, key=end_angle)
+
+    def ring_dirs():
+        dirs = []
+        for v in end_vs:
+            d = v.co - c_end
+            # Project off the tangent so we get a clean radial in the aperture plane.
+            d = d - tangent * d.dot(tangent)
+            if d.length < 1e-9:
+                d = rad_end
+            dirs.append(d.normalized())
+        return dirs
+
+    dirs = ring_dirs()
+    # Mean tube radius at the mouth, for a tight lip.
+    tr_mean = sum((v.co - c_end - tangent * (v.co - c_end).dot(tangent)).length for v in end_vs) / n_phi
+
+    lip_rings = []
+    for a in lip_angles:
+        ring = []
+        for d in dirs:
+            pos = (
+                c_end
+                + d * (tr_mean + lip_r * (1.0 - math.cos(a)))
+                + tangent * (lip_r * math.sin(a))
+            )
+            ring.append(bm.verts.new(pos))
+        lip_rings.append(ring)
+    bm.verts.ensure_lookup_table()
+
+    def bridge_rings(r0, r1, flip=False):
+        faces = []
+        for k in range(n_phi):
+            a = r0[k]
+            b = r0[(k + 1) % n_phi]
+            c = r1[(k + 1) % n_phi]
+            d = r1[k]
+            f = bm.faces.new((a, d, c, b) if flip else (a, b, c, d))
+            faces.append(f)
+        return faces
+
+    lip_faces_all = []
+    lip_faces_all.extend(bridge_rings(end_vs, lip_rings[0]))
+    for i in range(len(lip_rings) - 1):
+        lip_faces_all.extend(bridge_rings(lip_rings[i], lip_rings[i + 1]))
+    last_lip_faces = lip_faces_all[-n_phi:]
+    earlier_lip_faces = lip_faces_all[:-n_phi]
+
+    # Solid apex at the small end.
+    apex_c, _ = centre_and_rad(0.0)
+    cap = bm.verts.new(apex_c + axis * (0.18 * CM))
+    def start_angle(v):
+        rel = v.co - apex_c
+        return math.atan2(rel.dot(radials[0].cross(axis)), rel.dot(radials[0]))
+    start_vs = sorted(start_vs, key=start_angle)
+    apex_faces = []
+    try:
+        for k in range(len(start_vs)):
+            apex_faces.append(bm.faces.new((cap, start_vs[k], start_vs[(k + 1) % len(start_vs)])))
+    except Exception:
+        apex_faces = []
+
+    # Dark interior starts immediately inside the mouth, almost the same radius,
+    # so the opening reads as a slim lip around a dark hole — not a cream collar.
+    inner = []
+    last = lip_rings[-1]
+    for depth, scale in ((0.10 * CM, 0.92), (0.42 * CM, 0.62), (0.85 * CM, 0.28)):
+        centre = c_end - tangent * depth
+        ring = []
+        for d in dirs:
+            ring.append(bm.verts.new(centre + d * (tr_mean * scale)))
+        inner.append(ring)
+    interior_faces = []
+    interior_faces.extend(bridge_rings(last, inner[0], flip=True))
+    for i in range(len(inner) - 1):
+        interior_faces.extend(bridge_rings(inner[i], inner[i + 1]))
+    mid = sum((v.co for v in inner[-1]), Vector()) / n_phi
+    pit = bm.verts.new(mid - tangent * (0.16 * CM))
+    for k in range(n_phi):
+        interior_faces.append(bm.faces.new((pit, inner[-1][k], inner[-1][(k + 1) % n_phi])))
+
     obj.data.materials.clear()
     obj.data.materials.append(mats["shell"])
     obj.data.materials.append(mats["interior"])
     obj.data.materials.append(mats["rim"])
-    flare_start = int(0.94 * n_theta) * n_phi
-    n_apex = n_phi
-    n_bridge = n_phi
-    # Face order: outer quads, apex cap, aperture bridge, inner funnels, pit.
-    rim_end = n_outer + n_apex + n_bridge + n_phi  # cream lip around the mouth
-    for fi, poly in enumerate(mesh.polygons):
-        if fi < flare_start:
-            poly.material_index = 0  # shell
-        elif fi < n_outer:
-            poly.material_index = 2  # rim (bead)
-        elif fi < n_outer + n_apex:
-            poly.material_index = 0  # apex is shell, not a dark hole
-        elif fi < rim_end:
-            poly.material_index = 2  # cream collar around the crab
-        else:
-            poly.material_index = 1  # dark pit only
+    for f in bm.faces:
+        f.material_index = 0
+    for f in earlier_lip_faces:
+        f.material_index = 0
+    for f in last_lip_faces:
+        f.material_index = 2
+    for f in interior_faces:
+        f.material_index = 1
+    for f in apex_faces:
+        f.material_index = 0
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+
+    # Rebuild UVs: tube verts keep ring UVs; lip continues past U=1; interior parks.
+    if mesh.uv_layers.active is None:
+        mesh.uv_layers.new(name="UVMap")
+    loops = mesh.uv_layers.active.data
+    # Recompute lip/new vert UVs by angle around the aperture.
+    def lip_uv(co):
+        rel = co - c_end
+        rel = rel - tangent * rel.dot(tangent)
+        nor = rad_end.normalized()
+        binor = tangent.cross(nor)
+        if binor.length < 1e-8:
+            binor = tangent.cross(axis)
+        binor.normalize()
+        nor = binor.cross(tangent).normalized()
+        ang = math.atan2(rel.dot(binor), rel.dot(nor))
+        vv = (ang / (2.0 * math.pi)) % 1.0
+        ahead = (co - c_end).dot(tangent)
+        u = 1.0 + min(0.04, max(0.0, ahead) / max(lip_r, 1e-6) * 0.02)
+        return (u, vv)
+
+    for vi in range(n_tube_verts, len(mesh.vertices)):
+        vert_uv[vi] = lip_uv(mesh.vertices[vi].co)
+    for poly in mesh.polygons:
+        if poly.material_index == 1:
+            for loop_i in poly.loop_indices:
+                loops[loop_i].uv = (0.04, 0.5)
+            continue
+        uvs = []
+        for li in poly.vertices:
+            if li in vert_uv:
+                uvs.append(vert_uv[li])
+            else:
+                uvs.append(lip_uv(mesh.vertices[li].co))
+        vs = [u[1] for u in uvs]
+        if max(vs) - min(vs) > 0.5:
+            uvs = [(u, v + 1.0) if v < 0.5 else (u, v) for u, v in uvs]
+        for loop_i, uv in zip(poly.loop_indices, uvs):
+            loops[loop_i].uv = uv
+
     shade_smooth(obj)
+    print(f"  curve-shell: {sum(len(p.vertices)-2 for p in mesh.polygons)} tris, opening sides={n_phi}")
     return obj, opening, tangent, axis
+
 
 
 def build_meshes(mats, shell_img):
@@ -706,34 +911,37 @@ def build_meshes(mats, shell_img):
     add_claw("L", 1, True)
     add_claw("R", -1, False)
 
-    # Four walking legs, planted on Z=0. Single smooth tapered tubes, a little foot pad.
-    # Hips sit on the body, feet planted on Z=0.
+    # Four walking legs, planted on Z=0. Chunkier, gently bowed, tapering
+    # to rounded points — no disc pads. Angled outward for a sturdy stance.
     bc = body_c
     leg_plan = {
-        "fl": {"hip": bc + Vector(( 0.55, -0.40, -0.22)) * CM, "knee": bc + Vector(( 1.05, -0.75, -0.75)) * CM, "foot": bc + Vector(( 1.15, -0.95, -1.40)) * CM},
-        "fr": {"hip": bc + Vector((-0.55, -0.40, -0.22)) * CM, "knee": bc + Vector((-1.05, -0.75, -0.75)) * CM, "foot": bc + Vector((-1.15, -0.95, -1.40)) * CM},
-        "bl": {"hip": bc + Vector(( 0.62,  0.25, -0.22)) * CM, "knee": bc + Vector(( 1.15,  0.40, -0.78)) * CM, "foot": bc + Vector(( 1.28,  0.50, -1.40)) * CM},
-        "br": {"hip": bc + Vector((-0.62,  0.25, -0.22)) * CM, "knee": bc + Vector((-1.15,  0.40, -0.78)) * CM, "foot": bc + Vector((-1.28,  0.50, -1.40)) * CM},
+        "fl": {"hip": bc + Vector(( 0.62, -0.36, -0.16)) * CM, "knee": bc + Vector(( 1.55, -0.90, -0.58)) * CM, "foot": bc + Vector(( 1.90, -1.28, -1.40)) * CM},
+        "fr": {"hip": bc + Vector((-0.62, -0.36, -0.16)) * CM, "knee": bc + Vector((-1.55, -0.90, -0.58)) * CM, "foot": bc + Vector((-1.90, -1.28, -1.40)) * CM},
+        "bl": {"hip": bc + Vector(( 0.70,  0.36, -0.16)) * CM, "knee": bc + Vector(( 1.68,  0.62, -0.58)) * CM, "foot": bc + Vector(( 2.05,  0.82, -1.40)) * CM},
+        "br": {"hip": bc + Vector((-0.70,  0.36, -0.16)) * CM, "knee": bc + Vector((-1.68,  0.62, -0.58)) * CM, "foot": bc + Vector((-2.05,  0.82, -1.40)) * CM},
     }
     for tag, pts in leg_plan.items():
         hip = Vector(pts["hip"])
         knee = Vector(pts["knee"])
         foot = Vector(pts["foot"])
-        # Drop the foot exactly onto z=0 and add a tiny pad.
-        foot = Vector((foot.x, foot.y, 0.09 * CM))
+        foot = Vector((foot.x, foot.y, 0.11 * CM))
+        out = Vector((1.0 if hip.x >= 0 else -1.0, 0.0, 0.0))
+        p1 = hip.lerp(knee, 0.38) + out * (0.18 * CM)
+        p2 = knee + out * (0.14 * CM)
+        p3 = knee.lerp(foot, 0.55) + out * (0.08 * CM)
+        d = foot - p3
+        if d.length < 1e-9:
+            d = Vector((0.0, 0.0, -1.0))
+        tip = foot + d.normalized() * (0.09 * CM)
         tube = add_loft_tube(
             f"leg_{tag}",
-            [hip, hip.lerp(knee, 0.45), knee, knee.lerp(foot, 0.55), foot],
-            [0.16 * CM, 0.14 * CM, 0.13 * CM, 0.10 * CM, 0.08 * CM],
+            [hip, p1, p2, p3, foot, tip],
+            [0.24 * CM, 0.22 * CM, 0.19 * CM, 0.15 * CM, 0.12 * CM, 0.035 * CM],
             segs=8, cap_start=True, cap_end=True,
         )
         set_material(tube, mats["leg"])
         assign_chain_weights(tube, [hip, knee, foot], [f"leg_{tag}", f"leg_{tag}2"], parent_bone="body")
         parts.append(tube)
-        pad = add_uv_sphere(f"pad_{tag}", 0.12 * CM, 6, 4, Vector((foot.x, foot.y, 0.08 * CM)), scale=(1.15, 1.15, 0.70))
-        set_material(pad, mats["leg"])
-        assign_group(pad, f"leg_{tag}2")
-        parts.append(pad)
         bones.append((f"leg_{tag}", "body", hip, knee))
         bones.append((f"leg_{tag}2", f"leg_{tag}", knee, foot))
 
@@ -955,7 +1163,7 @@ def _tuck_pose(pb):
     """Fully withdrawn: body back into the shell, limbs folded, shell lowered."""
     # Body bone Y points out of the aperture; retract along -Y in world terms of that axis.
     into = -pb["body"].y_axis.normalized()
-    body_loc = world_to_pose_loc(pb["body"], into * (2.45 * CM))
+    body_loc = world_to_pose_loc(pb["body"], into * (3.70 * CM))
     down = Vector((0.0, 0.0, -1.0))
     shell_loc = world_to_pose_loc(pb["shell"], down * (0.20 * CM) + into * (0.06 * CM))
     return {
@@ -1014,10 +1222,10 @@ def animate_hide(arm):
     half = _tuck_pose(pb)
     half = dict(half)
     into = -pb["body"].y_axis.normalized()
-    half["body_loc"] = world_to_pose_loc(pb["body"], into * (0.85 * CM))
+    half["body_loc"] = world_to_pose_loc(pb["body"], into * (1.15 * CM))
     half["shell_loc"] = world_to_pose_loc(pb["shell"], Vector((0.0, 0.0, -0.10 * CM)))
     _apply_tuck(pb, half, mid, limb_scale=0.72)
-    _apply_tuck(pb, _tuck_pose(pb), HIDE_FRAMES, limb_scale=0.38)
+    _apply_tuck(pb, _tuck_pose(pb), HIDE_FRAMES, limb_scale=0.26)
     bpy.ops.object.mode_set(mode="OBJECT")
     push_nla(arm, action, "hide")
     return action
@@ -1029,7 +1237,7 @@ def animate_peek(arm):
     bpy.ops.object.mode_set(mode="POSE")
     pb = arm.pose.bones
     # Start tucked, end almost at rest (eyes and claws out first).
-    _apply_tuck(pb, _tuck_pose(pb), 0, limb_scale=0.38)
+    _apply_tuck(pb, _tuck_pose(pb), 0, limb_scale=0.26)
     key_scale(pb["root"], 0, (1, 1, 1))
     # Mid peek: eyes and antennae out, claws halfway, legs still mostly in.
     mid = PEEK_FRAMES // 2
