@@ -10,10 +10,11 @@
 //
 //  Performance: one InstancedMesh per kind (plus thin outline hulls except for
 //  ants), small fixed pools recycled around the player, all scratch objects
-//  preallocated. Ants and frogs are the soft-toon glbs: one shared skinned mesh
-//  for the ones close enough to see move, and one instanced bind-pose stand-in
-//  (same colours, far fewer triangles) for the rest. Mixers run only for that
-//  nearby cap — never the whole pool.
+//  preallocated. Ants, frogs and skinks are the soft-toon glbs: one shared skinned
+//  mesh for the ones close enough to see move, and one instanced bind-pose
+//  stand-in (same colours, far fewer triangles) for the rest. Mixers run only
+//  for that nearby cap — never the whole pool. Wasteland rats reuse the
+//  procedural skink shape; the goanna is not a critter.
 // =====================================================================
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -24,6 +25,7 @@ import { tint, merge, at } from '../world/models.js';
 import { separate } from '../util/separate.js';
 import antUrl from '../assets/models/ant.glb?url';
 import frogUrl from '../assets/models/frog.glb?url';
+import skinkUrl from '../assets/models/skink.glb?url';
 
 const SKINK_B = new Set(['desert', 'bush', 'suburb', 'farm', 'headland', 'dunes', 'rainforest', 'riverbank', 'wasteland']);
 const ANT_B = new Set(['desert', 'bush', 'suburb', 'farm', 'town', 'dunes', 'rainforest']);
@@ -66,6 +68,27 @@ const FROG_BUDGET = {
   p1: 8, p2: 12, p3: 6, p4: 4,
 };
 const FROG_CLIPS = ['idle', 'hop', 'croak', 'tongue'];
+const SKINK_NEAR = 18;                    // metres: skinned idle / walk / bask / threat / tongue
+const SKINK_WALK_REF = 0.5;              // u/s at walk-clip timeScale 1 (curious 0.35, potter 0.5, dart 3.2)
+const SKINK_THREAT = 1;                   // hold the gape, then dart
+const SKINK_TINT = {
+  body: 0xF49022, band: 0x3E2612, belly: 0xE8D0A8, tongue: 0x3A7AFF,
+  eye: 0x141416, highlight: 0xffffff, mouth: 0xF2A090, leg: 0xDC8020, claw: 0x5C4030,
+};
+const SKINK_PART = {
+  body: 0, leg: 0, claw: 0, mouth: 0,
+  band: 1, belly: 2, eye: 3, highlight: 4, tongue: 5,
+};
+const SKINK_BUDGET = {
+  root: 2, spine1: 8, spine2: 12, spine3: 10, neck: 6, head: 12, jaw: 4,
+  tongue: 2, tongueTip: 2, eye_L: 2, eye_R: 2,
+  tail1: 6, tail2: 5, tail3: 4, tail4: 3, tail5: 2,
+  fl_upper: 4, fl_lower: 3, fl_foot: 4, fr_upper: 4, fr_lower: 3, fr_foot: 4,
+  bl_upper: 4, bl_lower: 3, bl_foot: 4, br_upper: 4, br_lower: 3, br_foot: 4,
+  neutral_bone: 0,
+  p1: 14, p2: 8, p3: 6, p4: 3, p5: 4,
+};
+const SKINK_CLIPS = ['idle', 'walk', 'bask', 'threat', 'tongueFlick'];
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _zero = new THREE.Vector3(0, 0, 0), _c = new THREE.Color();
 
 const sph = (r, s = 6, t = 5) => new THREE.SphereGeometry(r, s, t);
@@ -108,6 +131,20 @@ function frogTemplate() {
     });
   }
   return _frogTplP;
+}
+let _skinkTpl = null, _skinkTplP = null;
+function skinkTemplate() {
+  if (_skinkTpl) return Promise.resolve(_skinkTpl);
+  if (!_skinkTplP) {
+    _skinkTplP = new GLTFLoader().loadAsync(skinkUrl).then((gltf) => {
+      _skinkTpl = bakeToonSkinned(gltf, {
+        tint: SKINK_TINT, part: SKINK_PART, budget: SKINK_BUDGET, fallback: 0xF49022,
+        keepLow: true, clipNames: SKINK_CLIPS,
+      });
+      return _skinkTpl;
+    });
+  }
+  return _skinkTplP;
 }
 function flyGeo() {
   return merge([
@@ -180,12 +217,16 @@ export class Critters {
       scene.add(m); return m;
     };
     this.skMesh = mk(skinkGeo(), NS);
+    this.skMesh.count = 0;
+    this.skMesh.visible = false;
     this.flyMesh = mk(flyGeo(), NF); this.crMesh = mk(crabGeo(), NC);
     this.hmMesh = mk(hermitGeo(), NH);
     this.buMesh = mk(butterflyGeo(), NB); this.wrMesh = mk(wrenGeo(), NW);
     this.lineMat = this.mobile ? null : outlineMat(0x231a12);
-    this.hulls = this.lineMat ? [this.skMesh, this.flyMesh, this.crMesh, this.hmMesh, this.buMesh, this.wrMesh].flatMap((m) => outline(m, this.lineMat)) : [];
-    this.sk = Array.from({ length: NS }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, run: 0, walk: 0, bask: 0, t: Math.random() * 5, cur: 0 }));
+    this.ratHull = this.lineMat ? (outline(this.skMesh, this.lineMat)[0] || null) : null;
+    if (this.ratHull) this.ratHull.count = 0;
+    this.hulls = this.lineMat ? [this.flyMesh, this.crMesh, this.hmMesh, this.buMesh, this.wrMesh].flatMap((m) => outline(m, this.lineMat)) : [];
+    this.sk = Array.from({ length: NS }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, run: 0, walk: 0, bask: 0, t: Math.random() * 5, cur: 0, threat: 0, flick: 0, fleeH: 0, launched: 0, sp: 0 }));
     this.tr = Array.from({ length: NT }, () => ({ on: false, x: 0, z: 0, a: 0, len: 3, hs: new Float32Array(9), ph: Math.random() }));
     this.fl = Array.from({ length: NF }, () => ({ on: false, x: 0, z: 0, y: 0, ax: 0, az: 0, tx: 0, tz: 0, ty: 0, g: 0, t: 0, h: 0 }));
     this.cr = Array.from({ length: NC }, () => ({ on: false, x: 0, z: 0, y: 0, h: 0, dir: 1, t: 0, run: 0, dig: 0, cur: 0 }));
@@ -201,6 +242,10 @@ export class Critters {
     this.frogCap = mobile ? 4 : 6; this.frogSlots = []; this._frogSim = 0;
     this.frogTris = 0; this.frogFarTris = 0; this.frogMinY = 0; this.frMesh = null; this.frogHull = null;
     this._fpick = new Int16Array(6); this._fpickD = new Float32Array(6); this._fnear = new Uint8Array(NFR); this._fslotUsed = new Uint8Array(6);
+    this.skinkReady = false; this.skinkError = ''; this.skinkClips = []; this.skinkDur = {};
+    this.skinkCap = mobile ? 6 : 8; this.skinkSlots = []; this._skinkSim = 0;
+    this.skinkTris = 0; this.skinkFarTris = 0; this.skinkMinY = 0; this.skFar = null; this.skinkHull = null;
+    this._spick = new Int16Array(8); this._spickD = new Float32Array(8); this._snear = new Uint8Array(NS); this._sslotUsed = new Uint8Array(8);
     this._ax = new Float32Array(ANT_N); this._ay = new Float32Array(ANT_N); this._az = new Float32Array(ANT_N);
     this._ayaw = new Float32Array(ANT_N); this._aon = new Uint8Array(ANT_N); this._anear = new Uint8Array(ANT_N);
     this._ad2 = new Float32Array(ANT_N); this._pick = new Int16Array(16); this._pickD = new Float32Array(16);
@@ -209,6 +254,8 @@ export class Critters {
     if (_antTpl) mount(_antTpl); else antTemplate().then(mount).catch((err) => { this.antError = String(err && err.message || err); });
     const mountFrog = (tpl) => { if (!this.disposed) this._mountFrogs(tpl); };
     if (_frogTpl) mountFrog(_frogTpl); else frogTemplate().then(mountFrog).catch((err) => { this.frogError = String(err && err.message || err); });
+    const mountSkink = (tpl) => { if (!this.disposed) this._mountSkinks(tpl); };
+    if (_skinkTpl) mountSkink(_skinkTpl); else skinkTemplate().then(mountSkink).catch((err) => { this.skinkError = String(err && err.message || err); });
   }
 
   /** One shared skeleton template, cloned per nearby ant. Far ants share one instanced bind pose. */
@@ -340,6 +387,75 @@ export class Critters {
     return true;
   }
 
+  /** One shared skeleton, cloned per nearby skink. Far skinks share one instanced bind pose. Rats do not use this. */
+  _mountSkinks(tpl) {
+    const mat = this.skinkMat = toonMat({ vertexColors: true });
+    const inst = this.skFar = new THREE.InstancedMesh(tpl.farGeo, mat, NS);
+    inst.frustumCulled = false; inst.castShadow = false; inst.receiveShadow = false; inst.count = 0;
+    this.scene.add(inst);
+    if (this.lineMat) {
+      this.skinkHull = outline(inst, this.lineMat)[0] || null;
+      if (this.skinkHull) this.skinkHull.count = 0;
+    }
+    const byName = {};
+    for (const c of tpl.clips) byName[c.name] = c;
+    this.skinkClips = SKINK_CLIPS.filter((n) => byName[n]);
+    this.skinkDur = {};
+    for (const n of this.skinkClips) this.skinkDur[n] = byName[n].duration;
+    this.skinkTris = tpl.geo.index ? tpl.geo.index.count / 3 : tpl.geo.attributes.position.count / 3;
+    this.skinkFarTris = tpl.farGeo.attributes.position.count / 3;
+    tpl.geo.computeBoundingBox();
+    this.skinkMinY = tpl.geo.boundingBox.min.y;
+    this.skinkLine = this.mobile ? null : outlineMat(0x3E2612);
+    for (let i = 0; i < this.skinkCap; i++) {
+      const root = SkeletonUtils.clone(tpl.scene);
+      let skinned = null;
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = mat; o.frustumCulled = false; o.castShadow = false; o.receiveShadow = false;
+        if (o.isSkinnedMesh) skinned = o;
+      });
+      root.visible = false; root.scale.set(1, 1, 1); root.position.y = -999;
+      this.scene.add(root);
+      const hull = skinned && this.skinkLine ? this._skinnedHull(skinned, this.skinkLine) : null;
+      const mixer = new THREE.AnimationMixer(root);
+      const actions = {};
+      for (const n of this.skinkClips) {
+        const a = mixer.clipAction(byName[n]);
+        if (n === 'idle' || n === 'walk' || n === 'bask') a.setLoop(THREE.LoopRepeat, Infinity);
+        else { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+        actions[n] = a;
+      }
+      const slot = { root, mixer, actions, hull, id: -1, live: false, clip: null };
+      mixer.addEventListener('finished', (e) => {
+        const name = e.action?.getClip?.()?.name;
+        if (name !== 'tongueFlick') return;
+        if (slot.clip !== name) return;
+        slot.clip = null;
+        const c = slot.id >= 0 ? this.sk[slot.id] : null;
+        if (c) c.flick = 0;
+      });
+      this.skinkSlots.push(slot);
+    }
+    this.skinkReady = true;
+  }
+
+  _playSkink(slot, name, restart, speed) {
+    const next = slot.actions[name];
+    if (!next) return;
+    next.timeScale = name === 'walk' ? Math.max(0.25, (speed || SKINK_WALK_REF) / SKINK_WALK_REF) : 1;
+    if (!restart && slot.clip === name) return;
+    const prev = slot.clip && slot.clip !== name ? slot.actions[slot.clip] : null;
+    if (!prev) {
+      for (const k of this.skinkClips) if (k !== name) slot.actions[k].stop();
+      next.reset().setEffectiveWeight(1).play();
+    } else {
+      next.reset().play();
+      prev.crossFadeTo(next, restart ? 0.08 : 0.16, false);
+    }
+    slot.clip = name;
+  }
+
   /** a random ground spot 8..34 m from the player whose biome allows `set` (null if none on this try) */
   spot(o, set, { wet = false, nearWater = false } = {}) {
     const w = this.world, a = Math.random() * 6.2832, d = 8 + Math.random() * 26;
@@ -370,7 +486,7 @@ export class Critters {
     if (k < NS) {
       const c = this.sk[k]; if (!far(c) && !(night > 0.6) && !(rain > 0.65)) return;
       c.on = false; if (night > 0.6 || rain > 0.65) return;
-      if (place(c, SKINK_B)) { c.h = Math.random() * 6.28; c.run = 0; c.walk = 0; c.bask = 1 + Math.random() * 3; c.cur = 0; c.as = w.biomeAt(c.x, c.z) === 'wasteland' ? 'rat' : 'skink'; }
+      if (place(c, SKINK_B)) { c.h = Math.random() * 6.28; c.run = 0; c.walk = 0; c.bask = 1 + Math.random() * 3; c.cur = 0; c.threat = 0; c.flick = 0; c.launched = 0; c.sp = 0; c.as = w.biomeAt(c.x, c.z) === 'wasteland' ? 'rat' : 'skink'; }
     } else if (k < NS + NT) {
       const c = this.tr[k - NS]; if (!far(c) && !(rain > 0.7)) return;
       c.on = false; if (rain > 0.7) return;
@@ -438,27 +554,135 @@ export class Critters {
       return { dx, dz, d2, close: d2 < r2, heading: heading ?? Math.atan2(dx, dz) };
     };
 
-    // ---- skinks: bask in the sun, potter, maybe wander closer, then dart away
+    // ---- skinks: bask, potter, tongue-flick, then a threat gape before the dart.
+    // The glb is already ~30 cm. Scale stays 1. Walk is code along +Z (no root
+    // motion); playback speed matches 0.35 / 0.5 / 3.2 u/s. Rats keep the old mesh.
     for (let i = 0; i < NS; i++) {
       const c = this.sk[i];
-      if (!c.on) { hide(this.skMesh, i); continue; }
+      if (!c.on) continue;
       const s = scare(c, 6);
-      if (s.close && c.run <= 0) { c.run = 0.9 + Math.random() * 0.5; c.h = s.heading + (Math.random() - 0.5) * 0.8; c.bask = 0; c.cur = 0; }
-      else if (c.run <= 0 && s.d2 > 16 && s.d2 < 80 && c.cur <= 0 && Math.random() < dt * 0.25) { c.cur = 0.8 + Math.random() * 0.8; c.h = Math.atan2(-s.dx, -s.dz); c.bask = 0; }
-      c.t -= dt; if (c.t <= 0) { c.t = 2 + Math.random() * 5; if (c.run <= 0 && Math.random() < 0.45) { c.walk = 0.6 + Math.random(); c.h += (Math.random() - 0.5) * 2; c.bask = 0; } else if (c.run <= 0) c.bask = 1.5 + Math.random() * 3; }
-      let sp = 0; if (c.run > 0) { c.run -= dt; sp = 3.2; } else if (c.cur > 0) { c.cur -= dt; sp = 0.35; } else if (c.walk > 0) { c.walk -= dt; sp = 0.5; } else if (c.bask > 0) c.bask -= dt;
+      const rat = c.as === 'rat';
+      if (rat) {
+        if (s.close && c.run <= 0) { c.run = 0.9 + Math.random() * 0.5; c.h = s.heading + (Math.random() - 0.5) * 0.8; c.bask = 0; c.cur = 0; }
+        else if (c.run <= 0 && s.d2 > 16 && s.d2 < 80 && c.cur <= 0 && Math.random() < dt * 0.25) { c.cur = 0.8 + Math.random() * 0.8; c.h = Math.atan2(-s.dx, -s.dz); c.bask = 0; }
+      } else if (c.threat > 0) {
+        c.threat -= dt;
+        if (c.threat <= 0) {
+          c.threat = 0; c.run = 0.9 + Math.random() * 0.5; c.h = c.fleeH;
+          c.bask = 0; c.cur = 0; c.walk = 0; c.flick = 0; c.launched = 1;
+        }
+      } else if (s.close && c.run <= 0) {
+        c.threat = SKINK_THREAT; c.fleeH = s.heading + (Math.random() - 0.5) * 0.8;
+        c.bask = 0; c.cur = 0; c.walk = 0; c.flick = 0; c.launched = 1;
+      } else if (c.run <= 0 && s.d2 > 16 && s.d2 < 80 && c.cur <= 0 && Math.random() < dt * 0.25) {
+        c.cur = 0.8 + Math.random() * 0.8; c.h = Math.atan2(-s.dx, -s.dz); c.bask = 0; c.flick = 0;
+      }
+      c.t -= dt;
+      if (c.t <= 0) {
+        c.t = 2 + Math.random() * 5;
+        if (c.run <= 0 && c.threat <= 0 && Math.random() < 0.45) { c.walk = 0.6 + Math.random(); c.h += (Math.random() - 0.5) * 2; c.bask = 0; c.flick = 0; }
+        else if (c.run <= 0 && c.threat <= 0 && !rat && Math.random() < 0.4) { c.flick = 1; c.bask = 0; }
+        else if (c.run <= 0 && c.threat <= 0) c.bask = 1.5 + Math.random() * 3;
+      }
+      let sp = 0;
+      if (c.threat > 0) sp = 0;
+      else if (c.run > 0) { c.run -= dt; sp = 3.2; }
+      else if (c.cur > 0) { c.cur -= dt; sp = 0.35; }
+      else if (c.walk > 0) { c.walk -= dt; sp = 0.5; }
+      else if (c.bask > 0) c.bask -= dt;
       if (sp > 0) {
         const nx = c.x + Math.sin(c.h) * sp * dt, nz = c.z + Math.cos(c.h) * sp * dt;
         if (!w.waterAt?.(nx, nz) && !w._blocked?.(nx, nz, 0.2)) { c.x = nx; c.z = nz; c.y = w.heightAt(nx, nz); } else c.h += 2.2;
       }
-      const wig = sp > 0 ? Math.sin(this.T * 30) * 0.25 : 0;
-      const flat = c.bask > 0 && sp === 0 ? 0.72 : 1;
-      const rat = c.as === 'rat';
-      pose(this.skMesh, i, c.x, c.y, c.z, c.h + wig, rat ? 0.85 : 1, (rat ? 0.62 : 1) * flat, rat ? 1.25 : 1);
-      this.skMesh.setColorAt(i, _c.set(rat ? 0x6b5346 : 0xffffff));
+      c.sp = sp;
     }
-    this.skMesh.instanceMatrix.needsUpdate = true;
-    if (this.skMesh.instanceColor) this.skMesh.instanceColor.needsUpdate = true;
+    const skNear = SKINK_NEAR * SKINK_NEAR, skCap = this.skinkCap;
+    const spick = this._spick, spickD = this._spickD;
+    for (let k = 0; k < skCap; k++) { spick[k] = -1; spickD[k] = Infinity; }
+    if (this.skinkReady) {
+      for (let i = 0; i < NS; i++) {
+        const c = this.sk[i];
+        if (!c.on || c.as === 'rat') continue;
+        const dx = c.x - o.x, dz = c.z - o.z, d2 = dx * dx + dz * dz;
+        if (d2 > skNear) continue;
+        let worst = 0;
+        for (let k = 1; k < skCap; k++) if (spickD[k] > spickD[worst]) worst = k;
+        if (d2 < spickD[worst]) { spickD[worst] = d2; spick[worst] = i; }
+      }
+    }
+    this._snear.fill(0);
+    for (let k = 0; k < skCap; k++) if (spick[k] >= 0) this._snear[spick[k]] = 1;
+    const sslots = this.skinkSlots, sused = this._sslotUsed;
+    sused.fill(0);
+    let ssim = 0;
+    if (this.skinkReady) {
+      for (let s = 0; s < sslots.length; s++) {
+        const slot = sslots[s];
+        if (!slot.live) continue;
+        let keep = -1;
+        for (let k = 0; k < skCap; k++) if (spick[k] === slot.id) { keep = k; break; }
+        if (keep < 0) {
+          const prev = slot.id >= 0 ? this.sk[slot.id] : null;
+          if (prev && slot.clip === 'tongueFlick') prev.flick = 0;
+          slot.live = false; slot.id = -1; slot.clip = null; slot.mixer.stopAllAction();
+          slot.root.visible = false; slot.root.position.y = -999;
+        } else sused[keep] = 1;
+      }
+      for (let k = 0; k < skCap; k++) {
+        if (spick[k] < 0 || sused[k]) continue;
+        let slot = null;
+        for (let s = 0; s < sslots.length; s++) if (!sslots[s].live) { slot = sslots[s]; break; }
+        if (!slot) break;
+        slot.live = true; slot.id = spick[k]; slot.clip = null; sused[k] = 1;
+      }
+      for (let s = 0; s < sslots.length; s++) {
+        const slot = sslots[s];
+        if (!slot.live) continue;
+        const c = this.sk[slot.id];
+        slot.root.position.set(c.x, c.y, c.z);
+        slot.root.rotation.set(0, c.h, 0);
+        slot.root.scale.set(1, 1, 1);
+        slot.root.visible = true;
+        let want = 'idle';
+        if (c.threat > 0) want = 'threat';
+        else if (c.sp > 0) want = 'walk';
+        else if (c.bask > 0) want = 'bask';
+        else if (c.flick) want = 'tongueFlick';
+        const restart = !!c.launched && (want === 'threat' || want === 'walk');
+        if (restart) c.launched = 0;
+        this._playSkink(slot, want, restart, c.sp);
+        slot.mixer.update(dt);
+        ssim++;
+      }
+    }
+    this._skinkSim = ssim;
+    const skFarMesh = this.skFar;
+    if (skFarMesh) {
+      let n = 0;
+      for (let i = 0; i < NS; i++) {
+        const c = this.sk[i];
+        if (!c.on || c.as === 'rat' || this._snear[i]) continue;
+        pose(skFarMesh, n++, c.x, c.y, c.z, c.h, 1, 1, 1);
+      }
+      skFarMesh.count = n; skFarMesh.visible = n > 0; skFarMesh.instanceMatrix.needsUpdate = true;
+      if (this.skinkHull) { this.skinkHull.count = n; this.skinkHull.visible = n > 0; }
+    }
+    {
+      const mesh = this.skMesh;
+      let rats = 0;
+      for (let i = 0; i < NS; i++) {
+        const c = this.sk[i];
+        if (!c.on || c.as !== 'rat') continue;
+        const wig = c.sp > 0 ? Math.sin(this.T * 30) * 0.25 : 0;
+        const flat = c.bask > 0 && c.sp === 0 ? 0.72 : 1;
+        pose(mesh, rats, c.x, c.y, c.z, c.h + wig, 0.85, 0.62 * flat, 1.25);
+        mesh.setColorAt(rats, _c.set(0x6b5346));
+        rats++;
+      }
+      mesh.count = rats; mesh.visible = rats > 0; mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (this.ratHull) { this.ratHull.count = rats; this.ratHull.visible = rats > 0; }
+    }
 
     // ---- ant trails: nest-to-food march; they pack up in heavy rain.
     // Scale is 1: the glb is already 1.2 cm. +Z is forward. Nearby ants play
@@ -846,6 +1070,48 @@ export class Critters {
       idle, hop, croak, tongue, samples,
     };
   }
+  /** model hookup, for tests: clips, feet on the ground, walk while moving, threat on a scare. Rats stay procedural. */
+  skinkProbe() {
+    const samples = [];
+    let rats = 0;
+    for (let i = 0; i < NS; i++) {
+      const c = this.sk[i];
+      if (!c.on) continue;
+      const rat = c.as === 'rat';
+      if (rat) rats++;
+      let clip = null, scale = rat ? 0.85 : 1, skinned = false, meshY = c.y, timeScale = 1;
+      for (let s = 0; s < this.skinkSlots.length; s++) {
+        const slot = this.skinkSlots[s];
+        if (slot.live && slot.id === i) {
+          skinned = true; clip = slot.clip; scale = slot.root.scale.x; meshY = slot.root.position.y;
+          timeScale = slot.actions.walk ? slot.actions.walk.timeScale : 1;
+          break;
+        }
+      }
+      samples.push({
+        i, x: c.x, z: c.z, y: c.y, meshY, ground: this.world.heightAt(c.x, c.z),
+        as: c.as || 'skink', procedural: rat, skinned, clip, scale, timeScale,
+        sp: c.sp || 0, threat: c.threat || 0, bask: c.bask || 0, walk: c.walk || 0, run: c.run || 0, flick: c.flick || 0,
+      });
+    }
+    let idle = 0, walk = 0, bask = 0, threat = 0, tongue = 0;
+    for (let s = 0; s < this.skinkSlots.length; s++) {
+      const slot = this.skinkSlots[s];
+      if (!slot.live) continue;
+      if (slot.clip === 'walk') walk++;
+      else if (slot.clip === 'bask') bask++;
+      else if (slot.clip === 'threat') threat++;
+      else if (slot.clip === 'tongueFlick') tongue++;
+      else idle++;
+    }
+    return {
+      ready: this.skinkReady, error: this.skinkError, clips: this.skinkClips.slice(), dur: { ...this.skinkDur },
+      scale: 1, tris: this.skinkTris, farTris: this.skinkFarTris, minY: this.skinkMinY, cap: this.skinkCap,
+      simulating: this._skinkSim, instanced: this.skFar ? this.skFar.count : 0,
+      ratMesh: this.skMesh ? this.skMesh.count : 0, rats,
+      idle, walk, bask, threat, tongue, samples,
+    };
+  }
   dispose() {
     this.disposed = true;
     for (const m of [this.skMesh, this.flyMesh, this.crMesh, this.hmMesh, this.buMesh, this.wrMesh]) {
@@ -857,6 +1123,9 @@ export class Critters {
     if (this.frMesh) this.scene.remove(this.frMesh);
     for (const s of this.frogSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); }
     this.frogMat?.dispose(); this.frogLine?.dispose();
+    if (this.skFar) this.scene.remove(this.skFar);
+    for (const s of this.skinkSlots) { s.mixer.stopAllAction(); this.scene.remove(s.root); }
+    this.skinkMat?.dispose(); this.skinkLine?.dispose();
     this.mat.dispose(); this.lineMat?.dispose();
   }
 }
