@@ -4,10 +4,12 @@ Run:
     /opt/blender/blender -b --python tools/blender/wren.py
 
 A cute toon Malurus cyaneus (superb fairy-wren) in breeding-male colours:
-bright sky-blue crown and ear patches, a black eye stripe and nape,
-a deep blue-black throat, brown-grey back and wings, a pale cream belly
-and a long cocked blue-grey tail. Value contrast (light blue vs mid brown
-vs dark mask) so the pattern reads for a colour-blind player.
+the whole upper head and cheeks are bright sky-blue, with a wide black
+mask from the beak through the eye to a black nape collar, a navy bib,
+a brown body, cream belly, brown wings and a cocked blue-grey tail.
+Head markings live on a 512x512 colour texture painted in 3D and baked
+to a clean UV, so the edges stay smooth. Value contrast (light blue vs
+mid brown vs dark mask) so the pattern reads for a colour-blind player.
 
 Scale
 -----
@@ -29,10 +31,16 @@ Animations
 - peck (0.50 s): a ground peck
 - song (1.00 s): beak open, throat puff, tail up
 
-Female / eclipse retint (same material names, for hookup):
-  crown, ear, throat, nape -> brown-grey #A09070
-  mask -> rusty orange #D07838 around the eye
-  tail stays blue-grey; back, wing, belly stay as they are.
+Materials
+---------
+body, beak, eye, highlight, leg, tail, wing, wingEdge.
+
+Female / eclipse retint:
+  The male map is embedded on the `body` material (tools/blender/wren_male.png,
+  also packed in the glb). Swap that image for tools/blender/wren_female.png
+  (copied to public/models/wren_female.png): head and bib become brown-grey
+  #A09070, the mask rusty orange #D07838. tail, wing, wingEdge, belly/back
+  colours in the map, beak, eye, highlight and leg stay as they are.
 """
 
 from __future__ import annotations
@@ -46,6 +54,7 @@ import sys
 from pathlib import Path
 
 import bmesh
+import numpy as np
 import bpy
 from mathutils import Quaternion, Vector
 
@@ -59,6 +68,9 @@ PREVIEW_WORKSPACE = Path("/workspace/wren-preview.png")
 PREVIEW_SIDE = Path("/workspace/wren-preview-side.png")
 PREVIEW_FLY = Path("/workspace/wren-fly.png")
 PREVIEW_SONG = Path("/workspace/wren-song.png")
+MALE_TEX = ROOT / "tools" / "blender" / "wren_male.png"
+FEMALE_TEX = ROOT / "tools" / "blender" / "wren_female.png"
+FEMALE_TEX_PUBLIC = ROOT / "public" / "models" / "wren_female.png"
 
 CM = 0.0315
 LENGTH_CM = 14.0
@@ -79,6 +91,8 @@ BEAK = (0x2C / 255, 0x24 / 255, 0x1C / 255, 1.0)       # #2C241C
 EYE = (0x14 / 255, 0x14 / 255, 0x16 / 255, 1.0)
 HIGHLIGHT = (1.0, 1.0, 1.0, 1.0)
 LEG = (0x32 / 255, 0x28 / 255, 0x20 / 255, 1.0)        # #322820 dark twiggy legs
+FEMALE_HEAD = (0xA0 / 255, 0x90 / 255, 0x70 / 255, 1.0)  # #A09070
+FEMALE_MASK = (0xD0 / 255, 0x78 / 255, 0x38 / 255, 1.0)  # #D07838
 
 FPS = 24
 IDLE_FRAMES = 60          # 2.5 s
@@ -143,6 +157,231 @@ def set_coat(mat, weight, roughness=0.22):
         bsdf.inputs["Coat Weight"].default_value = weight
     if "Coat Roughness" in bsdf.inputs:
         bsdf.inputs["Coat Roughness"].default_value = roughness
+    return mat
+
+
+def _smoothstep(a, b, x):
+    if b == a:
+        return 0.0 if x < a else 1.0
+    t = max(0.0, min(1.0, (x - a) / (b - a)))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _lerp3(a, b, t):
+    t = max(0.0, min(1.0, t))
+    return (
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+    )
+
+
+def wren_body_color(p, head_c, head_s, body_c, female=False):
+    """Breeding-male (or female) colour at a point on the unified body."""
+    p = Vector(p)
+    dx = (p.x - head_c.x) / max(head_s.x, 1e-9)
+    dy = (p.y - head_c.y) / max(head_s.y, 1e-9)
+    dz = (p.z - head_c.z) / max(head_s.z, 1e-9)
+    rh = math.sqrt(dx * dx + dy * dy + dz * dz)
+    lon = math.degrees(math.atan2(dx, -dy))
+    lat = math.degrees(math.atan2(dz, math.hypot(dx, dy) + 1e-12))
+    alon = abs(lon)
+
+    crown_c = CROWN[:3]
+    cheek_c = EAR[:3]
+    mask_c = MASK[:3]
+    nape_c = NAPE[:3]
+    bib_c = THROAT[:3]
+    back_c = BACK[:3]
+    belly_c = BELLY[:3]
+    if female:
+        crown_c = cheek_c = bib_c = nape_c = FEMALE_HEAD[:3]
+        mask_c = FEMALE_MASK[:3]
+
+    # Cream belly on the underside of the torso, not under the chin.
+    under = (body_c.z - 0.10 * CM - p.z) / (0.95 * CM)
+    belly_w = _smoothstep(0.05, 0.95, under) * _smoothstep(-0.55 * CM, -0.05 * CM, p.y)
+    col = _lerp3(back_c, belly_c, belly_w)
+
+    # Head weight: solid on the skull, fading down the neck into the body.
+    head_w = 1.0 - _smoothstep(0.98, 1.55, rh)
+
+    # Default head: bright sky-blue, slightly different on the cheeks.
+    cheek_w = (
+        _smoothstep(40.0, 58.0, alon)
+        * (1.0 - _smoothstep(125.0, 150.0, alon))
+        * _smoothstep(-28.0, -8.0, lat)
+        * (1.0 - _smoothstep(38.0, 55.0, lat))
+    )
+    head_col = _lerp3(crown_c, cheek_c, cheek_w)
+
+    # Wide soft mask through the eye, wrapping to a nape collar.
+    # Eye sits at about lon ±76, lat +8; band is wider than the eye.
+    lat_c = 8.0 + 10.0 * _smoothstep(110.0, 180.0, alon)
+    half = 38.0 + 8.0 * _smoothstep(120.0, 180.0, alon)
+    lon_mask = _smoothstep(8.0, 24.0, alon)
+    mask_amt = lon_mask * (1.0 - _smoothstep(half - 10.0, half + 8.0, abs(lat - lat_c)))
+    # Fuller black collar on the back of the skull.
+    nape_amt = (
+        _smoothstep(115.0, 145.0, alon)
+        * (1.0 - _smoothstep(48.0, 70.0, lat))
+        * _smoothstep(-15.0, 5.0, lat)
+    )
+    black_amt = max(mask_amt, nape_amt)
+    head_col = _lerp3(head_col, _lerp3(mask_c, nape_c, nape_amt), black_amt)
+
+    # Navy bib under the beak and down onto the upper chest.
+    bib_head = (
+        (1.0 - _smoothstep(48.0, 72.0, alon))
+        * (1.0 - _smoothstep(0.0, 16.0, lat))
+        * _smoothstep(-85.0, 2.0, lat)
+    )
+    under_face = (
+        _smoothstep(-2.90 * CM, -2.20 * CM, p.y)
+        * (1.0 - _smoothstep(-0.15 * CM, 0.55 * CM, p.y))
+        * (1.0 - _smoothstep(0.55 * CM, 1.05 * CM, abs(p.x)))
+        * (1.0 - _smoothstep(head_c.z - 0.15 * CM, head_c.z + 0.15 * CM, p.z))
+        * _smoothstep(1.10 * CM, 1.55 * CM, p.z)
+    )
+    bib_amt = max(bib_head, under_face)
+    bib_amt *= (1.0 - black_amt * 0.90)
+    head_col = _lerp3(head_col, bib_c, bib_amt)
+
+    return _lerp3(col, head_col, max(head_w, bib_amt * 0.85 * (1.0 if not female or True else 1.0)))
+
+
+def unwrap_body(obj):
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    if obj.data.uv_layers.active is None:
+        obj.data.uv_layers.new(name="UVMap")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(
+        angle_limit=math.radians(66.0),
+        island_margin=0.04,
+        area_weight=0.5,
+        correct_aspect=True,
+        scale_to_bounds=False,
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj.select_set(False)
+
+
+def _raster_tri(acc, wgt, S, uv0, uv1, uv2, p0, p1, p2, color_fn):
+    ax, ay = uv0[0] * S - 0.5, uv0[1] * S - 0.5
+    bx, by = uv1[0] * S - 0.5, uv1[1] * S - 0.5
+    cx, cy = uv2[0] * S - 0.5, uv2[1] * S - 0.5
+    xmin = max(0, int(math.floor(min(ax, bx, cx))))
+    xmax = min(S - 1, int(math.ceil(max(ax, bx, cx))))
+    ymin = max(0, int(math.floor(min(ay, by, cy))))
+    ymax = min(S - 1, int(math.ceil(max(ay, by, cy))))
+    denom = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+    if abs(denom) < 1e-14:
+        return
+    p0 = Vector(p0)
+    p1 = Vector(p1)
+    p2 = Vector(p2)
+    for y in range(ymin, ymax + 1):
+        py = y + 0.5
+        for x in range(xmin, xmax + 1):
+            px = x + 0.5
+            w0 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / denom
+            w1 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / denom
+            w2 = 1.0 - w0 - w1
+            if w0 < -0.001 or w1 < -0.001 or w2 < -0.001:
+                continue
+            s = w0 + w1 + w2
+            p = p0 * (w0 / s) + p1 * (w1 / s) + p2 * (w2 / s)
+            acc[y, x] += np.array(color_fn(p), dtype=np.float32)
+            wgt[y, x] += 1.0
+
+
+def _dilate_filled(acc, wgt, steps=4):
+    filled = wgt > 0
+    img = acc.copy()
+    for _ in range(steps):
+        new = img.copy()
+        new_f = filled.copy()
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            rolled = np.roll(np.roll(img, dy, 0), dx, 1)
+            was = np.roll(np.roll(filled, dy, 0), dx, 1)
+            take = (~new_f) & was
+            new[take] = rolled[take]
+            new_f[take] = True
+        img, filled = new, new_f
+    return img, filled
+
+
+def bake_body_texture(obj, head_c, head_s, body_c, female=False, size=512):
+    """Bake a 512 texture by rasterising UVs with a 3D colour function."""
+    S = size * 2
+    acc = np.zeros((S, S, 3), dtype=np.float32)
+    wgt = np.zeros((S, S), dtype=np.float32)
+    mesh = obj.data
+    uv_layer = mesh.uv_layers.active
+    if uv_layer is None:
+        raise RuntimeError("body has no UV map")
+    uvs = uv_layer.data
+
+    def color_fn(p):
+        return wren_body_color(p, head_c, head_s, body_c, female=female)
+
+    for poly in mesh.polygons:
+        n = len(poly.loop_indices)
+        if n < 3:
+            continue
+        for i in range(1, n - 1):
+            l0, l1, l2 = poly.loop_indices[0], poly.loop_indices[i], poly.loop_indices[i + 1]
+            v0, v1, v2 = poly.vertices[0], poly.vertices[i], poly.vertices[i + 1]
+            _raster_tri(
+                acc, wgt, S,
+                uvs[l0].uv, uvs[l1].uv, uvs[l2].uv,
+                mesh.vertices[v0].co, mesh.vertices[v1].co, mesh.vertices[v2].co,
+                color_fn,
+            )
+    mask = wgt > 0
+    acc[mask] /= wgt[mask, None]
+    acc[~mask] = np.array(BACK[:3], dtype=np.float32)
+    acc, filled = _dilate_filled(acc, wgt, steps=5)
+    acc[~filled] = np.array(BACK[:3], dtype=np.float32)
+    # Downsample 2x for softer anti-aliased edges.
+    img = acc.reshape(size, 2, size, 2, 3).mean(axis=(1, 3))
+    return img
+
+
+def save_blender_png(arr, path, name):
+    """arr is float RGB, v=0 at the bottom, size x size."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    h, w, _ = arr.shape
+    if name in bpy.data.images:
+        im = bpy.data.images[name]
+        bpy.data.images.remove(im)
+    im = bpy.data.images.new(name, width=w, height=h, alpha=False)
+    pixels = np.ones((h, w, 4), dtype=np.float32)
+    pixels[..., :3] = np.clip(arr, 0.0, 1.0)
+    im.pixels.foreach_set(pixels.reshape(-1))
+    im.filepath_raw = str(path)
+    im.file_format = "PNG"
+    im.save()
+    im.pack()
+    print(f"texture: {path} ({path.stat().st_size} bytes)")
+    return im
+
+
+def make_textured_mat(name, image, fallback, roughness=0.55):
+    mat = set_coat(make_mat(name, fallback, roughness=roughness, metallic=0.0), 0.10, 0.35)
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = image
+    tex.interpolation = "Linear"
+    tex.extension = "EXTEND"
+    tex.location = (-280, 200)
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.nodes.active = tex
+    tex.select = True
     return mat
 
 
@@ -959,12 +1198,13 @@ def add_leaf(name, base, tip, width, thickness, segments=10, rings=6):
 
 
 def add_folded_wing(name, side, shoulder, mid, tip, mats, groups):
-    """One solid songbird wing: rounded leading edge, five soft scallops
-    on the trailing tip, a slightly darker trailing edge, tucked on the flank.
+    """A simple flat leaf-shaped wing: rounded leading edge, three soft
+    scallops on the trailing edge, a few millimetres thick, no twist.
     """
     s = 1.0 if side >= 0 else -1.0
     length_axis = (tip - shoulder).normalized()
-    chord = length_axis.cross(Vector((s, 0.0, 0.0)))
+    out = Vector((s, 0.0, 0.0))
+    chord = length_axis.cross(out)
     if chord.length < 1e-9:
         chord = Vector((0.0, 0.0, 1.0))
     chord = chord.normalized()
@@ -981,46 +1221,40 @@ def add_folded_wing(name, side, shoulder, mid, tip, mats, groups):
                 out = -out
 
     length = (tip - shoulder).length
-    origin = shoulder + out * (0.07 * CM)
-    half = 0.055 * CM
-    n_sc = 5
-    u_sc0 = 0.48
+    origin = shoulder + out * (0.08 * CM)
+    half = 0.14 * CM  # ~2.8 mm thick, a simple solid paddle
+    n_sc = 3
 
     def lead_v(u):
-        return (0.08 + 0.38 * math.sin(math.pi * min(1.0, u / 0.88))) * CM
+        return (0.10 + 0.48 * math.sin(math.pi * min(1.0, u / 0.90))) * CM
 
     def trail_v(u):
-        base = (-0.02 - 0.34 * math.sin(math.pi * min(1.0, u * 0.98))) * CM
-        if u < u_sc0:
+        base = (-0.05 - 0.40 * math.sin(math.pi * min(1.0, u * 0.96))) * CM
+        if u < 0.40:
             return base
-        t = (u - u_sc0) / (1.0 - u_sc0)
-        scallop = abs(math.sin(t * n_sc * math.pi))
+        tt = (u - 0.40) / 0.60
+        scallop = abs(math.sin(tt * n_sc * math.pi))
         fade = 1.0
-        if t < 0.07:
-            fade = t / 0.07
-        elif t > 0.93:
-            fade = (1.0 - t) / 0.07
-        # Round the very tip a little so the last scallop isn't a spike.
+        if tt < 0.10:
+            fade = tt / 0.10
+        elif tt > 0.90:
+            fade = (1.0 - tt) / 0.10
         tip_round = 1.0
-        if u > 0.92:
-            tip_round = math.sqrt(max(0.0, 1.0 - ((u - 0.92) / 0.08) ** 2))
-        return (base - 0.12 * CM * scallop * fade) * tip_round
+        if u > 0.88:
+            tip_round = math.sqrt(max(0.0, 1.0 - ((u - 0.88) / 0.12) ** 2))
+        return (base - 0.13 * CM * scallop * fade) * tip_round
 
     def pt(u, v, h):
         return origin + length_axis * (u * length) + chord * v + out * h
 
-    n_lead, n_trail = 18, 48
+    n_lead, n_trail = 14, 30
     outline = []
-    us_lead = []
     for i in range(n_lead + 1):
         u = i / n_lead
         outline.append((u, lead_v(u)))
-        us_lead.append(u)
-    us_trail = []
     for i in range(1, n_trail + 1):
         u = 1.0 - i / n_trail
         outline.append((u, trail_v(u)))
-        us_trail.append(u)
 
     bm = bmesh.new()
     def ring(h):
@@ -1029,23 +1263,12 @@ def add_folded_wing(name, side, shoulder, mid, tip, mats, groups):
     top = ring(half)
     bot = ring(-half)
     bm.verts.ensure_lookup_table()
-    top_face = bm.faces.new(top)
-    bot_face = bm.faces.new(list(reversed(bot)))
+    bm.faces.new(top)
+    bm.faces.new(list(reversed(bot)))
     n = len(outline)
-    side_faces = []
-    side_u = []
-    side_trail = []
     for i in range(n):
         j = (i + 1) % n
-        f = bm.faces.new((top[i], top[j], bot[j], bot[i]))
-        side_faces.append(f)
-        u_a, v_a = outline[i]
-        u_b, v_b = outline[j]
-        side_u.append(0.5 * (u_a + u_b))
-        # Trailing-edge sides are the samples that came from the trail curve
-        # (after the first n_lead+1 leading verts), plus a little tip.
-        is_trail = (i >= n_lead) or (u_a >= 0.55 and v_a < 0.0) or (u_b >= 0.55 and v_b < 0.0)
-        side_trail.append(is_trail)
+        bm.faces.new((top[i], top[j], bot[j], bot[i]))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bmesh.ops.triangulate(bm, faces=bm.faces)
 
@@ -1055,24 +1278,19 @@ def add_folded_wing(name, side, shoulder, mid, tip, mats, groups):
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.collection.objects.link(obj)
 
-    wing_mat = mats["wing"]
-    edge_mat = mats["wingEdge"]
     obj.data.materials.clear()
-    obj.data.materials.append(wing_mat)
-    obj.data.materials.append(edge_mat)
+    obj.data.materials.append(mats["wing"])
+    obj.data.materials.append(mats["wingEdge"])
     for poly in obj.data.polygons:
-        c = poly.center
-        rel = c - origin
+        rel = poly.center - origin
         u = rel.dot(length_axis) / max(length, 1e-9)
         v = rel.dot(chord)
-        if u >= 0.50 and v < -0.02 * CM:
-            poly.material_index = 1
-        else:
-            poly.material_index = 0
+        poly.material_index = 1 if (u >= 0.48 and v < -0.02 * CM) else 0
 
     assign_chain_weights(obj, [shoulder, mid, tip], list(groups), parent_bone=None)
     shade_smooth(obj)
     return obj
+
 
 def build_meshes(mats):
     """Return (parts, bones). Face toward Blender -Y. Feet on Z=0."""
@@ -1089,14 +1307,10 @@ def build_meshes(mats):
     neck_s = Vector((1.38, 1.22, 1.18)) * CM
 
     body = add_uv_sphere("body", 1.0, 16, 12, body_c, scale=body_s, poles="Y")
-    set_material(body, mats["back"])
     neck = add_uv_sphere("neck", 1.0, 14, 10, neck_c, scale=neck_s, poles="Y")
-    set_material(neck, mats["back"])
     head = add_uv_sphere("head", 1.0, 16, 12, head_c, scale=head_s, poles="Y")
-    set_material(head, mats["back"])
     body = boolean_union(body, [neck, head])
     body.name = "body"
-    set_material(body, mats["back"])
     smooth_mesh(body, iterations=8, factor=0.55)
     # Head / neck / body weights: a tight skull split so eyes and shells stay on.
     for name in ("head", "neck", "body"):
@@ -1110,7 +1324,16 @@ def build_meshes(mats):
             vg_n.add([i], 1.0, "REPLACE")
         else:
             vg_b.add([i], 1.0, "REPLACE")
-    paint_wren_body(body, mats, body_c, head_c, head_s)
+    unwrap_body(body)
+    male_arr = bake_body_texture(body, head_c, head_s, body_c, female=False)
+    female_arr = bake_body_texture(body, head_c, head_s, body_c, female=True)
+    male_img = save_blender_png(male_arr, MALE_TEX, "wren_male")
+    female_img = save_blender_png(female_arr, FEMALE_TEX, "wren_female")
+    FEMALE_TEX_PUBLIC.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(FEMALE_TEX, FEMALE_TEX_PUBLIC)
+    body_mat = make_textured_mat("body", male_img, BACK)
+    mats["body"] = body_mat
+    set_material(body, body_mat)
     parts.append(body)
 
     # Short, fine beak pointing forward from the face, not hanging down.
@@ -1135,56 +1358,20 @@ def build_meshes(mats):
     assign_group(jaw, "jaw")
     parts.append(jaw)
 
-    # Eyes sit in the black mask, highlight clearly visible.
-    # Smooth marking shells with clean rounded outlines, sitting just
-    # outside the head. Named materials stay on the shells so a female
-    # or eclipse retint can still recolour crown, ear, mask, nape and throat.
-    # Eyes are added after the shells so they sit on top of the mask band.
-    head_scale = head_s * 1.03
-    parts.append(add_cap_shell(
-        "crown", body, head_c, head_scale, (0.0, -0.10, 1.0), 44.0,
-        mats["crown"], "head", segments=24, rings=10, offset=0.008,
-    ))
-    for side, tag in ((1, "L"), (-1, "R")):
-        s = float(side)
-        parts.append(add_cap_shell(
-            f"ear_{tag}", body, head_c, head_scale, (s * 0.86, 0.36, 0.48), 20.0,
-            mats["ear"], "head", segments=18, rings=8, offset=0.008,
-        ))
-    # Black mask band through the eyes (sides + lores), then a nape collar.
-    # A thin belt, not a cheek patch, so the eye stays a round glossy sphere.
-    def _mask_lon(lon):
-        a = abs(lon)
-        return 32.0 <= a <= 150.0
-
-    parts.append(add_zone_shell(
-        "mask", body, head_c, head_scale, (0.0, -0.06, 1.0), 78.0, 100.0,
-        mats["mask"], "head", lon_keep=_mask_lon, segments=32, rings=16, offset=0.007,
-    ))
-    # Rounded collar on the back of the skull, just behind the crown.
-    # Sit clearly behind the crown so the two caps don't zipper from above.
-    parts.append(add_cap_shell(
-        "nape", body, head_c, head_scale, (0.0, 0.76, 0.64), 18.0,
-        mats["nape"], "head", segments=22, rings=8, offset=0.007,
-    ))
-    parts.append(add_cap_shell(
-        "throat", body, head_c, head_scale, (0.0, -0.48, -0.86), 22.0,
-        mats["throat"], "head", segments=16, rings=8, offset=0.008,
-    ))
-
+    # Big glossy eyes sitting in the painted black mask, white highlight on top.
     eye_bones = {}
-    eye_r = 0.36 * CM
+    eye_r = 0.44 * CM
     for side, name in ((1, "eye_L"), (-1, "eye_R")):
         s = float(side)
-        guess = on_ellipsoid(head_c, head_s, (s * 0.88, -0.22, 0.08), 1.02)
+        guess = on_ellipsoid(head_c, head_s, (s * 0.82, -0.20, 0.10), 1.00)
         surface, look = snap_to_mesh(body, guess, inset=0.0)
-        loc = surface - look * (eye_r * 0.02)
-        eyeball = add_uv_sphere(name, eye_r, 12, 8, loc)
+        loc = surface - look * (eye_r * 0.22)
+        eyeball = add_uv_sphere(name, eye_r, 14, 10, loc)
         set_material(eyeball, mats["eye"])
         assign_group(eyeball, "head")
         parts.append(eyeball)
-        hl_dir = (look + Vector((0.0, 0.0, 0.65))).normalized()
-        hl = add_uv_sphere(name + "_hl", 0.13 * CM, 6, 4, loc + hl_dir * (eye_r * 0.82))
+        hl_dir = (look + Vector((0.0, 0.0, 0.70))).normalized()
+        hl = add_uv_sphere(name + "_hl", 0.16 * CM, 8, 5, loc + hl_dir * (eye_r * 0.78))
         set_material(hl, mats["highlight"])
         assign_group(hl, "head")
         parts.append(hl)
@@ -1361,13 +1548,13 @@ def animate_fly(arm):
         (10, 1.0, 0.0),
     ):
         key_euler(body, fr, (r(-8), 0, 0))
-        # ZXY applies spread (Z) first, then flap (X) on the already-spread wing.
-        # The outer bone stays nearly straight so the primaries extend the span.
-        flap = 14 * up - 22 * in_stroke
-        key_euler(w_l, fr, (r(-flap), 0, r(-90)), mode="ZXY")
-        key_euler(w_r, fr, (r(-flap), 0, r(90)), mode="ZXY")
-        key_euler(w_l2, fr, (0, 0, 0), mode="ZXY")
-        key_euler(w_r2, fr, (0, 0, 0), mode="ZXY")
+        # ZYX: spread (Z) first, then twist around the bone length (Y) so
+        # the leaf lies flat and horizontal, then a small X flap.
+        flap = 8 * up - 14 * in_stroke
+        key_euler(w_l, fr, (r(flap), r(90), r(-90)), mode="ZYX")
+        key_euler(w_r, fr, (r(flap), r(-90), r(90)), mode="ZYX")
+        key_euler(w_l2, fr, (0, 0, 0), mode="ZYX")
+        key_euler(w_r2, fr, (0, 0, 0), mode="ZYX")
         # Fold the legs up under the belly, feet tucked in.
         key_euler(leg_l, fr, (r(108), 0, r(-6)))
         key_euler(leg_r, fr, (r(108), 0, r(6)))
@@ -1469,7 +1656,7 @@ def render_preview(arm):
 
     shading = scene.display.shading
     shading.light = "STUDIO"
-    shading.color_type = "MATERIAL"
+    shading.color_type = "TEXTURE"
     shading.show_shadows = False
     shading.show_cavity = False
     shading.use_world_space_lighting = True
@@ -1563,6 +1750,8 @@ def render_preview(arm):
     _shot(Path("/tmp/wren-hop.png"), *view_34, "hop", 4)
     _shot(Path("/tmp/wren-peck.png"), *view_34, "peck", 6)
     _shot(Path("/tmp/wren-song-side.png"), *view_side, "song", 8)
+    _shot(Path("/tmp/wren-front.png"), (0.2, -20.0, 6.2), (0.0, -0.4, 2.7), "idle", 12)
+    _shot(Path("/tmp/wren-fly-front.png"), (0.2, -22.0, 6.5), (0.0, 0.0, 2.8), "fly", 3)
 
     if arm.animation_data:
         arm.animation_data.action = None
@@ -1659,8 +1848,8 @@ def inspect_glb(path, expected_length):
     print("GLB inspect:", json.dumps(report, indent=2))
     if tris == 0 or tris > 3000:
         raise SystemExit(f"triangle count {tris} out of range (1–3000)")
-    if path.stat().st_size > 280 * 1024:
-        raise SystemExit(f"glb is over 280 KB: {path.stat().st_size}")
+    if path.stat().st_size > 300 * 1024:
+        raise SystemExit(f"glb is over 300 KB: {path.stat().st_size}")
     want = {"idle", "hop", "fly", "peck", "song"}
     have = set(anims)
     missing = sorted(want - have)
@@ -1682,15 +1871,8 @@ def inspect_glb(path, expected_length):
 def main():
     clear_scene()
     mats = {
-        "crown": set_coat(make_mat("crown", CROWN, roughness=0.42, metallic=0.0), 0.22, 0.28),
-        "ear": set_coat(make_mat("ear", EAR, roughness=0.42, metallic=0.0), 0.22, 0.28),
-        "mask": make_mat("mask", MASK, roughness=0.70, metallic=0.0),
-        "nape": make_mat("nape", NAPE, roughness=0.70, metallic=0.0),
-        "throat": set_coat(make_mat("throat", THROAT, roughness=0.45, metallic=0.0), 0.16, 0.30),
-        "back": set_coat(make_mat("back", BACK, roughness=0.55, metallic=0.0), 0.10, 0.35),
         "wing": set_coat(make_mat("wing", WING, roughness=0.55, metallic=0.0), 0.10, 0.35),
         "wingEdge": set_coat(make_mat("wingEdge", WING_EDGE, roughness=0.58, metallic=0.0), 0.08, 0.35),
-        "belly": make_mat("belly", BELLY, roughness=0.65, metallic=0.0),
         "tail": set_coat(make_mat("tail", TAIL, roughness=0.48, metallic=0.0), 0.14, 0.32),
         "beak": make_mat("beak", BEAK, roughness=0.45, metallic=0.0),
         "eye": set_coat(make_mat("eye", EYE, roughness=0.12, metallic=0.0), 0.35, 0.12),
