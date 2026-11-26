@@ -419,15 +419,107 @@ export class WorldData {
   biomeWeights(x, z, out = new Float32Array(BIOMES.length)) { out.set(this.biomes.weights(x, z)); return out; }
   biomeAt(x, z) { return BIOMES[this.biomes.at(x, z)]; }
 
-  /** streets: a grid in the suburbs / town */
+  /** streets: a bowed grid in the suburbs and town, straight every fourth line so a car still has a run.
+   *  Between corners the other lines lean (the bow dies out at a crossing so the streets still meet).
+   *  One town crossing is a roundabout. Two suburb streets stop in a cul-de-sac. */
+  roadBow(along, k, town, ns) {
+    if ((((k % 4) + 4) % 4) === 0) return 0;
+    const P = town ? 64 : 92;
+    let phase = along % P; if (phase < 0) phase += P;
+    const edge = Math.min(phase, P - phase);
+    const gate = edge <= 10 ? 0 : edge >= 28 ? 1 : (edge - 10) / 18;
+    const A = town ? 7.5 + (Math.abs(k) % 3) * 2.2 : 11 + (Math.abs(k) % 3) * 3.2;
+    const f = town ? 0.0034 : 0.0028;
+    return gate * A * Math.sin(along * f + k * 1.27 + (ns ? 1.9 : 0.2));
+  }
+  /** cached roundabout and cul-de-sacs. Pure from the seed and roadOff; no extra random draws. */
+  roadFeatures() {
+    if (this._roads) return this._roads;
+    const off = this.roadOff;
+    const deads = [];
+    const Ps = 92;
+    for (let k = -12; k <= 12 && deads.length < 2; k++) {
+      if ((((k % 4) + 4) % 4) === 0) continue;
+      const z = off.z + k * Ps;
+      const dir = deads.length ? 1 : -1;
+      const x = off.x + dir * (dir < 0 ? 70 : 150);
+      const w = this.biomes.weights(x, z);
+      if (w[B.suburb] < 0.5 || w[B.town] > 0.4) continue;
+      deads.push({ k, x, z, r: 8.2, dir });
+    }
+    const Pt = 64;
+    let rb = null;
+    const x0 = off.x + Math.round((40 - off.x) / Pt) * Pt;
+    const z0 = off.z + Math.round((230 - off.z) / Pt) * Pt;
+    for (let a = -3; a <= 3 && !rb; a++) for (let b = -3; b <= 3 && !rb; b++) {
+      const x = x0 + a * Pt, z = z0 + b * Pt;
+      const w = this.biomes.weights(x, z);
+      if (w[B.town] > 0.5) rb = { x, z, r: 12.5, inner: 5.6 };
+    }
+    this._roads = { deads, rb };
+    return this._roads;
+  }
+  /** false on the stopped side of a cul-de-sac street. Town streets and the straight lines stay open. */
+  roadOpen(x, axis, k, town) {
+    if (town || axis !== 'x') return true;
+    const deads = this.roadFeatures().deads;
+    for (let i = 0; i < deads.length; i++) {
+      const d = deads[i];
+      if (d.k !== k) continue;
+      if (d.dir < 0 && x > d.x + 0.4) return false;
+      if (d.dir > 0 && x < d.x - 0.4) return false;
+    }
+    return true;
+  }
+  /** centre of the nearest street. alongX: an east-west street (z bows with x). */
+  roadCenter(x, z, alongX) {
+    const w = this.biomes.weights(x, z);
+    const town = w[B.town] > 0.4;
+    const P = town ? 64 : 92;
+    if (alongX) {
+      const k = Math.round((z - this.roadOff.z) / P);
+      const base = this.roadOff.z + k * P;
+      return { x, z: base + this.roadBow(x, k, town, false), k, town, P };
+    }
+    const k = Math.round((x - this.roadOff.x) / P);
+    const base = this.roadOff.x + k * P;
+    return { x: base + this.roadBow(z, k, town, true), z, k, town, P };
+  }
   isRoad(x, z, margin = 0) {
     const w = this.biomes.weights(x, z);
     const town = w[B.town] > 0.4, urb = w[B.suburb] + w[B.town];
     if (urb < 0.45) return false;
-    const P = town ? 64 : 92, hw = (town ? 5.0 : 4.2) + margin;
-    const mx = (((x - this.roadOff.x) % P) + P) % P;
-    const mz = (((z - this.roadOff.z) % P) + P) % P;
-    return mx < hw || mx > P - hw || mz < hw || mz > P - hw;
+    const feat = this.roadFeatures();
+    const rb = feat.rb;
+    let island = false;
+    if (rb && town) {
+      const d = Math.hypot(x - rb.x, z - rb.z);
+      if (d < rb.r + margin && d > rb.inner - margin) return true;
+      if (d < rb.inner) island = true;
+    }
+    if (!island) {
+      const P = town ? 64 : 92, hw = (town ? 5.0 : 4.2) + margin;
+      const off = this.roadOff;
+      const kz = Math.round((z - off.z) / P);
+      for (let dk = -1; dk <= 1; dk++) {
+        const k = kz + dk;
+        if (!this.roadOpen(x, 'x', k, town)) continue;
+        const cz = off.z + k * P + this.roadBow(x, k, town, false);
+        if (Math.abs(z - cz) <= hw) return true;
+      }
+      const kx = Math.round((x - off.x) / P);
+      for (let dk = -1; dk <= 1; dk++) {
+        const k = kx + dk;
+        const cx = off.x + k * P + this.roadBow(z, k, town, true);
+        if (Math.abs(x - cx) <= hw) return true;
+      }
+    }
+    const deads = feat.deads;
+    for (let i = 0; i < deads.length; i++) {
+      const d = deads[i];
+      if (!town && Math.hypot(x - d.x, z - d.z) <= d.r + margin) return true;
+    }
+    return false;
   }
   inLot(x, z, margin = 0) {
     for (const l of this.lots || EMPTY) if (Math.abs(x - l.x) < l.hw + margin && Math.abs(z - l.z) < l.hd + margin) return true;

@@ -1,5 +1,5 @@
 // Decorations around a shell den. No prompts: drag an item off the satchel to carry it,
-// stand still beside a den to set it down, stand still on a piece to pick it up, camouflage to turn it.
+// stand still beside a den to set it down, nip a piece to pick it up, camouflage to turn it.
 // Pieces are saved. A den with enough of them is a home.
 import * as THREE from 'three';
 import { toonMat, outlineMat, outline } from '../world/toon.js';
@@ -150,6 +150,15 @@ export class Decor {
     return true;
   }
 
+  /** beak nip: pick up the piece under the octopus. Walking or standing still never does. */
+  interact() {
+    const o = this.game.octopus;
+    if (!o?.alive || o.carried || o.tunnel || o.waterKind || o.camoActive || this.carry) return false;
+    const idx = pieceNear(this.list, o.x, o.z, 0.7);
+    if (idx < 0) return false;
+    return this.pickup(idx);
+  }
+
   releaseDen(x, z, giveBack) {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const p = this.list[i];
@@ -239,10 +248,6 @@ export class Decor {
       if (den && !o.moving) this.still += dt; else this.still = 0;
       if (this.still > 0.45) { this.still = 0; this.tryPlace(den); }
       this.hold = 0;
-    } else if (idx >= 0 && !o.moving && !o.carried && !o.tunnel && !o.waterKind) {
-      this.still = 0;
-      this.hold += dt;
-      if (this.hold > 0.5) { this.hold = 0; this.pickup(idx); }
     } else { this.still = 0; this.hold = 0; }
     this.visit(dt);
   }

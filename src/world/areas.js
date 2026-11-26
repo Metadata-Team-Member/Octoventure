@@ -7,6 +7,7 @@
 import { clamp, lerp, smoothstep as ss, mulberry32 } from '../util/rng.js';
 import { B, BIOMES } from './biomes.js';
 import { FACTORY_STACKS } from './props.js';
+import { planTower } from './places.js';
 import { ISLETS, EDGE } from './bands.js';
 
 export const HOUSE_VARIANTS = [
@@ -111,6 +112,8 @@ function suburb(ctx) {
     // the whole yard must be off the road and clear of other buildings / water
     let bad = false;
     for (const [dx, dz] of [[-yw, -yd], [yw, -yd], [-yw, yd + 3], [yw, yd + 3], [0, 0], [0, yd + 5]]) if (w.isRoad(cx + dx, cz + dz, 2.5)) bad = true;
+    const flapX = s.x - V.w * 0.28, flapZ = s.z + V.d / 2 + 0.85;
+    if (w.isRoad(flapX, flapZ, 0.9) || w.isRoad(s.x, flapZ, 0.6)) bad = true;
     if (bad || Math.hypot(s.x - w.start.x, s.z - w.start.z) < 22) continue;
     if (w.houses.some((h) => Math.abs(h.x - s.x) < yw * 2 + 6 && Math.abs(h.z - s.z) < yd * 2 + 6)) continue;
     if (!w._farFromWater(s.x, s.z, 14) || w._blocked(s.x, s.z, 6)) continue;
@@ -322,7 +325,12 @@ function landmarks(ctx) {
     const h = w.heightAt(p.x, p.z);
     if (!best || h > best.h) best = { x: p.x, z: p.z, h };
   }
-  if (best) { prop('lighthouse', best.x, best.z, { y: best.h }); w.landmarks.push({ kind: 'lighthouse', x: best.x, z: best.z, y: best.h }); }
+  if (best) {
+    prop('lighthouse', best.x, best.z, { y: best.h });
+    w.landmarks.push({ kind: 'lighthouse', x: best.x, z: best.z, y: best.h });
+    const tw = planTower(best, w);
+    prop('drain', tw.gap.x, tw.gap.z, { y: best.h, rot: tw.gapA, collide: false });
+  }
   // Norfolk pines: a curve along the foreshore, spacing that isn't a ruler
   const bu = w.coastCentre('beach', 0);
   const pine = (u, inland) => {

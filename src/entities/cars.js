@@ -20,7 +20,9 @@ export class CarManager {
       const s = world._spotB(['suburb', 'town'], { tries: 20, minW: 0.5, notRoad: false, maxSlope: 0.5 });
       if (!s || Math.hypot(s.x - world.start.x, s.z - world.start.z) < 70) continue;
       const c = this.snapToRoad(s.x, s.z, rnd() < 0.5);
-      if (!c || !world.isRoad(c.x, c.z)) continue;
+      if (!c) continue;
+      const mid = world.roadCenter(c.x, c.z, c.alongX);
+      if (!world.isRoad(mid.x, mid.z)) continue;
       this.cars.push(this.make(c, rnd));
       made++;
     }
@@ -46,10 +48,16 @@ export class CarManager {
   }
   place(car) {
     const w = this.world;
-    // drive on the left (Australia): lane offset is to the left of the direction of travel
-    const side = car.dir * car.lane;
-    car.px = car.alongX ? car.x : car.x + side; car.pz = car.alongX ? car.z - side : car.z;
-    car.heading = car.alongX ? (car.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (car.dir > 0 ? 0 : Math.PI);
+    const cpos = w.roadCenter(car.x, car.z, car.alongX);
+    const ahead = w.roadCenter(car.alongX ? car.x + car.dir : car.x, car.alongX ? car.z : car.z + car.dir, car.alongX);
+    let tx = ahead.x - cpos.x, tz = ahead.z - cpos.z;
+    const tl = Math.hypot(tx, tz) || 1;
+    tx /= tl; tz /= tl;
+    const heading = Math.atan2(tx, tz);
+    // drive on the left: offset to the left of the way the car is facing
+    car.px = cpos.x + Math.cos(heading) * car.lane;
+    car.pz = cpos.z - Math.sin(heading) * car.lane;
+    car.heading = heading;
     car.mesh.position.set(car.px, w.heightAt(car.px, car.pz), car.pz);
     car.mesh.rotation.y = car.heading;
   }
@@ -65,7 +73,8 @@ export class CarManager {
       const step = c.speed * dt * c.dir;
       const nx = c.alongX ? c.x + step : c.x, nz = c.alongX ? c.z : c.z + step;
       const ax = c.alongX ? c.x + c.dir * 9 : c.x, az = c.alongX ? c.z : c.z + c.dir * 9;
-      if (!w.isRoad(ax, az)) { c.dir = -c.dir; c.speed = 7 + w.rnd() * 4; }
+      const look = w.roadCenter(ax, az, c.alongX);
+      if (!w.isRoad(look.x, look.z)) { c.dir = -c.dir; c.speed = 7 + w.rnd() * 4; }
       else {
         const P = this.lineP(c.x, c.z);
         // crossing the centre line of the perpendicular street: maybe turn
